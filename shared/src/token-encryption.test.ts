@@ -84,8 +84,40 @@ describe("token encryption", () => {
     expect(() => decryptToken("not-an-envelope", testKey())).toThrow();
   });
 
+  it("rejects an envelope with extra segments", () => {
+    const key = testKey();
+
+    expect(() =>
+      decryptToken(`${encryptToken("token", key)}:extra`, key),
+    ).toThrow();
+  });
+
   it("rejects a key that is not 32 bytes", () => {
+    const key = testKey();
+
     expect(() => encryptToken("token", randomBytes(16))).toThrow(/32/);
+    expect(() =>
+      decryptToken(encryptToken("token", key), randomBytes(16)),
+    ).toThrow(/32/);
+  });
+
+  it("ignores whitespace around TOKEN_ENCRYPTION_KEY", () => {
+    const base64 = testKeyBase64();
+
+    expect(
+      loadTokenEncryptionKey({
+        TOKEN_ENCRYPTION_KEY: `\n  ${base64}  \n`,
+      }).toString("base64"),
+    ).toBe(base64);
+  });
+
+  it("rejects a TOKEN_ENCRYPTION_KEY that is not valid base64", () => {
+    // Buffer would silently drop the "!" and still yield 32 bytes.
+    const garbled = `!${testKeyBase64()}`;
+
+    expect(() =>
+      loadTokenEncryptionKey({ TOKEN_ENCRYPTION_KEY: garbled }),
+    ).toThrow(/base64/i);
   });
 
   it("loads a 32-byte base64 key from TOKEN_ENCRYPTION_KEY", () => {

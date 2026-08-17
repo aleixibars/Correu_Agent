@@ -13,13 +13,14 @@ const AUTH_TAG_BYTES = 16;
 /** Env var holding the base64-encoded 32-byte key (see `.env.example`). */
 export const TOKEN_ENCRYPTION_KEY_ENV = "TOKEN_ENCRYPTION_KEY";
 
-const assertKey = (key: Buffer): Buffer => {
+const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+
+const assertKey = (key: Buffer): void => {
   if (key.length !== KEY_BYTES) {
     throw new Error(
       `Token encryption key must be ${KEY_BYTES} bytes, got ${key.length}.`,
     );
   }
-  return key;
 };
 
 /**
@@ -30,11 +31,17 @@ const assertKey = (key: Buffer): Buffer => {
 export const loadTokenEncryptionKey = (
   env: Record<string, string | undefined> = process.env,
 ): Buffer => {
-  const raw = env[TOKEN_ENCRYPTION_KEY_ENV];
+  const raw = env[TOKEN_ENCRYPTION_KEY_ENV]?.trim();
   if (!raw) {
     throw new Error(
       `${TOKEN_ENCRYPTION_KEY_ENV} is not set — cannot encrypt OAuth tokens.`,
     );
+  }
+
+  // Buffer's base64 decoder silently drops invalid characters, so a garbled
+  // paste can still yield 32 bytes — i.e. a silently wrong key. Reject it.
+  if (!BASE64.test(raw)) {
+    throw new Error(`${TOKEN_ENCRYPTION_KEY_ENV} is not valid base64.`);
   }
 
   const key = Buffer.from(raw, "base64");
@@ -56,6 +63,9 @@ export const encryptToken = (token: string, key: Buffer): string => {
 
   const iv = randomBytes(IV_BYTES);
   const cipher = createCipheriv(ALGORITHM, key, iv);
+  // Bind the version into the auth tag so a future v2 envelope can never be
+  // replayed as v1 (and vice versa) by rewriting the prefix.
+  cipher.setAAD(Buffer.from(ENVELOPE_VERSION, "utf8"));
   const ciphertext = Buffer.concat([
     cipher.update(token, "utf8"),
     cipher.final(),
@@ -82,12 +92,12 @@ export const decryptToken = (envelope: string, key: Buffer): string => {
     throw new Error("Malformed encrypted token envelope.");
   }
 
-  const [version, ivBase64, authTagBase64, ciphertextBase64] = parts as [
-    string,
-    string,
-    string,
-    string,
-  ];
+  const [
+    version = "",
+    ivBase64 = "",
+    authTagBase64 = "",
+    ciphertextBase64 = "",
+  ] = parts;
   if (version !== ENVELOPE_VERSION) {
     throw new Error(`Unsupported encrypted token version: ${version}.`);
   }
@@ -99,6 +109,7 @@ export const decryptToken = (envelope: string, key: Buffer): string => {
   }
 
   const decipher = createDecipheriv(ALGORITHM, key, iv);
+  decipher.setAAD(Buffer.from(version, "utf8"));
   decipher.setAuthTag(authTag);
 
   return Buffer.concat([
