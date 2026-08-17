@@ -9,10 +9,8 @@ export type MailboxPollJobData = {
   mailboxAccountId: string;
 };
 
-export type MailboxPollTarget = {
-  tenantId: string;
-  mailboxAccountId: string;
-};
+/** A mailbox account polled in a batch — same shape as the job payload. */
+export type MailboxPollTarget = MailboxPollJobData;
 
 export type MailboxPollResult = {
   polled: MailboxPollTarget[];
