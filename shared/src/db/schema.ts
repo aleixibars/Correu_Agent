@@ -40,6 +40,8 @@ export const draftStatusEnum = pgEnum("draft_status", [
   "superseded",
 ]);
 
+export type DraftStatus = (typeof draftStatusEnum.enumValues)[number];
+
 export const auditActorTypeEnum = pgEnum("audit_actor_type", ["user", "system"]);
 
 const createdAt = () =>
@@ -304,6 +306,12 @@ export const auditLogEntries = pgTable(
   (table) => [
     index("audit_log_entries_tenant_created_at_idx").on(
       table.tenantId,
+      table.createdAt,
+    ),
+    // "Why was this mail sent?" is asked about one thread, so the trail is read
+    // by thread far more often than it is scanned tenant-wide.
+    index("audit_log_entries_thread_created_at_idx").on(
+      table.threadId,
       table.createdAt,
     ),
   ],
