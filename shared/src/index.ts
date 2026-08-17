@@ -1,11 +1,12 @@
 // Shared types and constants used by both `app/` and `worker/`.
 
-// Two modules are deliberately NOT re-exported here, because this barrel is
+// Three modules are deliberately NOT re-exported here, because this barrel is
 // imported by browser-bound `app/` code:
 //   - `./token-encryption` imports `node:crypto`.
+//   - `./web-push` imports the Node-only `web-push` package.
 //   - `./db/schema` pulls in drizzle-orm and is server/worker-only.
-// Server and worker code imports them from `@correu-agent/shared/token-encryption`
-// and `@correu-agent/shared/db/schema`.
+// Server and worker code imports them from `@correu-agent/shared/token-encryption`,
+// `@correu-agent/shared/web-push` and `@correu-agent/shared/db/schema`.
 
 export const APP_NAME = "Correu Agent";
 

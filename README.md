@@ -45,6 +45,29 @@ no des del barrel `@correu-agent/shared` — el barrel l'importa codi que acaba 
 `shared/node_modules/`, on el binari `drizzle-kit` (que sí que puja a l'arrel) no la pot
 resoldre i les dues comandes de dalt fallen amb «Please install latest version of drizzle-orm».
 
+## Notificacions Web Push (VAPID)
+
+Les notificacions de correu Urgent van per Web Push (`context.md` §5). Cal un parell
+de claus VAPID per desplegament — generar-lo un sol cop:
+
+```bash
+npm run generate-vapid-keys
+```
+
+L'ordre imprimeix les dues claus; el subjecte s'escull a mà. Les tres variables van
+a l'entorn (`.env` en local, secrets de Render en desplegament):
+
+- `VAPID_PUBLIC_KEY` — clau pública, també lliurada al navegador en subscriure's.
+- `VAPID_PRIVATE_KEY` — clau privada, mai al repositori ni al client.
+- `VAPID_SUBJECT` — contacte del remitent, `mailto:...` o `https://...`.
+
+Regenerar les claus invalida totes les subscripcions existents: els navegadors
+s'han de tornar a subscriure.
+
+El codi de servidor (`app/` API routes, `worker/`) importa l'enviament des de
+`@correu-agent/shared/web-push`, no des del barrel arrel: `web-push` és un paquet
+només de Node i el barrel l'importa codi que acaba al navegador.
+
 ## Pipeline d'agents
 
 Les issues de GitHub amb l'etiqueta `agent:implement` són recollides automàticament per un agent implementador; la PR resultant passa per un agent revisor (`agent:review`) que fa merge automàtic (squash) si typecheck+test+build passen. Detalls a `context.md` §12 i `docs/agents/`.
