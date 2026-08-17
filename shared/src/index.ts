@@ -5,6 +5,24 @@
 
 export const APP_NAME = "Correu Agent";
 
+// Web Push for Urgent mail (context.md §5).
+export {
+  DEFAULT_TTL_SECONDS,
+  buildWebPushRequest,
+  sendWebPush,
+  serializeNotification,
+} from "./web-push/send";
+export type {
+  WebPushNotification,
+  WebPushOptions,
+  WebPushRequest,
+  WebPushResult,
+} from "./web-push/send";
+export { parsePushSubscription } from "./web-push/subscription";
+export type { PushSubscription } from "./web-push/subscription";
+export { loadVapidConfig } from "./web-push/vapid";
+export type { VapidConfig } from "./web-push/vapid";
+
 /** The six fixed triage categories for the PoC (context.md §4). Order matters for dashboard display. */
 export const TRIAGE_CATEGORIES = [
   "urgent",

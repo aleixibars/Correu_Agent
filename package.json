@@ -10,7 +10,8 @@
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "build": "npm run build --workspaces --if-present"
+    "build": "npm run build --workspaces --if-present",
+    "generate-vapid-keys": "node --input-type=module -e \"import webpush from 'web-push'; const { publicKey, privateKey } = webpush.generateVAPIDKeys(); console.log('VAPID_PUBLIC_KEY=' + publicKey); console.log('VAPID_PRIVATE_KEY=' + privateKey);\""
   },
   "devDependencies": {
     "@ai-hero/sandcastle": "^0.12.0"
