@@ -38,6 +38,13 @@ npm run db:migrate -w @correu-agent/shared    # aplica les migracions pendents a
 
 `db:migrate` necessita `DATABASE_URL` a l'entorn (Neon, regió UE — `context.md` §10).
 
+El codi de servidor i el worker importen les taules des de `@correu-agent/shared/db/schema`,
+no des del barrel `@correu-agent/shared` — el barrel l'importa codi que acaba al navegador.
+
+`drizzle-orm` també és `devDependency` de l'arrel: npm deixa la còpia del workspace a
+`shared/node_modules/`, on el binari `drizzle-kit` (que sí que puja a l'arrel) no la pot
+resoldre i les dues comandes de dalt fallen amb «Please install latest version of drizzle-orm».
+
 ## Pipeline d'agents
 
 Les issues de GitHub amb l'etiqueta `agent:implement` són recollides automàticament per un agent implementador; la PR resultant passa per un agent revisor (`agent:review`) que fa merge automàtic (squash) si typecheck+test+build passen. Detalls a `context.md` §12 i `docs/agents/`.

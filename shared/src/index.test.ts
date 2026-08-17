@@ -30,3 +30,13 @@ describe("triage categories", () => {
     }
   });
 });
+
+describe("package barrel", () => {
+  it("keeps server-only modules out, since `app/` client code imports it", async () => {
+    // The Drizzle schema pulls in drizzle-orm and `token-encryption` pulls in
+    // `node:crypto`; both are reached via their own subpath exports instead.
+    const barrel = await import("./index");
+    expect(Object.keys(barrel)).not.toContain("tenants");
+    expect(Object.keys(barrel)).not.toContain("encryptToken");
+  });
+});

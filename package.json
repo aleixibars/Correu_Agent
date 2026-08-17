@@ -13,6 +13,7 @@
     "build": "npm run build --workspaces --if-present"
   },
   "devDependencies": {
-    "@ai-hero/sandcastle": "^0.12.0"
+    "@ai-hero/sandcastle": "^0.12.0",
+    "drizzle-orm": "^0.45.2"
   }
 }

@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./token-encryption": "./src/token-encryption.ts",
+    "./db/schema": "./src/db/schema.ts",
     "./package.json": "./package.json"
   },
   "scripts": {
