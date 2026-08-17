@@ -2,7 +2,13 @@ import { NextRequest } from "next/server";
 import NextAuth from "next-auth";
 import type { AdapterUser } from "next-auth/adapters";
 import { describe, expect, it } from "vitest";
-import { createAuthConfig, isEmailAllowed, parseAllowedEmails } from "./config";
+import {
+  LOGIN_PATH,
+  createAuthConfig,
+  isEmailAllowed,
+  isEmailVouchedFor,
+  parseAllowedEmails,
+} from "./config";
 import {
   TEST_AUTH_ENV,
   TEST_TENANT_ID,
@@ -32,6 +38,12 @@ const inOneHour = (): Date => new Date(Date.now() + 60 * 60 * 1000);
 
 const authFor = (adapter: InMemoryAdapter) =>
   NextAuth(createAuthConfig({ adapter, allowedEmails: [ALLOWED_EMAIL] }));
+
+const signInCallback = () =>
+  createAuthConfig({
+    adapter: createInMemoryAdapter(),
+    allowedEmails: [ALLOWED_EMAIL],
+  }).callbacks!.signIn!;
 
 const get = (path: string, cookie?: string): NextRequest =>
   new NextRequest(`http://localhost:3000/api/auth/${path}`, {
@@ -116,11 +128,7 @@ describe("createAuthConfig", () => {
   });
 
   it("only lets an allowlisted address sign in", async () => {
-    const config = createAuthConfig({
-      adapter: createInMemoryAdapter(),
-      allowedEmails: [ALLOWED_EMAIL],
-    });
-    const signIn = config.callbacks!.signIn!;
+    const signIn = signInCallback();
 
     await expect(
       signIn({ user: TEST_USER, account: null }),
@@ -128,6 +136,43 @@ describe("createAuthConfig", () => {
     await expect(
       signIn({ user: { ...TEST_USER, email: "estranya@example.com" }, account: null }),
     ).resolves.toBe(false);
+  });
+
+  it("turns away an allowlisted address the provider will not vouch for", async () => {
+    // An Entra directory can put any address in the `email` claim, so a claim
+    // that says the address is unverified outranks the allowlist match.
+    await expect(
+      signInCallback()({
+        user: TEST_USER,
+        account: null,
+        profile: { email: ALLOWED_EMAIL, xms_edov: false },
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it("sends a refused login back to the login page, not to Auth.js's own error page", () => {
+    const config = createAuthConfig({
+      adapter: createInMemoryAdapter(),
+      allowedEmails: [ALLOWED_EMAIL],
+    });
+
+    expect(config.pages?.error).toBe(LOGIN_PATH);
+  });
+});
+
+describe("isEmailVouchedFor", () => {
+  it("accepts a profile that says the address is verified", () => {
+    expect(isEmailVouchedFor({ email_verified: true, xms_edov: true })).toBe(true);
+  });
+
+  it("rejects an unverified address, whether the claim is boolean or a string", () => {
+    expect(isEmailVouchedFor({ email_verified: false })).toBe(false);
+    expect(isEmailVouchedFor({ xms_edov: "false" })).toBe(false);
+  });
+
+  it("accepts a profile without the claims, as Entra omits them by default", () => {
+    expect(isEmailVouchedFor({ email: ALLOWED_EMAIL })).toBe(true);
+    expect(isEmailVouchedFor(undefined)).toBe(true);
   });
 });
 

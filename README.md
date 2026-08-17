@@ -60,12 +60,21 @@ Variables d'entorn:
 - `AUTH_SECRET` — `openssl rand -base64 32`.
 - `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` — credencials de l'app de Google Cloud Console.
 - `AUTH_MICROSOFT_ENTRA_ID_ID` / `AUTH_MICROSOFT_ENTRA_ID_SECRET` — registre d'app a Entra ID.
-- `AUTH_MICROSOFT_ENTRA_ID_ISSUER` — opcional; limita el login a un sol directori d'Azure.
+- `AUTH_MICROSOFT_ENTRA_ID_ISSUER` — limita el login a un sol directori d'Azure.
 - `AUTH_ALLOWED_EMAILS` — llista d'adreces (separades per comes) que poden entrar.
 
 `AUTH_ALLOWED_EMAILS` és obligatòria a la pràctica: el PoC és single-tenant i sense
 signup, i qualsevol compte de Google podria arribar a la bústia connectada, així que
 una llista buida no deixa entrar ningú.
+
+Amb Microsoft, la llista d'adreces sola no n'hi ha prou: el claim `email` d'Entra ID
+no està verificat i qualsevol directori d'Azure el pot posar a l'adreça que vulgui
+(patró «nOAuth»). Sense `AUTH_MICROSOFT_ENTRA_ID_ISSUER` l'emissor per defecte és
+`/common/`, que accepta tots els directoris. Per tant, o bé es fixa l'emissor a un
+sol directori, o bé s'afegeix `xms_edov` com a claim opcional del registre d'app
+(el login el rebutja quan el claim diu que l'adreça no està verificada). Per al
+compte personal d'Outlook de proves, l'emissor a fixar és el directori de comptes
+personals: `https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0`.
 
 URL de callback a registrar als dos proveïdors:
 `https://<domini>/api/auth/callback/google` i

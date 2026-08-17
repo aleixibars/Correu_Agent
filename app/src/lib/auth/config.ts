@@ -2,7 +2,7 @@
 // Microsoft Entra ID, database sessions, and the tenant carried through into
 // the session so every query downstream can scope itself.
 
-import type { DefaultSession, NextAuthConfig } from "next-auth";
+import type { DefaultSession, NextAuthConfig, Profile } from "next-auth";
 import type { Adapter } from "next-auth/adapters";
 import Google from "next-auth/providers/google";
 import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
@@ -47,6 +47,27 @@ export const isEmailAllowed = (
     (allowed) => allowed.toLowerCase() === email.toLowerCase(),
   );
 
+// Claims where a provider states whether it vouches for the address: the OIDC
+// standard `email_verified`, and Microsoft Entra ID's `xms_edov` optional claim
+// (emitted as a boolean, or as a string in older token versions).
+const EMAIL_VERIFIED_CLAIMS = ["email_verified", "xms_edov"] as const;
+
+const vouchedAgainst = (claim: unknown): boolean =>
+  claim === false || claim === "false" || claim === 0 || claim === "0";
+
+/**
+ * Microsoft's `email` claim is not proof of ownership: any Entra directory can
+ * set it to an arbitrary address, and the default `common` issuer accepts every
+ * directory. Since the allowlist is the only gate here, an address the provider
+ * explicitly refuses to vouch for is turned away. Absent claims still pass —
+ * Entra only emits `xms_edov` once it is configured as an optional claim, so
+ * pinning `AUTH_MICROSOFT_ENTRA_ID_ISSUER` stays the stronger control (README).
+ */
+export const isEmailVouchedFor = (
+  profile: Profile | null | undefined,
+): boolean =>
+  EMAIL_VERIFIED_CLAIMS.every((claim) => !vouchedAgainst(profile?.[claim]));
+
 export const createAuthConfig = ({
   adapter,
   allowedEmails,
@@ -59,9 +80,12 @@ export const createAuthConfig = ({
   // Sessions live in Postgres, so signing out (or deleting the row) really ends
   // access, unlike a JWT that stays valid until it expires.
   session: { strategy: "database" },
-  pages: { signIn: LOGIN_PATH },
+  // Errors land back on the login page, which explains them in Catalan,
+  // instead of on Auth.js's built-in English error page.
+  pages: { signIn: LOGIN_PATH, error: LOGIN_PATH },
   callbacks: {
-    signIn: async ({ user }) => isEmailAllowed(user.email, allowedEmails),
+    signIn: async ({ user, profile }) =>
+      isEmailAllowed(user.email, allowedEmails) && isEmailVouchedFor(profile),
     session: async ({ session, user }) => ({
       ...session,
       user: { ...session.user, id: user.id, tenantId: user.tenantId },
