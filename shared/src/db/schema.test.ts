@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { AUTO_REPLY_ELIGIBLE_CATEGORIES, TRIAGE_CATEGORIES } from "../triage";
 import {
   auditLogEntries,
+  authAccounts,
+  authSessions,
   autoReplyRules,
   drafts,
   mailboxAccounts,
@@ -16,6 +18,8 @@ import {
 /** Every table except `tenants` itself is scoped to a tenant (context.md §7). */
 const TENANT_SCOPED_TABLES: Record<string, PgTable> = {
   users,
+  authAccounts,
+  authSessions,
   mailboxAccounts,
   messages,
   threads,
@@ -173,6 +177,37 @@ describe("schema", () => {
       "tenant_id",
       "email",
     ]);
+  });
+
+  it("links an Auth.js account to a single user, once per provider account", () => {
+    const config = getTableConfig(authAccounts);
+    expect(config.uniqueConstraints[0]?.columns.map((column) => column.name)).toEqual(
+      ["provider", "provider_account_id"],
+    );
+    const userReference = config.foreignKeys
+      .map((fk) => fk.reference())
+      .find((reference) =>
+        reference.columns.some((column) => column.name === "user_id"),
+      );
+    expect(getTableConfig(userReference!.foreignTable).name).toBe("users");
+  });
+
+  it("keeps OAuth tokens out of the dashboard login accounts", () => {
+    // Login accounts only carry the provider link; mailbox credentials live in
+    // `mailbox_accounts`, encrypted (context.md §7).
+    const names = columnNames(authAccounts);
+    expect(names).not.toContain("access_token");
+    expect(names).not.toContain("refresh_token");
+    expect(names).not.toContain("id_token");
+  });
+
+  it("keys a login session by its token and stores when it expires", () => {
+    const config = getTableConfig(authSessions);
+    expect(config.columns.filter((column) => column.primary).map((c) => c.name)).toEqual(
+      ["session_token"],
+    );
+    const expires = config.columns.find((column) => column.name === "expires");
+    expect(expires?.notNull).toBe(true);
   });
 
   it("records what an audit entry is about", () => {

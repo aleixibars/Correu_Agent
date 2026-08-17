@@ -60,7 +60,7 @@ export const tenants = pgTable("tenants", {
   updatedAt: updatedAt(),
 });
 
-/** Dashboard login via Auth.js (context.md §9); the adapter tables land with the auth issue. */
+/** Dashboard login via Auth.js (context.md §9). */
 export const users = pgTable(
   "users",
   {
@@ -76,6 +76,50 @@ export const users = pgTable(
     updatedAt: updatedAt(),
   },
   (table) => [unique().on(table.tenantId, table.email)],
+);
+
+/**
+ * Auth.js account link for a dashboard login (context.md §9). Deliberately
+ * holds no OAuth tokens: the dashboard only needs to recognise a returning
+ * user, while the credentials used to read a mailbox live encrypted in
+ * `mailboxAccounts`.
+ */
+export const authAccounts = pgTable(
+  "auth_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Auth.js provider type, `"oidc"` for both Google and Microsoft Entra ID. */
+    type: text("type").notNull(),
+    provider: text("provider").notNull(),
+    providerAccountId: text("provider_account_id").notNull(),
+    createdAt: createdAt(),
+  },
+  // Globally unique, not per tenant: one identity provider account must never
+  // resolve to two dashboard users.
+  (table) => [unique().on(table.provider, table.providerAccountId)],
+);
+
+/** Auth.js database session (context.md §9) — no JWTs, so a logout is final. */
+export const authSessions = pgTable(
+  "auth_sessions",
+  {
+    sessionToken: text("session_token").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    expires: timestamp("expires", { withTimezone: true }).notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [index("auth_sessions_user_idx").on(table.userId)],
 );
 
 /** A connected mailbox. Token columns hold ciphertext only (context.md §7). */
@@ -269,6 +313,10 @@ export type Tenant = typeof tenants.$inferSelect;
 export type NewTenant = typeof tenants.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
+export type AuthAccount = typeof authAccounts.$inferSelect;
+export type NewAuthAccount = typeof authAccounts.$inferInsert;
+export type AuthSession = typeof authSessions.$inferSelect;
+export type NewAuthSession = typeof authSessions.$inferInsert;
 export type MailboxAccount = typeof mailboxAccounts.$inferSelect;
 export type NewMailboxAccount = typeof mailboxAccounts.$inferInsert;
 export type Thread = typeof threads.$inferSelect;
