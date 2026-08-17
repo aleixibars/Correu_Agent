@@ -23,7 +23,8 @@ CREATE TABLE "auto_reply_rules" (
 	"instructions" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "auto_reply_rules_tenant_id_category_unique" UNIQUE("tenant_id","category")
+	CONSTRAINT "auto_reply_rules_tenant_id_category_unique" UNIQUE("tenant_id","category"),
+	CONSTRAINT "auto_reply_rules_eligible_category" CHECK (NOT "auto_reply_rules"."enabled" OR "auto_reply_rules"."category" IN ('comercial', 'suport', 'facturacio'))
 );
 --> statement-breakpoint
 CREATE TABLE "drafts" (
@@ -53,7 +54,7 @@ CREATE TABLE "mailbox_accounts" (
 	"refresh_token_encrypted" text,
 	"token_expires_at" timestamp with time zone,
 	"sync_cursor" text,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"connected_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"last_polled_at" timestamp with time zone,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "mailbox_accounts_tenant_id_provider_email_address_unique" UNIQUE("tenant_id","provider","email_address")

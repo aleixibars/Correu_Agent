@@ -1,6 +1,6 @@
-import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
+import { PgDialect, getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
-import { TRIAGE_CATEGORIES } from "../triage";
+import { AUTO_REPLY_ELIGIBLE_CATEGORIES, TRIAGE_CATEGORIES } from "../triage";
 import {
   auditLogEntries,
   autoReplyRules,
@@ -26,6 +26,16 @@ const TENANT_SCOPED_TABLES: Record<string, PgTable> = {
 
 const columnNames = (table: PgTable): string[] =>
   getTableConfig(table).columns.map((column) => column.name);
+
+/** Tables whose `updated_at` should track the last write, not the insert. */
+const TABLES_WITH_UPDATED_AT: Record<string, PgTable> = {
+  tenants,
+  users,
+  mailboxAccounts,
+  threads,
+  drafts,
+  autoReplyRules,
+};
 
 describe("schema", () => {
   it("names tables in snake_case", () => {
@@ -59,6 +69,23 @@ describe("schema", () => {
       expect(getTableConfig(references[0]!.foreignTable).name).toBe("tenants");
     },
   );
+
+  it.each(Object.keys(TABLES_WITH_UPDATED_AT))(
+    "bumps %s.updated_at on every write, not just on insert",
+    (name) => {
+      const updatedAt = getTableConfig(TABLES_WITH_UPDATED_AT[name]!).columns.find(
+        (column) => column.name === "updated_at",
+      );
+      expect(updatedAt?.onUpdateFn).toBeTypeOf("function");
+      expect(updatedAt!.onUpdateFn!()).toBeInstanceOf(Date);
+    },
+  );
+
+  it("stamps when a mailbox was connected, since only newer mail is processed", () => {
+    // The connection time is the processing watermark (context.md §4), so it
+    // gets a column that says so rather than riding on a generic `created_at`.
+    expect(columnNames(mailboxAccounts)).toContain("connected_at");
+  });
 
   it("uses the six fixed triage categories as the category enum", () => {
     expect(triageCategoryEnum.enumValues).toEqual([...TRIAGE_CATEGORIES]);
@@ -117,6 +144,20 @@ describe("schema", () => {
       "tenant_id",
       "category",
     ]);
+  });
+
+  it("refuses an enabled auto-reply rule on an ineligible category", () => {
+    // Urgent and personal are never auto-reply eligible (context.md §2) — the
+    // database has to say so too, not just `isAutoReplyEligible`.
+    const checks = getTableConfig(autoReplyRules).checks;
+    expect(checks).toHaveLength(1);
+
+    const constraint = new PgDialect().sqlToQuery(checks[0]!.value);
+    expect(constraint.params).toEqual([]);
+    for (const category of TRIAGE_CATEGORIES) {
+      const eligible = AUTO_REPLY_ELIGIBLE_CATEGORIES.includes(category);
+      expect(constraint.sql.includes(`'${category}'`)).toBe(eligible);
+    }
   });
 
   it("defaults auto-reply rules to disabled", () => {

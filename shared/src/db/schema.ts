@@ -5,6 +5,7 @@
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   index,
   jsonb,
   pgEnum,
@@ -14,7 +15,7 @@ import {
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
-import { TRIAGE_CATEGORIES } from "../triage";
+import { AUTO_REPLY_ELIGIBLE_CATEGORIES, TRIAGE_CATEGORIES } from "../triage";
 
 export const mailProviderEnum = pgEnum("mail_provider", ["google", "microsoft"]);
 
@@ -44,8 +45,13 @@ export const auditActorTypeEnum = pgEnum("audit_actor_type", ["user", "system"])
 const createdAt = () =>
   timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 
+// `defaultNow()` only fires on INSERT, so the column needs `$onUpdate` too —
+// otherwise every row keeps its creation time forever.
 const updatedAt = () =>
-  timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
+  timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date());
 
 export const tenants = pgTable("tenants", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -90,7 +96,9 @@ export const mailboxAccounts = pgTable(
     /** Gmail historyId / Graph delta link — where the next poll resumes from. */
     syncCursor: text("sync_cursor"),
     /** Only mail newer than this is processed (context.md §4). */
-    connectedAt: createdAt(),
+    connectedAt: timestamp("connected_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     lastPolledAt: timestamp("last_polled_at", { withTimezone: true }),
     updatedAt: updatedAt(),
   },
@@ -209,7 +217,22 @@ export const autoReplyRules = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (table) => [unique().on(table.tenantId, table.category)],
+  (table) => [
+    unique().on(table.tenantId, table.category),
+    // Urgent and personal are *never* auto-reply eligible (context.md §2). That
+    // is the riskiest invariant in the product, so it is enforced in the
+    // database rather than only in `isAutoReplyEligible`.
+    check(
+      "auto_reply_rules_eligible_category",
+      // `sql.raw` because a CHECK constraint cannot hold bound parameters; the
+      // values are compile-time constants, so there is nothing to inject.
+      sql`NOT ${table.enabled} OR ${table.category} IN (${sql.raw(
+        AUTO_REPLY_ELIGIBLE_CATEGORIES.map((category) => `'${category}'`).join(
+          ", ",
+        ),
+      )})`,
+    ),
+  ],
 );
 
 /** "Why was this mail sent?" — every non-bookkeeping write lands here (context.md §7). */

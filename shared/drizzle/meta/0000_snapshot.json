@@ -1,5 +1,5 @@
 {
-  "id": "6ad89d27-37cf-4601-a3a1-7bb3ae3e445f",
+  "id": "07714971-1394-4389-be8f-74476618bfaa",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -229,7 +229,12 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "auto_reply_rules_eligible_category": {
+          "name": "auto_reply_rules_eligible_category",
+          "value": "NOT \"auto_reply_rules\".\"enabled\" OR \"auto_reply_rules\".\"category\" IN ('comercial', 'suport', 'facturacio')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.drafts": {
@@ -470,8 +475,8 @@
           "primaryKey": false,
           "notNull": false
         },
-        "created_at": {
-          "name": "created_at",
+        "connected_at": {
+          "name": "connected_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
