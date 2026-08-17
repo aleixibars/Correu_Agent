@@ -210,6 +210,13 @@ describe("buildAuditLogEntry", () => {
     expect(metadataOf(EVENTS.auto_reply_sent).category).toBe("comercial");
   });
 
+  it("lists every action the events declare", () => {
+    // `EVENTS` is keyed by `AuditAction`, which is the event union itself, so an
+    // event left out of `AUDIT_ACTIONS` surfaces here instead of quietly
+    // skipping every per-action case above.
+    expect([...AUDIT_ACTIONS].sort()).toEqual(Object.keys(EVENTS).sort());
+  });
+
   it("leaves created_at to the database unless the caller knows when it happened", () => {
     expect(buildAuditLogEntry(EVENTS.draft_sent)).not.toHaveProperty("createdAt");
 

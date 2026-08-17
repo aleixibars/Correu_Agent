@@ -264,6 +264,12 @@ export const auditLogEntries = pgTable(
       table.tenantId,
       table.createdAt,
     ),
+    // "Why was this mail sent?" is asked about one thread, so the trail is read
+    // by thread far more often than it is scanned tenant-wide.
+    index("audit_log_entries_thread_created_at_idx").on(
+      table.threadId,
+      table.createdAt,
+    ),
   ],
 );
 

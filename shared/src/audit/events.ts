@@ -6,18 +6,6 @@
 import type { DraftStatus, NewAuditLogEntry } from "../db/schema";
 import type { TriageCategory } from "../triage";
 
-export const AUDIT_ACTIONS = [
-  "thread_classified",
-  "draft_generated",
-  "draft_approved",
-  "draft_discarded",
-  "draft_regenerated",
-  "draft_sent",
-  "auto_reply_sent",
-] as const;
-
-export type AuditAction = (typeof AUDIT_ACTIONS)[number];
-
 /** The pipeline itself acted — triage, draft generation, an auto-reply rule. */
 export type SystemActor = { type: "system" };
 /** A dashboard user acted; `userId` is the audit trail's accountability anchor. */
@@ -104,6 +92,24 @@ export type AuditEvent =
   | DraftSentEvent
   | AutoReplySentEvent;
 
+/** Derived from the events, so the union above is the single source of truth. */
+export type AuditAction = AuditEvent["action"];
+
+/**
+ * The same actions as a value, in pipeline order — for dashboard filters and
+ * for iterating them in tests. `satisfies` rejects an action no event declares;
+ * a *missing* one is caught by the test that compares this list to the events.
+ */
+export const AUDIT_ACTIONS = [
+  "thread_classified",
+  "draft_generated",
+  "draft_approved",
+  "draft_discarded",
+  "draft_regenerated",
+  "draft_sent",
+  "auto_reply_sent",
+] as const satisfies readonly AuditAction[];
+
 type Transition = {
   /** Absent when there is no previous state, e.g. a draft that has just been generated. */
   before?: Record<string, unknown>;
@@ -164,8 +170,8 @@ const transitionOf = (event: AuditEvent): Transition => {
 
 /**
  * Turns an event into the row to persist. Public alongside `recordAuditLogEntry`
- * so a caller already inside a transaction can insert the entry with its own
- * writes instead of opening a second one.
+ * so a caller can fold entries into an insert it is already issuing — several
+ * events in one statement, or one `values()` shared with its own writes.
  */
 export const buildAuditLogEntry = (event: AuditEvent): NewAuditLogEntry => {
   const { before, after, details } = transitionOf(event);
