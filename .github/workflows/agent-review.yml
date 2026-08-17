@@ -1,0 +1,181 @@
+name: Agent Review
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+jobs:
+  review:
+    if: github.event.label.name == 'agent:review'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: agent-mutate-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      BRANCH: ${{ github.event.pull_request.head.ref }}
+      BRANCH_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+
+    steps:
+      - name: Transition labels
+        run: |
+          gh pr edit "$PR_NUMBER" --remove-label "agent:review" || true
+          gh pr edit "$PR_NUMBER" --remove-label "agent:blocked" || true
+          gh pr edit "$PR_NUMBER" --add-label "agent:in-progress"
+
+      - name: Checkout PR branch
+        # Default GITHUB_TOKEN (a GitHub App token here, since this triggers
+        # on pull_request_target) can't push a change to .github/workflows/*
+        # -- same restriction PATs hit, different error text ("refusing to
+        # allow a GitHub App..."). AGENT_PAT sidesteps it, same as every
+        # other checkout in this pipeline that might touch workflow files.
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          token: ${{ secrets.AGENT_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Prepare branch
+        run: |
+          git fetch origin main:main || git fetch origin main
+          git checkout "$BRANCH" 2>/dev/null || git checkout -B "$BRANCH"
+          git config user.name "sandcastle-agent[bot]"
+          git config user.email "sandcastle-agent[bot]@users.noreply.github.com"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Install caveman plugin (cuts agent token spend)
+        run: |
+          claude plugin marketplace add JuliusBrussee/caveman
+          claude plugin install caveman@caveman
+
+      - name: Run review agent
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          OUTPUT_DIR: ${{ runner.temp }}
+        run: npx tsx .sandcastle/agent-workflows/review/review.ts
+
+      - name: Push branch
+        if: success()
+        run: |
+          set +e
+          git push --force-with-lease="refs/heads/$BRANCH:$BRANCH_HEAD_SHA" origin "$BRANCH" 2> push_err.txt
+          status=$?
+          set -e
+          if [ $status -ne 0 ]; then
+            if grep -qiE "non-fast-forward|rejected|fetch first|stale info" push_err.txt; then
+              echo "Branch advanced during review run." > "${RUNNER_TEMP}/failure_reason.txt"
+              cat push_err.txt
+              exit 1
+            fi
+            cat push_err.txt
+            exit $status
+          fi
+
+      - name: Post PR review
+        if: success()
+        env:
+          PAYLOAD: ${{ runner.temp }}/review_payload.json
+        run: gh api --method POST "repos/{owner}/{repo}/pulls/${PR_NUMBER}/reviews" --input "$PAYLOAD"
+
+      - name: Mark PR ready
+        if: success()
+        run: gh pr ready "$PR_NUMBER" || true
+
+      - name: Post thread replies
+        if: success()
+        env:
+          REPLIES: ${{ runner.temp }}/replies.json
+        run: |
+          count=$(jq 'length' "$REPLIES")
+          if [ "$count" -eq 0 ]; then
+            exit 0
+          fi
+          for i in $(seq 0 $((count - 1))); do
+            commentId=$(jq -r ".[$i].commentId" "$REPLIES")
+            body=$(jq -r ".[$i].body" "$REPLIES")
+            rest_id=$(gh api graphql -f query="query(\$id:ID!){ node(id:\$id){ ... on PullRequestReviewComment { databaseId } } }" -F id="$commentId" --jq '.data.node.databaseId')
+            if [ -z "$rest_id" ] || [ "$rest_id" = "null" ]; then
+              echo "Could not resolve REST id for $commentId; skipping" >&2
+              continue
+            fi
+            gh api --method POST "repos/{owner}/{repo}/pulls/${PR_NUMBER}/comments/${rest_id}/replies" -f body="$body"
+          done
+
+      - name: Typecheck, test, build
+        # The real merge gate. Branch protection requiring a status check
+        # isn't available on a private repo without GitHub Pro, so this is
+        # enforced procedurally instead: any failure here stops the job
+        # (default `run:` behavior), skipping every later `if: success()`
+        # step including Auto-merge, and falling through to "Mark blocked on
+        # failure" below. Runs after the review agent so it also covers any
+        # commits the reviewer made, not just the implementer's.
+        if: success()
+        run: |
+          npm ci
+          npm run typecheck --if-present
+          npm run test --if-present
+          npm run build --if-present
+
+      - name: Auto-merge
+        # Reaching this step means: the review agent completed without
+        # failing, AND typecheck/test/build all passed just now. That
+        # combination is the approval gate — no separate human click.
+        #
+        # No `--auto`: this repo's "Allow auto-merge" setting can't be
+        # turned on (the API accepts the PATCH silently but leaves it false
+        # — same plan-tier ceiling as branch protection), and `--auto`
+        # requires it for anything not immediately mergeable. A direct
+        # merge attempt doesn't need that setting at all — it either
+        # succeeds now or fails now, no queueing.
+        if: success()
+        env:
+          AGENT_PAT: ${{ secrets.AGENT_PAT }}
+        run: |
+          token="${AGENT_PAT:-$GH_TOKEN}"
+          if GH_TOKEN="$token" gh pr merge "$PR_NUMBER" --squash --delete-branch; then
+            exit 0
+          fi
+
+          # Almost always a sibling-wave conflict (e.g. #3/#4 off #2, #8/#10
+          # off #7: both branch from the same main, whichever merges second
+          # conflicts). agent-update-branch.yml is idempotent when there's
+          # nothing to resolve (it just comments "already up to date" and
+          # re-requests review), so routing every merge failure there is a
+          # safe default rather than trying to classify the failure first.
+          echo "Merge failed — routing to agent:update-branch (handles both real conflicts and a stale mergeable-state read)."
+          GH_TOKEN="$token" gh pr edit "$PR_NUMBER" --add-label "agent:update-branch"
+
+      - name: Mark blocked on failure
+        if: failure()
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          reason="(no reason file written; check workflow logs)"
+          if [ -f "${RUNNER_TEMP}/failure_reason.txt" ]; then
+            reason=$(cat "${RUNNER_TEMP}/failure_reason.txt")
+          fi
+          body_file="${RUNNER_TEMP}/failure-comment.md"
+          printf '`agent:review` run failed.\n\n**Reason:** %s\n\n**Workflow run:** %s\n\nRe-add `agent:review` to retry.\n' "$reason" "$RUN_URL" > "$body_file"
+          gh pr edit "$PR_NUMBER" --add-label "agent:blocked" || true
+          gh pr comment "$PR_NUMBER" --body-file "$body_file"
+
+      - name: Always remove in-progress
+        if: always()
+        run: gh pr edit "$PR_NUMBER" --remove-label "agent:in-progress" || true

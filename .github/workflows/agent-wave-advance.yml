@@ -1,0 +1,94 @@
+name: Agent Wave Advance
+
+# Not part of mattpocock/sandcastle's own workflow set — ported from Reviu to
+# turn its issue `blocked_by` DAG into automatic wave advancement. When a PR
+# that closes an issue merges, this finds issues that were only blocked by
+# that issue and, if all of their blockers are now closed, starts them.
+
+on:
+  pull_request_target:
+    types: [closed]
+
+jobs:
+  advance:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      PR_BODY: ${{ github.event.pull_request.body }}
+
+    steps:
+      - name: Find the issue this PR closed
+        id: closed_issue
+        run: |
+          set -euo pipefail
+          issue_number=$(printf '%s' "$PR_BODY" | grep -ioP '(?:closes|fixes|resolves)\s+#\K\d+' | head -n1 || true)
+          if [ -z "$issue_number" ]; then
+            echo "No 'Closes #N' found in PR body — nothing to advance."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "number=$issue_number" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure the issue is closed
+        if: steps.closed_issue.outputs.found == 'true'
+        env:
+          ISSUE_NUMBER: ${{ steps.closed_issue.outputs.number }}
+        run: |
+          state=$(gh issue view "$ISSUE_NUMBER" --json state --jq .state)
+          if [ "$state" != "CLOSED" ]; then
+            gh issue close "$ISSUE_NUMBER" --comment "Closed automatically: PR merged with \`Closes #${ISSUE_NUMBER}\`."
+          fi
+
+      - name: Advance unblocked issues
+        if: steps.closed_issue.outputs.found == 'true'
+        env:
+          ISSUE_NUMBER: ${{ steps.closed_issue.outputs.number }}
+          AGENT_PAT: ${{ secrets.AGENT_PAT }}
+        run: |
+          set -euo pipefail
+
+          blocking=$(gh api "repos/${GH_REPO}/issues/${ISSUE_NUMBER}/dependencies/blocking" --jq '[.[].number]')
+          count=$(echo "$blocking" | jq 'length')
+
+          if [ "$count" -eq 0 ]; then
+            echo "Issue #${ISSUE_NUMBER} unblocked nothing else."
+            exit 0
+          fi
+
+          for i in $(seq 0 $((count - 1))); do
+            candidate=$(echo "$blocking" | jq -r ".[$i]")
+
+            # Skip if the candidate already has an agent:* state label — avoid
+            # re-labeling something already in flight or intentionally blocked.
+            existing_labels=$(gh issue view "$candidate" --json labels --jq '[.labels[].name] | map(select(startswith("agent:"))) | length')
+            if [ "$existing_labels" -gt 0 ]; then
+              echo "#${candidate} already has an agent:* label — skipping."
+              continue
+            fi
+
+            open_blockers=$(gh api "repos/${GH_REPO}/issues/${candidate}/dependencies/blocked_by" --jq '[.[] | select(.state=="open")] | length')
+            if [ "$open_blockers" -ne 0 ]; then
+              echo "#${candidate} still has ${open_blockers} open blocker(s) — not yet."
+              continue
+            fi
+
+            echo "#${candidate} is now unblocked — labeling agent:implement."
+            comment="Unblocked by #${ISSUE_NUMBER} merging. Starting the implementer agent."
+            if [ -n "$AGENT_PAT" ]; then
+              GH_TOKEN="$AGENT_PAT" gh issue edit "$candidate" --add-label "agent:implement"
+              GH_TOKEN="$AGENT_PAT" gh issue comment "$candidate" --body "$comment"
+            else
+              echo "::warning::AGENT_PAT not set — labeling #${candidate} with GITHUB_TOKEN, which will NOT trigger agent-implement.yml (GitHub Actions anti-recursion). Add agent:implement manually or set AGENT_PAT."
+              gh issue edit "$candidate" --add-label "agent:implement"
+              gh issue comment "$candidate" --body "$comment"
+            fi
+          done
