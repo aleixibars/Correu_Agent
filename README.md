@@ -38,6 +38,9 @@ npm run db:migrate -w @correu-agent/shared    # aplica les migracions pendents a
 
 `db:migrate` necessita `DATABASE_URL` a l'entorn (Neon, regió UE — `context.md` §10).
 
+Els tests comproven que les migracions de `shared/drizzle/` coincideixen amb l'esquema:
+si canvies `schema.ts` i no executes `db:generate`, `npm run test` falla.
+
 El codi de servidor i el worker importen les taules des de `@correu-agent/shared/db/schema`,
 no des del barrel `@correu-agent/shared` — el barrel l'importa codi que acaba al navegador.
 
