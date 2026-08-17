@@ -17,6 +17,14 @@ const requiredString = (value: unknown, field: string): string => {
   return value;
 };
 
+const isHttpsUrl = (value: string): boolean => {
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
 export const parsePushSubscription = (input: unknown): PushSubscription => {
   if (typeof input !== "object" || input === null) {
     throw new Error("Push subscription must be an object");
@@ -24,7 +32,7 @@ export const parsePushSubscription = (input: unknown): PushSubscription => {
 
   const { endpoint, keys } = input as { endpoint?: unknown; keys?: unknown };
   const parsedEndpoint = requiredString(endpoint, "endpoint");
-  if (!parsedEndpoint.startsWith("https://")) {
+  if (!isHttpsUrl(parsedEndpoint)) {
     throw new Error("Push subscription endpoint must be an https:// URL");
   }
 

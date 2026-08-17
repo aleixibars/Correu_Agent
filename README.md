@@ -36,8 +36,8 @@ de claus VAPID per desplegament — generar-lo un sol cop:
 npm run generate-vapid-keys
 ```
 
-Copiar la sortida a les variables d'entorn (`.env` en local, secrets de Render en
-desplegament):
+L'ordre imprimeix les dues claus; el subjecte s'escull a mà. Les tres variables van
+a l'entorn (`.env` en local, secrets de Render en desplegament):
 
 - `VAPID_PUBLIC_KEY` — clau pública, també lliurada al navegador en subscriure's.
 - `VAPID_PRIVATE_KEY` — clau privada, mai al repositori ni al client.

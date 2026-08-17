@@ -34,6 +34,12 @@ describe("parsePushSubscription", () => {
     ).toThrow(/endpoint/i);
   });
 
+  it("rejects an endpoint that is not a URL at all", () => {
+    expect(() =>
+      parsePushSubscription({ ...TEST_PUSH_SUBSCRIPTION, endpoint: "https://" }),
+    ).toThrow(/endpoint/i);
+  });
+
   it("rejects a missing p256dh key", () => {
     expect(() =>
       parsePushSubscription({

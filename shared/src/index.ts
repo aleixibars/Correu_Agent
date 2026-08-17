@@ -6,16 +6,10 @@
 export const APP_NAME = "Correu Agent";
 
 // Web Push for Urgent mail (context.md §5).
-export {
-  DEFAULT_TTL_SECONDS,
-  buildWebPushRequest,
-  sendWebPush,
-  serializeNotification,
-} from "./web-push/send";
+export { sendWebPush } from "./web-push/send";
 export type {
   WebPushNotification,
   WebPushOptions,
-  WebPushRequest,
   WebPushResult,
 } from "./web-push/send";
 export { parsePushSubscription } from "./web-push/subscription";

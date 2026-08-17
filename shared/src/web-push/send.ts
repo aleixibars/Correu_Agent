@@ -18,22 +18,6 @@ export type WebPushOptions = {
   urgency?: "very-low" | "low" | "normal" | "high";
 };
 
-export type WebPushHeaders = {
-  /** `vapid t=<signed JWT>, k=<public key>` */
-  Authorization: string;
-  "Content-Encoding": string;
-  "Content-Type": string;
-  "Content-Length": number;
-  TTL: number;
-  Urgency: string;
-};
-
-export type WebPushRequest = {
-  endpoint: string;
-  headers: WebPushHeaders;
-  body: Buffer;
-};
-
 /**
  * An urgent notification is worthless once stale, so the push service should not
  * hold it for long if the desktop browser is offline.
@@ -59,29 +43,6 @@ export const serializeNotification = (
     body: notification.body,
     ...(notification.url === undefined ? {} : { url: notification.url }),
   });
-
-/**
- * Builds the signed, encrypted request for a subscription without sending it —
- * the seam `sendWebPush` goes through, and what the tests assert on.
- */
-export const buildWebPushRequest = (
-  subscription: PushSubscription,
-  notification: WebPushNotification,
-  config: VapidConfig,
-  options: WebPushOptions = {},
-): WebPushRequest => {
-  const details = webpush.generateRequestDetails(
-    subscription,
-    serializeNotification(notification),
-    requestOptions(config, options),
-  );
-
-  return {
-    endpoint: details.endpoint,
-    headers: details.headers as unknown as WebPushHeaders,
-    body: details.body as Buffer,
-  };
-};
 
 export type WebPushResult = {
   statusCode: number;
