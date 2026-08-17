@@ -1,0 +1,1 @@
+CREATE INDEX "audit_log_entries_thread_created_at_idx" ON "audit_log_entries" USING btree ("thread_id","created_at");
