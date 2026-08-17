@@ -46,6 +46,10 @@ a l'entorn (`.env` en local, secrets de Render en desplegament):
 Regenerar les claus invalida totes les subscripcions existents: els navegadors
 s'han de tornar a subscriure.
 
+El codi de servidor (`app/` API routes, `worker/`) importa l'enviament des de
+`@correu-agent/shared/web-push`, no des del barrel arrel: `web-push` és un paquet
+només de Node i el barrel l'importa codi que acaba al navegador.
+
 ## Pipeline d'agents
 
 Les issues de GitHub amb l'etiqueta `agent:implement` són recollides automàticament per un agent implementador; la PR resultant passa per un agent revisor (`agent:review`) que fa merge automàtic (squash) si typecheck+test+build passen. Detalls a `context.md` §12 i `docs/agents/`.

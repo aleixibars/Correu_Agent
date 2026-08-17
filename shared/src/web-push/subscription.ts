@@ -10,11 +10,15 @@ export type PushSubscription = {
   };
 };
 
+// Trimmed on the way through: the endpoint and the base64url keys are used
+// verbatim as a request target and as encryption input, where stray whitespace
+// fails far from here.
 const requiredString = (value: unknown, field: string): string => {
-  if (typeof value !== "string" || value.trim() === "") {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  if (trimmed === "") {
     throw new Error(`Push subscription is missing ${field}`);
   }
-  return value;
+  return trimmed;
 };
 
 const isHttpsUrl = (value: string): boolean => {

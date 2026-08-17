@@ -40,6 +40,27 @@ describe("parsePushSubscription", () => {
     ).toThrow(/endpoint/i);
   });
 
+  it("trims surrounding whitespace off the endpoint and keys", () => {
+    expect(
+      parsePushSubscription({
+        endpoint: ` ${TEST_PUSH_SUBSCRIPTION.endpoint} `,
+        keys: {
+          p256dh: `${TEST_PUSH_SUBSCRIPTION.keys.p256dh}\n`,
+          auth: ` ${TEST_PUSH_SUBSCRIPTION.keys.auth}`,
+        },
+      }),
+    ).toEqual(parsePushSubscription(TEST_PUSH_SUBSCRIPTION));
+  });
+
+  it("rejects a whitespace-only key", () => {
+    expect(() =>
+      parsePushSubscription({
+        ...TEST_PUSH_SUBSCRIPTION,
+        keys: { ...TEST_PUSH_SUBSCRIPTION.keys, auth: "   " },
+      }),
+    ).toThrow(/auth/i);
+  });
+
   it("rejects a missing p256dh key", () => {
     expect(() =>
       parsePushSubscription({

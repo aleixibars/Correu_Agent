@@ -20,9 +20,23 @@ const required = (env: Env, name: string): string => {
   return value;
 };
 
+// The push service uses the subject to reach a human about a misbehaving
+// application server, so a scheme prefix alone is not enough — `mailto:` needs
+// an address and `https:` needs a host.
+const isContactUrl = (value: string): boolean => {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.protocol === "mailto:") return url.pathname.includes("@");
+  return url.protocol === "https:" && url.hostname !== "";
+};
+
 export const loadVapidConfig = (env: Env): VapidConfig => {
   const subject = required(env, "VAPID_SUBJECT");
-  if (!subject.startsWith("mailto:") && !subject.startsWith("https://")) {
+  if (!isContactUrl(subject)) {
     throw new Error(
       "VAPID_SUBJECT must be a mailto: or https:// URL identifying the sender",
     );

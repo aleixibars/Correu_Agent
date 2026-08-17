@@ -29,6 +29,15 @@ describe("loadVapidConfig", () => {
     ).toThrow(/VAPID_SUBJECT/);
   });
 
+  it("rejects a scheme with no contact behind it", () => {
+    expect(() =>
+      loadVapidConfig({ ...TEST_VAPID_ENV, VAPID_SUBJECT: "mailto:" }),
+    ).toThrow(/VAPID_SUBJECT/);
+    expect(() =>
+      loadVapidConfig({ ...TEST_VAPID_ENV, VAPID_SUBJECT: "https://" }),
+    ).toThrow(/VAPID_SUBJECT/);
+  });
+
   it("accepts an https: subject", () => {
     const config = loadVapidConfig({
       ...TEST_VAPID_ENV,
