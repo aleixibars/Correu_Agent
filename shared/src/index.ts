@@ -3,9 +3,10 @@
 // Message, Draft, AutoReplyRule, AuditLogEntry) lands here as it's built out
 // issue by issue — this file is the seam, not the final shape.
 
-// Token encryption is deliberately NOT re-exported here: it imports
-// `node:crypto`, and this barrel is imported by browser-bound `app/` code.
-// Server/worker code imports it from `@correu-agent/shared/token-encryption`.
+// Token encryption and Web Push are deliberately NOT re-exported here: they
+// import `node:crypto` and the Node-only `web-push` package, and this barrel is
+// imported by browser-bound `app/` code. Server/worker code imports them from
+// `@correu-agent/shared/token-encryption` and `@correu-agent/shared/web-push`.
 
 export const APP_NAME = "Correu Agent";
 
