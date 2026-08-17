@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./token-encryption": "./src/token-encryption.ts",
     "./db/schema": "./src/db/schema.ts",
+    "./audit": "./src/audit/index.ts",
     "./web-push": "./src/web-push/index.ts",
     "./package.json": "./package.json"
   },

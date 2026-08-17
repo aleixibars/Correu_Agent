@@ -40,6 +40,8 @@ export const draftStatusEnum = pgEnum("draft_status", [
   "superseded",
 ]);
 
+export type DraftStatus = (typeof draftStatusEnum.enumValues)[number];
+
 export const auditActorTypeEnum = pgEnum("audit_actor_type", ["user", "system"]);
 
 const createdAt = () =>

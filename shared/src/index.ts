@@ -5,8 +5,10 @@
 //   - `./token-encryption` imports `node:crypto`.
 //   - `./web-push` imports the Node-only `web-push` package.
 //   - `./db/schema` pulls in drizzle-orm and is server/worker-only.
+//   - `./audit` writes through drizzle, so it is server/worker-only too.
 // Server and worker code imports them from `@correu-agent/shared/token-encryption`,
-// `@correu-agent/shared/web-push` and `@correu-agent/shared/db/schema`.
+// `@correu-agent/shared/web-push`, `@correu-agent/shared/db/schema` and
+// `@correu-agent/shared/audit`.
 
 export const APP_NAME = "Correu Agent";
 
