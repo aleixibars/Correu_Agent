@@ -5,6 +5,13 @@
 
 export const APP_NAME = "Correu Agent";
 
+export {
+  TOKEN_ENCRYPTION_KEY_ENV,
+  decryptToken,
+  encryptToken,
+  loadTokenEncryptionKey,
+} from "./token-encryption";
+
 /** The six fixed triage categories for the PoC (context.md §4). Order matters for dashboard display. */
 export const TRIAGE_CATEGORIES = [
   "urgent",
