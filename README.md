@@ -27,6 +27,17 @@ npm run typecheck
 npm run test
 ```
 
+## Base de dades
+
+L'esquema Drizzle viu a `shared/src/db/schema.ts` i les migracions generades a `shared/drizzle/`.
+
+```bash
+npm run db:generate -w @correu-agent/shared   # genera una migració a partir de l'esquema
+npm run db:migrate -w @correu-agent/shared    # aplica les migracions pendents a DATABASE_URL
+```
+
+`db:migrate` necessita `DATABASE_URL` a l'entorn (Neon, regió UE — `context.md` §10).
+
 ## Pipeline d'agents
 
 Les issues de GitHub amb l'etiqueta `agent:implement` són recollides automàticament per un agent implementador; la PR resultant passa per un agent revisor (`agent:review`) que fa merge automàtic (squash) si typecheck+test+build passen. Detalls a `context.md` §12 i `docs/agents/`.
