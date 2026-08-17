@@ -27,6 +27,27 @@ npm run typecheck
 npm run test
 ```
 
+## Base de dades
+
+L'esquema Drizzle viu a `shared/src/db/schema.ts` i les migracions generades a `shared/drizzle/`.
+
+```bash
+npm run db:generate -w @correu-agent/shared   # genera una migració a partir de l'esquema
+npm run db:migrate -w @correu-agent/shared    # aplica les migracions pendents a DATABASE_URL
+```
+
+`db:migrate` necessita `DATABASE_URL` a l'entorn (Neon, regió UE — `context.md` §10).
+
+Els tests comproven que les migracions de `shared/drizzle/` coincideixen amb l'esquema:
+si canvies `schema.ts` i no executes `db:generate`, `npm run test` falla.
+
+El codi de servidor i el worker importen les taules des de `@correu-agent/shared/db/schema`,
+no des del barrel `@correu-agent/shared` — el barrel l'importa codi que acaba al navegador.
+
+`drizzle-orm` també és `devDependency` de l'arrel: npm deixa la còpia del workspace a
+`shared/node_modules/`, on el binari `drizzle-kit` (que sí que puja a l'arrel) no la pot
+resoldre i les dues comandes de dalt fallen amb «Please install latest version of drizzle-orm».
+
 ## Notificacions Web Push (VAPID)
 
 Les notificacions de correu Urgent van per Web Push (`context.md` §5). Cal un parell

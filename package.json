@@ -14,6 +14,7 @@
     "generate-vapid-keys": "node --input-type=module -e \"import webpush from 'web-push'; const { publicKey, privateKey } = webpush.generateVAPIDKeys(); console.log('VAPID_PUBLIC_KEY=' + publicKey); console.log('VAPID_PRIVATE_KEY=' + privateKey);\""
   },
   "devDependencies": {
-    "@ai-hero/sandcastle": "^0.12.0"
+    "@ai-hero/sandcastle": "^0.12.0",
+    "drizzle-orm": "^0.45.2"
   }
 }
