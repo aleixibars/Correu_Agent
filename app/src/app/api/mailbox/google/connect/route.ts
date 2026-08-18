@@ -3,7 +3,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "../../../../../auth";
-import { LOGIN_PATH } from "../../../../../lib/auth/config";
+import { LOGIN_PATH } from "../../../../../lib/routes";
 import { mailboxOutcomeQuery } from "../../../../../lib/mailbox/connect-messages";
 import { publicAppUrl } from "../../../../../lib/mailbox/public-url";
 import {

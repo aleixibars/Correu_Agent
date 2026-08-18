@@ -8,7 +8,7 @@ import {
   DIGEST_PATH,
   LOGIN_PATH,
   THREADS_PATH,
-} from "../lib/auth/config";
+} from "../lib/routes";
 import {
   MAILBOX_REASON_PARAM,
   MAILBOX_STATUS_PARAM,

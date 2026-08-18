@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { AppHeaderSkeleton } from "../../../components/AppHeaderSkeleton";
-import { THREADS_PATH } from "../../../lib/auth/config";
+import { THREADS_PATH } from "../../../lib/routes";
 
 /**
  * Fallback Next renders while a thread and its draft are read, so the

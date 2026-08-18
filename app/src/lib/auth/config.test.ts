@@ -3,12 +3,12 @@ import NextAuth from "next-auth";
 import type { AdapterUser } from "next-auth/adapters";
 import { describe, expect, it } from "vitest";
 import {
-  LOGIN_PATH,
   createAuthConfig,
   isEmailAllowed,
   isEmailVouchedFor,
   parseAllowedEmails,
 } from "./config";
+import { LOGIN_PATH } from "../routes";
 import {
   TEST_AUTH_ENV,
   TEST_TENANT_ID,

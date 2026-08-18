@@ -1,9 +1,5 @@
 import Link from "next/link";
-import {
-  AUTO_REPLY_PATH,
-  DIGEST_PATH,
-  THREADS_PATH,
-} from "../lib/auth/config";
+import { AUTO_REPLY_PATH, DIGEST_PATH, THREADS_PATH } from "../lib/routes";
 
 const NAV_ITEMS = [
   { href: THREADS_PATH, label: "Fils" },

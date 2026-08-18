@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { APP_NAME } from "@correu-agent/shared";
 import { auth, signIn } from "../../auth";
-import { DASHBOARD_PATH } from "../../lib/auth/config";
+import { DASHBOARD_PATH } from "../../lib/routes";
 import { loginErrorMessage } from "../../lib/auth/login-errors";
 
 // Pantalla de login del tauler (context.md §9). Els dos proveïdors són els

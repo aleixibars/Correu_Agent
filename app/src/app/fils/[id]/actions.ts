@@ -9,7 +9,7 @@ import {
 } from "@correu-agent/shared/drafts";
 import { createAnthropicClient } from "@correu-agent/shared/triage";
 import { auth } from "../../../auth";
-import { LOGIN_PATH, THREADS_PATH, threadPath } from "../../../lib/auth/config";
+import { LOGIN_PATH, THREADS_PATH, threadPath } from "../../../lib/routes";
 import { db } from "../../../lib/db";
 import { createDraftSender } from "../../../lib/mailbox/draft-sender";
 import { isUuid } from "../../../lib/uuid";

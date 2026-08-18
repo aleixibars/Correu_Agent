@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { APP_NAME } from "@correu-agent/shared";
 import { auth } from "../../auth";
-import { LOGIN_PATH, THREADS_PATH, threadPath } from "../../lib/auth/config";
+import { LOGIN_PATH, THREADS_PATH, threadPath } from "../../lib/routes";
 import { db } from "../../lib/db";
 import { subjectLabel } from "../../lib/subject-label";
 import { listThreads } from "../../lib/threads/list-threads";

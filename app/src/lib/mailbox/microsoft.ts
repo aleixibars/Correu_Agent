@@ -16,7 +16,7 @@ import {
   microsoftTenantFromIssuer,
 } from "@correu-agent/shared/mailbox";
 import { loadTokenEncryptionKey } from "@correu-agent/shared/token-encryption";
-import { LOGIN_PATH } from "../auth/config";
+import { LOGIN_PATH } from "../routes";
 // The outcome the dashboard reads off the URL once the flow is over. The Gmail
 // flow writes the same query string and the dashboard reads it, so the names,
 // the values and the Catalan copy are spelled in one place.

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { APP_NAME } from "@correu-agent/shared";
 import { signOut } from "../auth";
-import { DASHBOARD_PATH, LOGIN_PATH } from "../lib/auth/config";
+import { DASHBOARD_PATH, LOGIN_PATH } from "../lib/routes";
 import { AppNav } from "./AppNav";
 
 /**

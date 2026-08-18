@@ -1,5 +1,5 @@
 import { AppHeaderSkeleton } from "../../components/AppHeaderSkeleton";
-import { THREADS_PATH } from "../../lib/auth/config";
+import { THREADS_PATH } from "../../lib/routes";
 
 /**
  * Fallback Next renders while the thread list query runs, so the navigation
