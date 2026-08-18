@@ -17,6 +17,14 @@ import {
 } from "@correu-agent/shared/mailbox";
 import { loadTokenEncryptionKey } from "@correu-agent/shared/token-encryption";
 import { LOGIN_PATH } from "../auth/config";
+// The outcome the dashboard reads off the URL once the flow is over. The Gmail
+// flow writes the same query string and the dashboard reads it, so the names
+// and the values are spelled in one place.
+import {
+  MAILBOX_CONNECTED_STATUS,
+  MAILBOX_FAILED_STATUS,
+  MAILBOX_STATUS_PARAM,
+} from "./connect-messages";
 
 export const MICROSOFT_MAILBOX_CONNECT_PATH = "/api/mailboxes/microsoft/connect";
 export const MICROSOFT_MAILBOX_CALLBACK_PATH =
@@ -27,11 +35,6 @@ export const MAILBOX_OAUTH_COOKIE = "correu-agent.mailbox-oauth";
 
 /** Long enough for a consent screen, short enough that a stale state is dead. */
 const OAUTH_COOKIE_MAX_AGE_SECONDS = 10 * 60;
-
-/** Outcome the dashboard reads off the URL once the flow is over. */
-export const MAILBOX_RESULT_PARAM = "bustia";
-export const MAILBOX_CONNECTED_RESULT = "connectada";
-export const MAILBOX_ERROR_RESULT = "error";
 
 export interface MicrosoftMailboxHandlerDeps<
   T extends PgQueryResultHKT,
@@ -68,7 +71,7 @@ const publicOrigin = (request: NextRequest): string => {
 
 const dashboardResult = (origin: string, result: string): URL => {
   const url = new URL("/", origin);
-  url.searchParams.set(MAILBOX_RESULT_PARAM, result);
+  url.searchParams.set(MAILBOX_STATUS_PARAM, result);
   return url;
 };
 
@@ -126,7 +129,7 @@ export const createMicrosoftMailboxHandlers = <
       // The message names the missing variable, so it stays in the server log.
       console.error("Cannot start the Microsoft mailbox connection:", error);
       return NextResponse.redirect(
-        dashboardResult(origin, MAILBOX_ERROR_RESULT),
+        dashboardResult(origin, MAILBOX_FAILED_STATUS),
       );
     }
 
@@ -185,7 +188,7 @@ export const createMicrosoftMailboxHandlers = <
       console.error(
         `Microsoft mailbox consent refused: ${providerError ?? "no code returned"}`,
       );
-      return finish(MAILBOX_ERROR_RESULT);
+      return finish(MAILBOX_FAILED_STATUS);
     }
 
     try {
@@ -217,11 +220,11 @@ export const createMicrosoftMailboxHandlers = <
         encryptionKey,
       });
 
-      return finish(MAILBOX_CONNECTED_RESULT);
+      return finish(MAILBOX_CONNECTED_STATUS);
     } catch (error) {
       // The message can carry Entra diagnostics, so it stays in the server log.
       console.error("Failed to connect the Microsoft mailbox:", error);
-      return finish(MAILBOX_ERROR_RESULT);
+      return finish(MAILBOX_FAILED_STATUS);
     }
   };
 

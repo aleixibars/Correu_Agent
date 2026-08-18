@@ -3,22 +3,19 @@ import { APP_NAME } from "@correu-agent/shared";
 import { auth, signOut } from "../auth";
 import { LOGIN_PATH } from "../lib/auth/config";
 import {
-  MAILBOX_CONNECTED_RESULT,
-  MAILBOX_ERROR_RESULT,
-  MAILBOX_RESULT_PARAM,
-  MICROSOFT_MAILBOX_CONNECT_PATH,
-} from "../lib/mailbox/microsoft";
+  MAILBOX_REASON_PARAM,
+  MAILBOX_STATUS_PARAM,
+  mailboxConnectionNotice,
+} from "../lib/mailbox/connect-messages";
+import { MICROSOFT_MAILBOX_CONNECT_PATH } from "../lib/mailbox/microsoft";
 
-// A Map, not an object literal: the key comes straight off the query string, and
-// `?bustia=constructor` would resolve to an inherited property on a literal.
-const MAILBOX_MESSAGES = new Map<string, string>([
-  [MAILBOX_CONNECTED_RESULT, "Bústia connectada."],
-  [MAILBOX_ERROR_RESULT, "No s'ha pogut connectar la bústia. Torna-ho a provar."],
-]);
+/** Where the Gmail connection flow starts (`api/mailbox/google/connect`). */
+const GOOGLE_CONNECT_PATH = "/api/mailbox/google/connect";
 
 export default async function HomePage({
   searchParams,
 }: {
+  // The mailbox callbacks redirect here with the outcome of the connection.
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const session = await auth();
@@ -34,17 +31,28 @@ export default async function HomePage({
     );
   }
 
-  const result = (await searchParams)[MAILBOX_RESULT_PARAM];
-  const message =
-    typeof result === "string" ? MAILBOX_MESSAGES.get(result) : undefined;
+  const query = await searchParams;
+  const notice = mailboxConnectionNotice(
+    query[MAILBOX_STATUS_PARAM],
+    query[MAILBOX_REASON_PARAM],
+  );
 
   return (
     <main>
       <h1>{APP_NAME}</h1>
       <p>Sessió iniciada com a {session.user.email}. Tauler en construcció.</p>
-      {message ? <p>{message}</p> : null}
+      {notice !== null && (
+        <p role={notice.ok ? "status" : "alert"}>{notice.text}</p>
+      )}
       <p>
-        {/* Full page load, not a client-side navigation: the route redirects to Microsoft. */}
+        {/* Plain anchors, not `next/link`: the targets are route handlers that
+            redirect off-site to the provider, and a client-side navigation
+            would run them twice — once for the RSC fetch that cannot follow the
+            cross-origin redirect, once for the hard navigation that replaces
+            it. */}
+        <a href={GOOGLE_CONNECT_PATH}>Connecta una bústia de Gmail</a>
+      </p>
+      <p>
         <a href={MICROSOFT_MAILBOX_CONNECT_PATH}>
           Connecta una bústia de Microsoft 365/Outlook
         </a>

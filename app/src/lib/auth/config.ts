@@ -22,6 +22,9 @@ declare module "next-auth/adapters" {
 /** Where an unauthenticated visitor is sent, and where the login buttons live. */
 export const LOGIN_PATH = "/login";
 
+/** Where a visitor lands once signed in. */
+export const DASHBOARD_PATH = "/";
+
 export interface AuthConfigOptions {
   adapter: Adapter;
   /** Addresses allowed to sign in; anything else is turned away. */
