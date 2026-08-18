@@ -122,6 +122,18 @@ describe("approveDraft", () => {
     expect(approveAndSendDraft).not.toHaveBeenCalled();
   });
 
+  // Postgres refuses a malformed uuid, so a hand-crafted submission would come
+  // back as a database error rather than as a refusal.
+  it("refuses a submission whose draft is not an id", async () => {
+    signedIn();
+
+    await expect(
+      approveDraft(formData({ draftId: "no-un-esborrany", body: "Text" })),
+    ).rejects.toThrow();
+    expect(createDraftSender).not.toHaveBeenCalled();
+    expect(approveAndSendDraft).not.toHaveBeenCalled();
+  });
+
   it("shows the thread as it stands once the reply has left", async () => {
     signedIn();
 
@@ -179,6 +191,9 @@ describe("rejectDraft", () => {
     signedIn();
 
     await expect(rejectDraft(formData({}))).rejects.toThrow();
+    await expect(
+      rejectDraft(formData({ draftId: "no-un-esborrany" })),
+    ).rejects.toThrow();
     expect(discardDraft).not.toHaveBeenCalled();
   });
 });

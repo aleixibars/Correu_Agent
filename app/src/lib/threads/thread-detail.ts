@@ -9,6 +9,7 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import type { TriageCategory } from "@correu-agent/shared";
 import { drafts, messages, threads } from "@correu-agent/shared/db/schema";
 import type { DraftStatus } from "@correu-agent/shared/db/schema";
+import { isUuid } from "../uuid";
 import { threadStatus, type ThreadStatus } from "./thread-status";
 
 export interface ThreadDetailMessage {
@@ -72,6 +73,11 @@ export const loadThreadDetail = async <
     messageLimit = DEFAULT_THREAD_MESSAGE_LIMIT,
   }: LoadThreadDetailOptions,
 ): Promise<ThreadDetail | null> => {
+  // A thread id is a URL segment, so it is arbitrary text: one Postgres would
+  // refuse as a malformed uuid has to read as missing too, not as a 500 on a
+  // mistyped link.
+  if (!isUuid(threadId)) return null;
+
   const [thread] = await db
     .select({
       id: threads.id,

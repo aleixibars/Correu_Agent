@@ -12,15 +12,16 @@ import { auth } from "../../../auth";
 import { LOGIN_PATH, THREADS_PATH, threadPath } from "../../../lib/auth/config";
 import { db } from "../../../lib/db";
 import { createDraftSender } from "../../../lib/mailbox/draft-sender";
+import { isUuid } from "../../../lib/uuid";
 
 /**
  * The draft a submission names. A form field is arbitrary text, and every
  * writer downstream is scoped to the session's tenant, so an id that belongs to
- * nobody simply finds nothing — an empty one is refused here instead of
- * reaching three queries that cannot match.
+ * nobody simply finds nothing — one that is not an id at all is refused here
+ * instead of reaching three queries Postgres would reject as malformed.
  */
 const submittedDraftId = (value: FormDataEntryValue | null): string => {
-  if (typeof value !== "string" || value.trim() === "") {
+  if (typeof value !== "string" || !isUuid(value)) {
     throw new Error("A draft action needs the draft it acts on.");
   }
   return value;

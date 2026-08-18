@@ -114,6 +114,20 @@ describe("loadThreadDetail", () => {
     expect(statements).toHaveLength(1);
   });
 
+  // A mistyped or stale link is a `/fils/<anything>` request: Postgres refuses
+  // a malformed uuid outright, which would be a 500 where a 404 belongs.
+  it("answers with null for an id no thread could have", async () => {
+    const { db, statements } = recordingDatabase([[threadRow()]]);
+
+    const detail = await loadThreadDetail(db, {
+      tenantId: TENANT_ID,
+      threadId: "no-un-fil",
+    });
+
+    expect(detail).toBeNull();
+    expect(statements).toHaveLength(0);
+  });
+
   it("answers with the thread, its mail and its live draft", async () => {
     const { db } = recordingDatabase([
       [threadRow()],
