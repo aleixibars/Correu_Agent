@@ -58,6 +58,7 @@ un JWT, perquè tancar la sessió sigui definitiu.
 Variables d'entorn:
 
 - `AUTH_SECRET` — `openssl rand -base64 32`.
+- `AUTH_URL` — URL pública del tauler (p. ex. `https://correu.onrender.com`).
 - `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` — credencials de l'app de Google Cloud Console.
 - `AUTH_MICROSOFT_ENTRA_ID_ID` / `AUTH_MICROSOFT_ENTRA_ID_SECRET` — registre d'app a Entra ID.
 - `AUTH_MICROSOFT_ENTRA_ID_ISSUER` — limita el login a un sol directori d'Azure.
@@ -85,6 +86,29 @@ L'adapter d'Auth.js (`app/src/lib/auth/drizzle-adapter.ts`) és propi i no
 de l'esquema i desaria els tokens OAuth del proveïdor en clar. Les credencials per
 llegir una bústia van xifrades a `mailbox_accounts` (`context.md` §7); les taules de
 login només guarden l'enllaç d'identitat.
+
+## Connexió de bústies (Gmail)
+
+Iniciar la sessió al tauler no dona accés al correu: el login només identifica
+qui hi ha al davant. Connectar una bústia és un segon flux OAuth
+(`app/src/lib/mailbox/`) que demana els permisos de Gmail i desa els tokens
+xifrats a `mailbox_accounts` (`context.md` §7).
+
+- Comença a `/api/mailbox/google/connect` (enllaç al tauler) i torna a
+  `/api/mailbox/google/callback`.
+- Permisos demanats: `gmail.readonly`, `gmail.send` i `openid`. Si l'usuari en
+  desmarca cap dels dos de Gmail, la connexió es rebutja en lloc de desar una
+  bústia a mitges.
+- Reutilitza l'app de Google Cloud Console del login (`AUTH_GOOGLE_ID` /
+  `AUTH_GOOGLE_SECRET`) i cal registrar-hi també aquesta URL de callback:
+  `https://<domini>/api/mailbox/google/callback`. L'API de Gmail ha d'estar
+  activada al projecte de Google Cloud.
+- En connectar es desa el `historyId` de la bústia com a `sync_cursor`: el
+  worker només processa correu nou a partir d'aquell punt (`context.md` §4).
+  Tornar a connectar la mateixa bústia només refresca les credencials i manté
+  el cursor, per no saltar-se el correu arribat mentrestant.
+- `TOKEN_ENCRYPTION_KEY` és obligatòria: sense clau el callback no pot desar
+  els tokens.
 
 ## Notificacions Web Push (VAPID)
 
