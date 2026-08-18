@@ -1,6 +1,6 @@
 import type { PgBoss } from "pg-boss";
 import { describe, expect, it, vi } from "vitest";
-import { MAILBOX_POLL_QUEUE, handleMailboxPoll } from "./mailbox-poll";
+import { MAILBOX_POLL_QUEUE } from "./mailbox-poll";
 import { startQueue } from "./queue-client";
 
 describe("startQueue", () => {
@@ -19,7 +19,13 @@ describe("startQueue", () => {
       }),
     } as unknown as PgBoss;
 
-    await startQueue(boss);
+    const handleMailboxPoll = vi.fn(async () => ({
+      polled: [],
+      messages: [],
+      failed: [],
+    }));
+
+    await startQueue(boss, handleMailboxPoll);
 
     // work() on a queue that does not exist yet would never receive a job.
     expect(calls).toEqual(["start", "createQueue", "work"]);

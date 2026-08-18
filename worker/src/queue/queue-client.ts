@@ -1,7 +1,6 @@
-import { PgBoss } from "pg-boss";
+import { PgBoss, type WorkHandler } from "pg-boss";
 import {
   MAILBOX_POLL_QUEUE,
-  handleMailboxPoll,
   type MailboxPollJobData,
   type MailboxPollResult,
 } from "./mailbox-poll";
@@ -17,9 +16,13 @@ export const createQueueClient = (connectionString: string): PgBoss =>
 
 /**
  * Connects to Postgres, makes sure the `mailbox-poll` queue exists and starts
- * consuming it. pg-boss creates/migrates its own schema on `start()`.
+ * consuming it with the given handler. pg-boss creates/migrates its own schema
+ * on `start()`.
  */
-export const startQueue = async (boss: PgBoss): Promise<void> => {
+export const startQueue = async (
+  boss: PgBoss,
+  handleMailboxPoll: WorkHandler<MailboxPollJobData, MailboxPollResult>,
+): Promise<void> => {
   await boss.start();
   await boss.createQueue(MAILBOX_POLL_QUEUE);
   await boss.work<MailboxPollJobData, MailboxPollResult>(

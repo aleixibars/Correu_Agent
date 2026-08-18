@@ -5,6 +5,7 @@ import {
   exchangeMicrosoftAuthorizationCode,
   fetchMicrosoftMailboxIdentity,
   microsoftTenantFromIssuer,
+  refreshMicrosoftAccessToken,
 } from "./microsoft";
 
 const AUTHORIZATION_REQUEST = {
@@ -236,5 +237,68 @@ describe("fetchMicrosoftMailboxIdentity", () => {
     await expect(
       fetchMicrosoftMailboxIdentity({ accessToken: "t", fetch }),
     ).rejects.toThrow(/address/i);
+  });
+});
+
+describe("refreshMicrosoftAccessToken", () => {
+  const REFRESH_REQUEST = {
+    clientId: EXCHANGE_REQUEST.clientId,
+    clientSecret: EXCHANGE_REQUEST.clientSecret,
+    refreshToken: "stored-refresh-token",
+  };
+
+  it("trades the stored refresh token for a fresh access token", async () => {
+    const { fetch, calls } = stubFetch({
+      body: { ...TOKEN_RESPONSE, access_token: "fresh-access-token" },
+    });
+
+    const tokens = await refreshMicrosoftAccessToken({
+      ...REFRESH_REQUEST,
+      tenant: "directory-id",
+      now: new Date("2026-01-01T00:00:00.000Z"),
+      fetch,
+    });
+
+    expect(calls[0]!.url).toBe(
+      "https://login.microsoftonline.com/directory-id/oauth2/v2.0/token",
+    );
+    expect(
+      Object.fromEntries(new URLSearchParams(await calls[0]!.text())),
+    ).toEqual({
+      client_id: REFRESH_REQUEST.clientId,
+      client_secret: REFRESH_REQUEST.clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: REFRESH_REQUEST.refreshToken,
+      scope: MICROSOFT_MAILBOX_SCOPES.join(" "),
+    });
+    expect(tokens).toMatchObject({
+      accessToken: "fresh-access-token",
+      refreshToken: "refresh-token",
+      expiresAt: new Date("2026-01-01T01:00:00.000Z"),
+    });
+  });
+
+  it("keeps the stored refresh token when Entra does not rotate it", async () => {
+    const { fetch } = stubFetch({
+      body: { ...TOKEN_RESPONSE, refresh_token: undefined },
+    });
+
+    await expect(
+      refreshMicrosoftAccessToken({ ...REFRESH_REQUEST, fetch }),
+    ).resolves.toMatchObject({ refreshToken: "stored-refresh-token" });
+  });
+
+  it("reports a revoked grant instead of returning a dead token", async () => {
+    const { fetch } = stubFetch({
+      status: 400,
+      body: {
+        error: "invalid_grant",
+        error_description: "AADSTS50173: refresh token revoked",
+      },
+    });
+
+    await expect(
+      refreshMicrosoftAccessToken({ ...REFRESH_REQUEST, fetch }),
+    ).rejects.toThrow(/invalid_grant/);
   });
 });
