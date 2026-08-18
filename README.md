@@ -281,6 +281,43 @@ de sobreviure perquè l'audit log i el digest hi apunten.
   El cron és de pg-boss i no del worker: un desplegament no ha de reiniciar el
   rellotge d'una feina diària, ni dos workers l'han de disparar cadascun.
 
+## Digest diari
+
+Cada dia el worker resumeix els fils que ha processat el dia anterior i en desa
+el digest **dins del tauler** — mai per correu (`context.md` §5): enviar un avís
+a la mateixa bústia vigilada seria circular.
+
+- L'agregació viu a `shared/src/digest/collect.ts`
+  (`@correu-agent/shared/digest`): agrupa els fils per categoria, en l'ordre de
+  la taxonomia (`context.md` §4), i deixa fora les categories on no ha arribat
+  res. Quan el tauler mostri el digest llegirà aquesta mateixa funció, així que
+  no hi haurà dues maneres d'agrupar un mateix dia.
+- El dia és el dia **UTC** en què el fil es va triar (`triaged_at`), no el dia en
+  què va arribar el correu: no hi ha zona horària per tenant i un correu de les
+  23:59 classificat després de mitjanit ha de sortir a un sol digest, no a cap ni
+  a tots dos.
+- El text el redacta Claude Sonnet (`shared/src/digest/summarise.ts`), que és on
+  la qualitat de redacció es nota (`context.md` §6), i sempre en català — la
+  llengua del tauler — sigui quina sigui la del correu. L'assumpte dels fils
+  arriba al model entre etiquetes `<digest>` i es tracta com a text no fiable,
+  igual que al classificador.
+- El digest només llegeix assumpte i categoria, mai el cos: un dia el correu del
+  qual ja s'ha purgat (`context.md` §7) es resumeix igual.
+- La feina (`worker/src/queue/daily-digest.ts`) va per la cua `daily-digest`,
+  programada pel cron de pg-boss un cop al dia a les 05:00 UTC — el dia ha
+  d'haver acabat abans de poder-lo resumir. Un tenant que falla no atura la
+  resta, i si fallen tots la feina falla perquè pg-boss la reintenti. Els
+  reintents van amb espera creixent i no de seguida: cada execució cobreix un
+  dia i ningú no hi torna, així que un model saturat es perdria el dia sencer si
+  els tres intents caiguessin dins del mateix segon. L'espera màxima queda dins
+  del mateix dia UTC, perquè un reintent no acabi resumint el dia equivocat.
+- Un dia sense correu processat no genera cap fila ni cap crida al model. Tornar
+  a executar un dia (`daily_digests` és únic per tenant i data) el reescriu: és
+  una correcció, mai un segon digest del mateix correu.
+- Si el model respon sense text, el digest d'aquell tenant falla en lloc de
+  desar-se buit: la columna és `not null` i una fila buida seria un titular
+  damunt d'un dia en blanc que ja ningú no tornaria a generar.
+
 ## Notificacions Web Push (VAPID)
 
 Les notificacions de correu Urgent van per Web Push (`context.md` §5). Cal un parell
