@@ -1,0 +1,1 @@
+CREATE INDEX "drafts_thread_created_at_idx" ON "drafts" USING btree ("thread_id","created_at");

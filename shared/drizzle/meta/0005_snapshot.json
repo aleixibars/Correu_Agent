@@ -1,6 +1,6 @@
 {
-  "id": "d6a2e38a-386e-4674-94b8-5191abbdd0e2",
-  "prevId": "5e5a3f87-7f46-4e9d-9c7e-aff7ab351c0f",
+  "id": "295e0313-22e2-4362-9327-a81a2ddf36fa",
+  "prevId": "d6a2e38a-386e-4674-94b8-5191abbdd0e2",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -566,6 +566,22 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "drafts_thread_pending_idx": {
+          "name": "drafts_thread_pending_idx",
+          "columns": [
+            {
+              "expression": "thread_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"drafts\".\"status\" = 'pending'",
           "concurrently": false,
           "method": "btree",
           "with": {}
