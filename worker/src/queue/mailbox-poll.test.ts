@@ -63,8 +63,8 @@ describe("createMailboxPollHandler", () => {
 
     expect(pollGmailMailbox).toHaveBeenCalledTimes(2);
     expect(result.polled).toEqual([
-      { tenantId: "tenant-1", mailboxAccountId: "mailbox-1", newMessages: 0, cursor: "1100" },
-      { tenantId: "tenant-2", mailboxAccountId: "mailbox-2", newMessages: 0, cursor: "1100" },
+      { tenantId: "tenant-1", mailboxAccountId: "mailbox-1", newMessages: 0, cursor: "1100", cursorReset: false },
+      { tenantId: "tenant-2", mailboxAccountId: "mailbox-2", newMessages: 0, cursor: "1100", cursorReset: false },
     ]);
   });
 
@@ -84,6 +84,7 @@ describe("createMailboxPollHandler", () => {
       mailboxAccountId: "mailbox-1",
       newMessages: 3,
       cursor: "1100",
+      cursorReset: false,
     });
   });
 
@@ -118,6 +119,26 @@ describe("createMailboxPollHandler", () => {
     ]);
 
     expect(result.polled).toEqual([]);
+  });
+
+  it("reports and warns about a mailbox that lost its history window", async () => {
+    const { handle } = handlerPolling(
+      vi.fn(async (target: GmailPollTarget) => ({
+        ...outcome(target),
+        cursorReset: true,
+      })),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await handle([
+      job({ tenantId: "tenant-1", mailboxAccountId: "mailbox-1" }),
+    ]);
+
+    // Skipped mail is not recoverable (context.md §4), so it has to be visible
+    // rather than only implied by a cursor that jumped.
+    expect(result.polled[0]!.cursorReset).toBe(true);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("mailbox-1"));
+    warn.mockRestore();
   });
 
   it("handles an empty batch", async () => {

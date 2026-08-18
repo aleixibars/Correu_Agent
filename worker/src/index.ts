@@ -1,4 +1,6 @@
 import { APP_NAME } from "@correu-agent/shared";
+import { loadGoogleOAuthCredentials } from "@correu-agent/shared/mail";
+import { loadTokenEncryptionKey } from "@correu-agent/shared/token-encryption";
 import { createDatabase } from "./db";
 import { POLL_CRON_EXPRESSION } from "./poll-interval";
 import { MAILBOX_POLL_QUEUE } from "./queue/mailbox-poll";
@@ -13,6 +15,12 @@ const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
   throw new Error("DATABASE_URL is required to start the worker.");
 }
+
+// Checked at boot rather than on the first poll: nobody is watching a background
+// worker, so a missing key would otherwise only show up as every poll job failing
+// silently every two minutes.
+loadTokenEncryptionKey();
+loadGoogleOAuthCredentials();
 
 const boss = createQueueClient(databaseUrl);
 const db = createDatabase(databaseUrl);

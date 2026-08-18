@@ -128,6 +128,11 @@ ha push ni webhooks al PoC.
   el correu endarrerit no s'importa (`context.md` §4).
 - Les crides a Gmail viuen a `@correu-agent/shared/mail`, no dins del job: així
   Microsoft Graph entra darrere la mateixa interfície.
+- El worker comprova `TOKEN_ENCRYPTION_KEY` i `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET`
+  en arrencar: sense elles no pot desxifrar ni refrescar cap token, i és millor
+  que falli d'entrada que no pas que cada poll falli en silenci cada 2 minuts.
+- Si una bústia perd la finestra d'historial de Gmail, el poll ho registra amb un
+  avís i ho reporta al resultat de la feina: el correu saltat no es recupera.
 - Persistir els fils i missatges que troba el polling és el pas següent del
   pipeline.
 

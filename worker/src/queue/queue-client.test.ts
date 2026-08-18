@@ -15,16 +15,31 @@ const { listGmailPollTargets } = await import("../mailbox/gmail-poll");
 
 type WorkHandler = (jobs: unknown[]) => Promise<unknown>;
 
-const fakeBoss = () => {
+/**
+ * pg-boss's own semantics, as far as `startQueue` can see them: `createQueue`
+ * does nothing when the queue already exists, so a queue keeps the policy it was
+ * created with until it is deleted.
+ */
+const fakeBoss = (existing: Record<string, string> = {}) => {
   const calls: string[] = [];
   const handlers = new Map<string, WorkHandler>();
+  const queues = new Map(Object.entries(existing));
   const boss = {
     start: vi.fn(async () => {
       calls.push("start");
     }),
-    createQueue: vi.fn(async (name: string, options?: unknown) => {
+    createQueue: vi.fn(async (name: string, options?: { policy?: string }) => {
       calls.push(`createQueue:${name}`);
-      void options;
+      if (!queues.has(name)) queues.set(name, options?.policy ?? "standard");
+    }),
+    getQueues: vi.fn(async (names: string[]) =>
+      names
+        .filter((name) => queues.has(name))
+        .map((name) => ({ name, policy: queues.get(name) })),
+    ),
+    deleteQueue: vi.fn(async (name: string) => {
+      calls.push(`deleteQueue:${name}`);
+      queues.delete(name);
     }),
     work: vi.fn(async (name: string, handler: unknown) => {
       calls.push(`work:${name}`);
@@ -36,7 +51,7 @@ const fakeBoss = () => {
     }),
     send: vi.fn(async () => "job-1"),
   };
-  return { boss: boss as unknown as PgBoss, spy: boss, calls, handlers };
+  return { boss: boss as unknown as PgBoss, spy: boss, calls, handlers, queues };
 };
 
 const database = {} as Parameters<typeof startQueue>[1];
@@ -73,6 +88,35 @@ describe("startQueue", () => {
     for (const queue of [MAILBOX_POLL_QUEUE, MAILBOX_POLL_DISPATCH_QUEUE]) {
       expect(spy.createQueue).toHaveBeenCalledWith(queue, { policy: "short" });
     }
+  });
+
+  it("recreates a queue an earlier worker left on another policy", async () => {
+    // pg-boss ignores the policy of a queue that already exists and refuses to
+    // change it afterwards, so the de-duplication above would silently not apply.
+    const { boss, calls, queues } = fakeBoss({
+      [MAILBOX_POLL_QUEUE]: "standard",
+    });
+
+    await startQueue(boss, database);
+
+    expect(calls.filter((call) => call.endsWith(`:${MAILBOX_POLL_QUEUE}`))).toEqual([
+      `createQueue:${MAILBOX_POLL_QUEUE}`,
+      `deleteQueue:${MAILBOX_POLL_QUEUE}`,
+      `createQueue:${MAILBOX_POLL_QUEUE}`,
+      `work:${MAILBOX_POLL_QUEUE}`,
+    ]);
+    expect(queues.get(MAILBOX_POLL_QUEUE)).toBe("short");
+  });
+
+  it("leaves a queue already on the right policy alone", async () => {
+    const { boss, calls } = fakeBoss({
+      [MAILBOX_POLL_QUEUE]: "short",
+      [MAILBOX_POLL_DISPATCH_QUEUE]: "short",
+    });
+
+    await startQueue(boss, database);
+
+    expect(calls.some((call) => call.startsWith("deleteQueue:"))).toBe(false);
   });
 
   it("schedules the fan-out at the polling cadence (context.md §8)", async () => {

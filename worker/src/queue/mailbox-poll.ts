@@ -18,6 +18,12 @@ export type MailboxPollTarget = GmailPollTarget;
 export type MailboxPollOutcome = MailboxPollTarget & {
   newMessages: number;
   cursor: string;
+  /**
+   * Gmail had expired the stored cursor, so polling restarted from now and
+   * whatever arrived in between is gone. Reported per poll because it is the
+   * one outcome an operator has to notice.
+   */
+  cursorReset: boolean;
 };
 
 export type MailboxPollResult = {
@@ -68,11 +74,18 @@ export const createMailboxPollHandler = ({
     // Null means the mailbox was disconnected after the job was queued.
     if (!outcome) continue;
 
+    if (outcome.cursorReset) {
+      console.warn(
+        `Mailbox ${outcome.mailboxAccountId} lost its Gmail history window; polling resumed at ${outcome.cursor} and the mail in between was skipped.`,
+      );
+    }
+
     polled.push({
       tenantId: outcome.tenantId,
       mailboxAccountId: outcome.mailboxAccountId,
       newMessages: outcome.messages.length,
       cursor: outcome.cursor,
+      cursorReset: outcome.cursorReset,
     });
   }
 
