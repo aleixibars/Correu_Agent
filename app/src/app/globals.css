@@ -538,3 +538,54 @@ input[type="text"]:focus {
     align-items: flex-start;
   }
 }
+
+/* ── Loading skeletons ────────────────────────────────────────────────── */
+
+/* Placeholder shapes for the `loading.tsx` fallbacks: the blocks of the loaded
+   screen with the ink replaced by a bar that breathes. The reduced-motion rule
+   above freezes the pulse at full opacity. */
+.skeleton {
+  display: block;
+  height: 0.8rem;
+  margin: 6px 0;
+  border-radius: var(--radius-sm);
+  background: var(--line);
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+.skeleton--title {
+  height: 1.4rem;
+  width: 55%;
+  margin-bottom: 18px;
+}
+
+.skeleton--brand {
+  width: 160px;
+  height: 1rem;
+}
+
+.skeleton--pill {
+  width: 92px;
+}
+
+.skeleton--line {
+  width: 100%;
+}
+
+.skeleton--medium {
+  width: 68%;
+}
+
+.skeleton--short {
+  width: 40%;
+}
+
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
