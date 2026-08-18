@@ -7,6 +7,7 @@ import {
   type QueueHandlers,
 } from "./queue-client";
 import { RETENTION_PURGE_CRON, RETENTION_PURGE_QUEUE } from "./retention-purge";
+import { THREAD_TRIAGE_QUEUE } from "./thread-triage";
 
 /**
  * pg-boss's own semantics, as far as `startQueue` can see them: `createQueue`
@@ -44,6 +45,7 @@ const createBoss = (existingPolicies: Record<string, string> = {}) => {
 
 const handlers: QueueHandlers = {
   mailboxPoll: vi.fn(async () => ({ polled: [], threads: [], failed: [] })),
+  threadTriage: vi.fn(async () => ({ triaged: [], skipped: [], failed: [] })),
   retentionPurge: vi.fn(async () => ({ purged: 0 })),
 };
 
@@ -58,6 +60,9 @@ describe("startQueue", () => {
     expect(calls.indexOf(`createQueue:${MAILBOX_POLL_QUEUE}`)).toBeLessThan(
       calls.indexOf(`work:${MAILBOX_POLL_QUEUE}`),
     );
+    expect(calls.indexOf(`createQueue:${THREAD_TRIAGE_QUEUE}`)).toBeLessThan(
+      calls.indexOf(`work:${THREAD_TRIAGE_QUEUE}`),
+    );
     expect(calls.indexOf(`createQueue:${RETENTION_PURGE_QUEUE}`)).toBeLessThan(
       calls.indexOf(`work:${RETENTION_PURGE_QUEUE}`),
     );
@@ -66,9 +71,16 @@ describe("startQueue", () => {
     expect(boss.createQueue).toHaveBeenCalledWith(MAILBOX_POLL_QUEUE, {
       policy: SINGLE_FLIGHT_QUEUE_POLICY,
     });
+    expect(boss.createQueue).toHaveBeenCalledWith(THREAD_TRIAGE_QUEUE, {
+      policy: SINGLE_FLIGHT_QUEUE_POLICY,
+    });
     expect(boss.work).toHaveBeenCalledWith(
       MAILBOX_POLL_QUEUE,
       handlers.mailboxPoll,
+    );
+    expect(boss.work).toHaveBeenCalledWith(
+      THREAD_TRIAGE_QUEUE,
+      handlers.threadTriage,
     );
     expect(boss.work).toHaveBeenCalledWith(
       RETENTION_PURGE_QUEUE,
@@ -113,12 +125,13 @@ describe("startQueue", () => {
   it("leaves a queue already on the right policy alone", async () => {
     const { boss, calls } = createBoss({
       [MAILBOX_POLL_QUEUE]: SINGLE_FLIGHT_QUEUE_POLICY,
+      [THREAD_TRIAGE_QUEUE]: SINGLE_FLIGHT_QUEUE_POLICY,
       [RETENTION_PURGE_QUEUE]: SINGLE_FLIGHT_QUEUE_POLICY,
     });
 
     await startQueue(boss, handlers);
 
     expect(calls.some((call) => call.startsWith("deleteQueue"))).toBe(false);
-    expect(boss.work).toHaveBeenCalled();
+    expect(boss.work).toHaveBeenCalledTimes(3);
   });
 });

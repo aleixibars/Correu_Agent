@@ -15,7 +15,10 @@ import {
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
-import { AUTO_REPLY_ELIGIBLE_CATEGORIES, TRIAGE_CATEGORIES } from "../triage";
+import {
+  AUTO_REPLY_ELIGIBLE_CATEGORIES,
+  TRIAGE_CATEGORIES,
+} from "../triage/taxonomy";
 
 export const mailProviderEnum = pgEnum("mail_provider", ["google", "microsoft"]);
 
@@ -178,6 +181,13 @@ export const threads = pgTable(
       table.tenantId,
       table.lastMessageAt,
     ),
+    // The triage tick drains "which threads still have no category" every 2
+    // minutes, and that set is tiny next to the threads already triaged — which
+    // only ever grow. Partial, so the index stays the size of the backlog
+    // instead of the size of the mailbox.
+    index("threads_awaiting_triage_idx")
+      .on(table.lastMessageAt)
+      .where(sql`${table.triagedAt} is null`),
   ],
 );
 

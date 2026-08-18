@@ -1,4 +1,5 @@
 import { APP_NAME } from "@correu-agent/shared";
+import { createAnthropicClient } from "@correu-agent/shared/triage";
 import { createDatabase } from "./db";
 import { POLL_INTERVAL_MS } from "./poll-interval";
 import { loadGmailPollConfig, type GmailPollConfig } from "./poll/gmail";
@@ -13,10 +14,16 @@ import {
 import { createMailboxPollHandler } from "./queue/mailbox-poll";
 import { createQueueClient, startQueue } from "./queue/queue-client";
 import { createRetentionPurgeHandler } from "./queue/retention-purge";
+import { createThreadTriageHandler } from "./queue/thread-triage";
+import {
+  startThreadTriageSchedule,
+  type ThreadTriageSchedule,
+} from "./triage/schedule";
 
-// Entry point for the polling worker (context.md §10): a 2-minute schedule that
-// queues one job per connected mailbox, the queue workers that poll them, and
-// the daily 90-day retention purge (context.md §7).
+// Entry point for the pipeline worker (context.md §10): a 2-minute schedule that
+// queues one job per connected mailbox and one per thread still waiting for a
+// category, the queue workers that poll and classify them, and the daily 90-day
+// retention purge (context.md §7).
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -24,10 +31,12 @@ if (!databaseUrl) {
   throw new Error("DATABASE_URL is required to start the worker.");
 }
 
-// Read at boot, not per poll: a missing Google or Entra secret should stop the
-// worker rather than fail one mailbox at a time, two minutes apart, forever.
+// Read at boot, not per poll: a missing Google, Entra or Anthropic secret should
+// stop the worker rather than fail one mailbox at a time, two minutes apart,
+// forever.
 const google: GmailPollConfig = loadGmailPollConfig();
 const microsoft: MicrosoftPollConfig = loadMicrosoftPollConfig();
+const anthropic = createAnthropicClient();
 
 const db = createDatabase(databaseUrl);
 const boss = createQueueClient(databaseUrl);
@@ -38,11 +47,13 @@ boss.on("error", (error) => {
 
 // Assigned once the queue is up; the shutdown handler is registered before that
 // and has to cope with a signal arriving in between.
-let schedule: MailboxPollSchedule | undefined;
+let pollSchedule: MailboxPollSchedule | undefined;
+let triageSchedule: ThreadTriageSchedule | undefined;
 
 const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
   console.log(`Received ${signal}, stopping worker.`);
-  schedule?.stop();
+  pollSchedule?.stop();
+  triageSchedule?.stop();
   try {
     // Lets in-flight jobs finish instead of leaving them stuck in `active`.
     await boss.stop();
@@ -60,10 +71,12 @@ process.on("SIGTERM", shutdown);
 
 await startQueue(boss, {
   mailboxPoll: createMailboxPollHandler({ db, google, microsoft }),
+  threadTriage: createThreadTriageHandler({ db, anthropic: anthropic.messages }),
   retentionPurge: createRetentionPurgeHandler({ db }),
 });
-schedule = startMailboxPollSchedule({ boss, db });
+pollSchedule = startMailboxPollSchedule({ boss, db });
+triageSchedule = startThreadTriageSchedule({ boss, db });
 
 console.log(
-  `${APP_NAME} worker started. Polling connected mailboxes every ${POLL_INTERVAL_MS}ms.`,
+  `${APP_NAME} worker started. Polling connected mailboxes and triaging new threads every ${POLL_INTERVAL_MS}ms.`,
 );

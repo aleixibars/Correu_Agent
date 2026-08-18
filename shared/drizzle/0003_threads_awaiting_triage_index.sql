@@ -1,0 +1,1 @@
+CREATE INDEX "threads_awaiting_triage_idx" ON "threads" USING btree ("last_message_at") WHERE "threads"."triaged_at" is null;

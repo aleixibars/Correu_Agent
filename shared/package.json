@@ -13,6 +13,7 @@
     "./audit": "./src/audit/index.ts",
     "./mailbox": "./src/mailbox/index.ts",
     "./retention": "./src/retention/index.ts",
+    "./triage": "./src/triage/index.ts",
     "./web-push": "./src/web-push/index.ts",
     "./package.json": "./package.json"
   },
@@ -31,6 +32,7 @@
     "vitest": "^2.1.0"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1",
     "drizzle-orm": "^0.45.2",
     "web-push": "^3.6.7"
   }

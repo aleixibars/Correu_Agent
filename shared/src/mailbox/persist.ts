@@ -8,7 +8,7 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { recordAuditLogEntry } from "../audit";
 import { messages as messagesTable, threads } from "../db/schema";
 import type { ProviderMessage } from "../mail/types";
-import type { TriageCategory } from "../triage";
+import type { TriageCategory } from "../triage/taxonomy";
 
 export interface PersistPolledMessagesInput {
   tenantId: string;

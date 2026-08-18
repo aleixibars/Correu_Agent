@@ -9,11 +9,14 @@
 //   - `./mailbox` reaches both drizzle and `node:crypto`.
 //   - `./mail` calls the provider APIs directly and decodes with `node:buffer`.
 //   - `./retention` writes through drizzle as well.
+//   - `./triage` reaches drizzle and the Anthropic SDK; the taxonomy alone
+//     (`./triage/taxonomy`) is browser-safe and is re-exported below.
 // Server and worker code imports them from `@correu-agent/shared/token-encryption`,
 // `@correu-agent/shared/web-push`, `@correu-agent/shared/db/schema`,
 // `@correu-agent/shared/audit`, `@correu-agent/shared/mailbox`,
-// `@correu-agent/shared/mail` and `@correu-agent/shared/retention`.
+// `@correu-agent/shared/mail`, `@correu-agent/shared/retention` and
+// `@correu-agent/shared/triage`.
 
 export const APP_NAME = "Correu Agent";
 
-export * from "./triage";
+export * from "./triage/taxonomy";
