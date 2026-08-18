@@ -1,29 +1,109 @@
 import type { PgBoss } from "pg-boss";
-import { describe, expect, it, vi } from "vitest";
-import { MAILBOX_POLL_QUEUE, handleMailboxPoll } from "./mailbox-poll";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { POLL_CRON_EXPRESSION } from "../poll-interval";
+import { MAILBOX_POLL_DISPATCH_QUEUE } from "./mailbox-poll-dispatch";
+import { MAILBOX_POLL_QUEUE } from "./mailbox-poll";
 import { startQueue } from "./queue-client";
 
+// The wiring under test is which mailboxes get queued, not how they are polled.
+vi.mock("../mailbox/gmail-poll", () => ({
+  listGmailPollTargets: vi.fn(async () => []),
+  pollGmailMailbox: vi.fn(async () => null),
+}));
+
+const { listGmailPollTargets } = await import("../mailbox/gmail-poll");
+
+type WorkHandler = (jobs: unknown[]) => Promise<unknown>;
+
+const fakeBoss = () => {
+  const calls: string[] = [];
+  const handlers = new Map<string, WorkHandler>();
+  const boss = {
+    start: vi.fn(async () => {
+      calls.push("start");
+    }),
+    createQueue: vi.fn(async (name: string, options?: unknown) => {
+      calls.push(`createQueue:${name}`);
+      void options;
+    }),
+    work: vi.fn(async (name: string, handler: unknown) => {
+      calls.push(`work:${name}`);
+      handlers.set(name, handler as WorkHandler);
+      return `worker-${name}`;
+    }),
+    schedule: vi.fn(async (name: string) => {
+      calls.push(`schedule:${name}`);
+    }),
+    send: vi.fn(async () => "job-1"),
+  };
+  return { boss: boss as unknown as PgBoss, spy: boss, calls, handlers };
+};
+
+const database = {} as Parameters<typeof startQueue>[1];
+
+beforeEach(() => {
+  vi.mocked(listGmailPollTargets).mockResolvedValue([]);
+});
+
 describe("startQueue", () => {
-  it("creates the mailbox-poll queue before consuming it", async () => {
-    const calls: string[] = [];
-    const boss = {
-      start: vi.fn(async () => {
-        calls.push("start");
-      }),
-      createQueue: vi.fn(async () => {
-        calls.push("createQueue");
-      }),
-      work: vi.fn(async () => {
-        calls.push("work");
-        return "worker-1";
-      }),
-    } as unknown as PgBoss;
+  it("creates both queues before consuming or scheduling them", async () => {
+    const { boss, calls } = fakeBoss();
 
-    await startQueue(boss);
+    await startQueue(boss, database);
 
-    // work() on a queue that does not exist yet would never receive a job.
-    expect(calls).toEqual(["start", "createQueue", "work"]);
-    expect(boss.createQueue).toHaveBeenCalledWith(MAILBOX_POLL_QUEUE);
-    expect(boss.work).toHaveBeenCalledWith(MAILBOX_POLL_QUEUE, handleMailboxPoll);
+    // work() or schedule() on a queue that does not exist yet would never
+    // receive a job.
+    expect(calls).toEqual([
+      "start",
+      `createQueue:${MAILBOX_POLL_QUEUE}`,
+      `createQueue:${MAILBOX_POLL_DISPATCH_QUEUE}`,
+      `work:${MAILBOX_POLL_QUEUE}`,
+      `work:${MAILBOX_POLL_DISPATCH_QUEUE}`,
+      `schedule:${MAILBOX_POLL_DISPATCH_QUEUE}`,
+    ]);
+  });
+
+  it("keeps at most one job queued per mailbox and per tick", async () => {
+    const { boss, spy } = fakeBoss();
+
+    await startQueue(boss, database);
+
+    // Without it a worker that falls behind comes back to a queue holding one
+    // stale job per mailbox per elapsed 2-minute tick.
+    for (const queue of [MAILBOX_POLL_QUEUE, MAILBOX_POLL_DISPATCH_QUEUE]) {
+      expect(spy.createQueue).toHaveBeenCalledWith(queue, { policy: "short" });
+    }
+  });
+
+  it("schedules the fan-out at the polling cadence (context.md §8)", async () => {
+    const { boss, spy } = fakeBoss();
+
+    await startQueue(boss, database);
+
+    expect(spy.schedule).toHaveBeenCalledWith(
+      MAILBOX_POLL_DISPATCH_QUEUE,
+      POLL_CRON_EXPRESSION,
+    );
+  });
+
+  it("queues one poll per mailbox, without stacking them up", async () => {
+    const { boss, spy, handlers } = fakeBoss();
+    await startQueue(boss, database);
+
+    const dispatchHandler = handlers.get(MAILBOX_POLL_DISPATCH_QUEUE)!;
+    const listedTargets = [
+      { tenantId: "tenant-1", mailboxAccountId: "mailbox-1" },
+    ];
+    vi.mocked(listGmailPollTargets).mockResolvedValue(listedTargets);
+
+    await dispatchHandler([{ id: "tick-1", data: {} }]);
+
+    // A mailbox whose previous poll is still waiting must not be queued again:
+    // a slow provider would otherwise pile up a job every two minutes.
+    expect(spy.send).toHaveBeenCalledWith(
+      MAILBOX_POLL_QUEUE,
+      listedTargets[0],
+      { singletonKey: "mailbox-1" },
+    );
   });
 });

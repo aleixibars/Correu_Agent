@@ -112,6 +112,25 @@ xifrats a `mailbox_accounts` (`context.md` §7).
 - `TOKEN_ENCRYPTION_KEY` és obligatòria: sense clau el callback no pot desar
   els tokens.
 
+## Polling de bústies
+
+El worker consulta cada bústia connectada cada 2 minuts (`context.md` §8). No hi
+ha push ni webhooks al PoC.
+
+- `worker/src/poll-interval.ts` és l'única font de la cadència:
+  `POLL_INTERVAL_MS` i l'expressió cron que en deriva.
+- Cada tic entra a la cua `mailbox-poll-dispatch`, que llista les bústies Gmail
+  amb refresh token i encua un `mailbox-poll` per bústia (`singletonKey`, així
+  una bústia lenta no acumula feina pendent).
+- El poll d'una bústia (`worker/src/mailbox/gmail-poll.ts`) refresca l'access
+  token si cal, demana a Gmail què ha canviat des del `sync_cursor` i avança el
+  cursor. Si Gmail ja ha caducat l'historial (una setmana), es reprèn des d'ara:
+  el correu endarrerit no s'importa (`context.md` §4).
+- Les crides a Gmail viuen a `@correu-agent/shared/mail`, no dins del job: així
+  Microsoft Graph entra darrere la mateixa interfície.
+- Persistir els fils i missatges que troba el polling és el pas següent del
+  pipeline.
+
 ## Notificacions Web Push (VAPID)
 
 Les notificacions de correu Urgent van per Web Push (`context.md` §5). Cal un parell

@@ -5,10 +5,14 @@
 // nobody present.
 
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { GOOGLE_TOKEN_ENDPOINT } from "@correu-agent/shared/mail";
+
+// The worker redeems refresh tokens against the same endpoint, so it is owned
+// by `shared/` and re-exported here for the callers of this module.
+export { GOOGLE_TOKEN_ENDPOINT };
 
 export const GOOGLE_AUTHORIZATION_ENDPOINT =
   "https://accounts.google.com/o/oauth2/v2/auth";
-export const GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 export const GMAIL_PROFILE_ENDPOINT =
   "https://gmail.googleapis.com/gmail/v1/users/me/profile";
 

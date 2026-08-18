@@ -1,11 +1,12 @@
 import { APP_NAME } from "@correu-agent/shared";
-import { POLL_INTERVAL_MS } from "./poll-interval";
+import { createDatabase } from "./db";
+import { POLL_CRON_EXPRESSION } from "./poll-interval";
 import { MAILBOX_POLL_QUEUE } from "./queue/mailbox-poll";
 import { createQueueClient, startQueue } from "./queue/queue-client";
 
-// Entry point for the polling worker (context.md §10). The mailbox polling loop
-// and the provider clients (Gmail API / Microsoft Graph) land here issue by
-// issue — for now the worker only boots the pg-boss queue.
+// Entry point for the polling worker (context.md §10). Every 2 minutes it fans
+// out one poll job per connected Gmail mailbox; persisting the mail it finds
+// and triaging it land in the issues that follow.
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -14,6 +15,7 @@ if (!databaseUrl) {
 }
 
 const boss = createQueueClient(databaseUrl);
+const db = createDatabase(databaseUrl);
 
 boss.on("error", (error) => {
   console.error("Queue error:", error);
@@ -36,8 +38,8 @@ const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
-await startQueue(boss);
+await startQueue(boss, db);
 
 console.log(
-  `${APP_NAME} worker started. Consuming "${MAILBOX_POLL_QUEUE}", poll interval: ${POLL_INTERVAL_MS}ms.`,
+  `${APP_NAME} worker started. Consuming "${MAILBOX_POLL_QUEUE}", polling on "${POLL_CRON_EXPRESSION}".`,
 );
