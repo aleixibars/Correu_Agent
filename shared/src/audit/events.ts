@@ -13,12 +13,21 @@ export type SystemActor = { type: "system" };
 export type UserActor = { type: "user"; userId: string };
 export type AuditActor = SystemActor | UserActor;
 
-type EventBase = {
+/** What every entry carries, whatever it is about: whose tenant, and when. */
+type TenantEventBase = {
   tenantId: string;
-  /** The thread the action belongs to, on draft actions too, so one query by thread returns the full trail. */
-  threadId: string;
   /** Defaults to the database's `now()`; pass it when the action happened earlier than the write. */
   occurredAt?: Date;
+};
+
+/**
+ * An action on one thread. The tenant-wide configuration acts build on
+ * `TenantEventBase` instead — that split is what `buildAuditLogEntry` reads to
+ * decide whether an entry has a thread to hang off.
+ */
+type EventBase = TenantEventBase & {
+  /** The thread the action belongs to, on draft actions too, so one query by thread returns the full trail. */
+  threadId: string;
 };
 
 /**
@@ -110,9 +119,8 @@ export type AutoReplySentEvent = EventBase & {
  * approving it, so without it the trail of an auto-reply stops at "a rule was
  * on" with no record of who turned it on.
  */
-export type AutoReplyRuleChangedEvent = {
+export type AutoReplyRuleChangedEvent = TenantEventBase & {
   action: "auto_reply_rule_changed";
-  tenantId: string;
   actor: UserActor;
   category: TriageCategory;
   enabled: boolean;
@@ -121,7 +129,6 @@ export type AutoReplyRuleChangedEvent = {
   instructions: string | null;
   /** The guidance it carried before — rewriting it changes what auto-replies say. */
   previousInstructions: string | null;
-  occurredAt?: Date;
 };
 
 export type AuditEvent =

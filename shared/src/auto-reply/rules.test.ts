@@ -167,6 +167,37 @@ describe("setAutoReplyRule", () => {
     });
   });
 
+  it("switches a rule off, and clears the guidance it is not given again", async () => {
+    const { db, queries } = createDb([
+      [ruleRow(true, "Respon en to proper.")],
+      [ruleRow(false)],
+      [],
+    ]);
+
+    const rule = await setAutoReplyRule(db, {
+      tenantId: TENANT_ID,
+      category: "comercial",
+      enabled: false,
+      actor: ACTOR,
+      now: NOW,
+    });
+
+    // The whole rule is written, not a patch of it: a caller sends back the
+    // state `listAutoReplyRules` gave it, so omitted guidance means "none".
+    expect(rule.instructions).toBeNull();
+    expect(queries[1]!.params).not.toContain("Respon en to proper.");
+
+    const audit = queries[2]!;
+    expect(audit.sql).toContain('insert into "audit_log_entries"');
+    const metadata = audit.params.find(
+      (param) => typeof param === "string" && param.includes('"comercial"'),
+    ) as string;
+    expect(JSON.parse(metadata)).toMatchObject({
+      before: { enabled: true, instructions: "Respon en to proper." },
+      after: { enabled: false, instructions: null },
+    });
+  });
+
   it("stores blank guidance as none at all", async () => {
     const { db, queries } = createDb([[], [ruleRow(true)], []]);
 
