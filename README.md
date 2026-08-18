@@ -86,6 +86,33 @@ de l'esquema i desaria els tokens OAuth del proveïdor en clar. Les credencials 
 llegir una bústia van xifrades a `mailbox_accounts` (`context.md` §7); les taules de
 login només guarden l'enllaç d'identitat.
 
+## Connexió de bústies
+
+### Microsoft 365/Outlook
+
+`/api/mailboxes/microsoft/connect` (enllaç des del tauler) porta l'usuari al
+consentiment d'Entra ID amb els permisos que necessita el pipeline —
+`Mail.Read`, `Mail.Send` i `offline_access` — i `/api/mailboxes/microsoft/callback`
+desa la bústia a `mailbox_accounts` amb els tokens xifrats (`context.md` §7).
+
+És un flux a part del login: entrar amb Microsoft només diu qui hi ha al tauler,
+i no dóna cap accés al correu. Reutilitza el mateix registre d'app
+(`AUTH_MICROSOFT_ENTRA_ID_ID` / `_SECRET` / `_ISSUER`), així que només cal
+registrar-hi una URL de redirecció més:
+`https://<domini>/api/mailboxes/microsoft/callback`. Els permisos `Mail.Read` i
+`Mail.Send` (delegats) s'han d'afegir al registre d'app.
+
+Detalls del flux:
+
+- Cal `TOKEN_ENCRYPTION_KEY`: sense clau, la connexió falla abans de desar res.
+- L'estat CSRF i el verificador PKCE viuen en una galeta `httpOnly` d'un sol ús
+  que caduca als 10 minuts.
+- Sense `offline_access` consentit, Entra no retorna cap refresh token i la
+  connexió es rebutja: la bústia deixaria de ser consultable en una hora.
+- Reconnectar una bústia ja connectada només refresca les credencials: no mou
+  `connected_at` ni esborra `sync_cursor`, perquè el correu arribat mentrestant
+  segueix sent seu (`context.md` §4).
+
 ## Notificacions Web Push (VAPID)
 
 Les notificacions de correu Urgent van per Web Push (`context.md` §5). Cal un parell
