@@ -4,6 +4,11 @@ import type { Job } from "pg-boss";
 import { describe, expect, it, vi } from "vitest";
 import { TRIAGE_MODEL, type TriageMessagesClient } from "@correu-agent/shared/triage";
 import {
+  URGENT_NOTIFICATION_PATH,
+  URGENT_TITLE,
+  type WebPushSender,
+} from "@correu-agent/shared/web-push";
+import {
   THREAD_TRIAGE_QUEUE,
   createThreadTriageHandler,
   type ThreadTriageJobData,
@@ -30,10 +35,24 @@ const messageRow = () => [
   "Voldríem un pressupost",
 ];
 
-const createDb = (threads: unknown[][] = [threadRow()]) => {
+const PUSH_SUBSCRIPTION = {
+  endpoint: "https://fcm.googleapis.com/fcm/send/abc123",
+  keys: { p256dh: "client-public-key", auth: "client-auth-secret" },
+};
+
+const createDb = (
+  threads: unknown[][] = [threadRow()],
+  subscriptions: unknown[][] = [],
+) => {
   let loads = 0;
   let updates = 0;
   return drizzle(async (sql) => {
+    if (sql.includes('from "push_subscriptions"')) return { rows: subscriptions };
+    // The urgent notification reads the thread back joined to its mail, which
+    // is a different shape from the one `triageThread` loads.
+    if (sql.includes('left join "messages"')) {
+      return { rows: [["Servidor caigut", "client@example.com"]] };
+    }
     if (sql.includes('from "threads"')) {
       const thread = threads[loads++];
       return { rows: thread ? [thread] : [] };
@@ -44,6 +63,9 @@ const createDb = (threads: unknown[][] = [threadRow()]) => {
     return { rows: [] };
   });
 };
+
+const createSender = () =>
+  vi.fn<WebPushSender>(async () => ({ statusCode: 201, expired: false }));
 
 const createClient = (answers: string[] = ["comercial"]) => {
   let calls = 0;
@@ -65,6 +87,7 @@ describe("createThreadTriageHandler", () => {
     const result = await createThreadTriageHandler({
       db: createDb([threadRow(), threadRow()]),
       anthropic: client,
+      webPush: createSender(),
     })([
       job({ tenantId: TENANT_ID, threadId: THREAD_ID }),
       job({ tenantId: TENANT_ID, threadId: OTHER_THREAD_ID }, "job-2"),
@@ -93,6 +116,7 @@ describe("createThreadTriageHandler", () => {
     const result = await createThreadTriageHandler({
       db: createDb(),
       anthropic: client,
+      webPush: createSender(),
     })([
       job({ tenantId: TENANT_ID, threadId: THREAD_ID }),
       job({ tenantId: TENANT_ID, threadId: THREAD_ID }, "job-2"),
@@ -109,6 +133,7 @@ describe("createThreadTriageHandler", () => {
     const result = await createThreadTriageHandler({
       db: createDb([threadRow("2026-01-01T09:00:00.000Z")]),
       anthropic: client,
+      webPush: createSender(),
     })([job({ tenantId: TENANT_ID, threadId: THREAD_ID })]);
 
     expect(result.skipped).toEqual([{ tenantId: TENANT_ID, threadId: THREAD_ID }]);
@@ -123,6 +148,7 @@ describe("createThreadTriageHandler", () => {
     const result = await createThreadTriageHandler({
       db: createDb([threadRow(), threadRow()]),
       anthropic: client,
+      webPush: createSender(),
     })([
       job({ tenantId: TENANT_ID, threadId: THREAD_ID }),
       job({ tenantId: TENANT_ID, threadId: OTHER_THREAD_ID }, "job-2"),
@@ -146,10 +172,84 @@ describe("createThreadTriageHandler", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
 
     await expect(
-      createThreadTriageHandler({ db: createDb(), anthropic: client })([
+      createThreadTriageHandler({
+        db: createDb(),
+        anthropic: client,
+        webPush: createSender(),
+      })([
         job({ tenantId: TENANT_ID, threadId: THREAD_ID }),
       ]),
     ).rejects.toThrow("Anthropic is down");
+    error.mockRestore();
+  });
+  it("pushes a thread classified as urgent to the subscribed browsers (context.md §5)", async () => {
+    const { client } = createClient(["urgent"]);
+    const webPush = createSender();
+
+    await createThreadTriageHandler({
+      db: createDb([threadRow()], [
+        [
+          PUSH_SUBSCRIPTION.endpoint,
+          PUSH_SUBSCRIPTION.keys.p256dh,
+          PUSH_SUBSCRIPTION.keys.auth,
+        ],
+      ]),
+      anthropic: client,
+      webPush,
+    })([job({ tenantId: TENANT_ID, threadId: THREAD_ID })]);
+
+    expect(webPush).toHaveBeenCalledWith(
+      PUSH_SUBSCRIPTION,
+      expect.objectContaining({
+        title: URGENT_TITLE,
+        body: "client@example.com: Servidor caigut",
+        url: URGENT_NOTIFICATION_PATH,
+      }),
+    );
+  });
+
+  // Everything that is not urgent waits for the daily digest (context.md §5).
+  it("pushes nothing for any other category", async () => {
+    const { client } = createClient(["comercial"]);
+    const webPush = createSender();
+
+    await createThreadTriageHandler({
+      db: createDb([threadRow()], [
+        [
+          PUSH_SUBSCRIPTION.endpoint,
+          PUSH_SUBSCRIPTION.keys.p256dh,
+          PUSH_SUBSCRIPTION.keys.auth,
+        ],
+      ]),
+      anthropic: client,
+      webPush,
+    })([job({ tenantId: TENANT_ID, threadId: THREAD_ID })]);
+
+    expect(webPush).not.toHaveBeenCalled();
+  });
+
+  // The category is already stored by the time the push is attempted, so a
+  // failing notification must not turn a classified thread into a failed job.
+  it("still reports the thread as triaged when the notification fails", async () => {
+    const { client } = createClient(["urgent"]);
+    const webPush = createSender();
+    webPush.mockRejectedValue(new Error("push service unreachable"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await createThreadTriageHandler({
+      db: createDb([threadRow()], [
+        [
+          PUSH_SUBSCRIPTION.endpoint,
+          PUSH_SUBSCRIPTION.keys.p256dh,
+          PUSH_SUBSCRIPTION.keys.auth,
+        ],
+      ]),
+      anthropic: client,
+      webPush,
+    })([job({ tenantId: TENANT_ID, threadId: THREAD_ID })]);
+
+    expect(result.triaged).toHaveLength(1);
+    expect(result.failed).toEqual([]);
     error.mockRestore();
   });
 });

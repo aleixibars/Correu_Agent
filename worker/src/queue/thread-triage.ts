@@ -5,6 +5,10 @@ import {
   type TriageCategory,
   type TriageMessagesClient,
 } from "@correu-agent/shared/triage";
+import {
+  notifyUrgentThread,
+  type WebPushSender,
+} from "@correu-agent/shared/web-push";
 
 /** Queue that classifies the threads the poll wrote to (context.md §4). */
 export const THREAD_TRIAGE_QUEUE = "thread-triage";
@@ -35,6 +39,7 @@ export interface ThreadTriageDeps<
 > {
   db: PgDatabase<T, TSchema>;
   anthropic: TriageMessagesClient;
+  webPush: WebPushSender;
 }
 
 const targetKey = ({ tenantId, threadId }: ThreadTriageJobData): string =>
@@ -44,7 +49,8 @@ const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
 /**
- * Classifies every thread named in the batch (context.md §4). A thread that was
+ * Classifies every thread named in the batch (context.md §4) and pushes the
+ * urgent ones to the subscribed browsers (context.md §5). A thread that was
  * already triaged is skipped rather than classified again — a reply inside a
  * thread never changes what the thread is.
  *
@@ -58,6 +64,7 @@ export const createThreadTriageHandler = <
 >({
   db,
   anthropic,
+  webPush,
 }: ThreadTriageDeps<T, TSchema>): WorkHandler<
   ThreadTriageJobData,
   ThreadTriageResult
@@ -83,6 +90,20 @@ export const createThreadTriageHandler = <
         const result = await triageThread(db, anthropic, target);
         if (result) {
           triaged.push({ ...target, category: result.category, model: result.model });
+          // Urgent is the only category that interrupts the user (context.md
+          // §5). The category is already stored, so a push that fails is
+          // reported and nothing else: retrying the job would find the thread
+          // triaged and classify nothing.
+          if (result.category === "urgent") {
+            try {
+              await notifyUrgentThread(db, webPush, target);
+            } catch (error) {
+              console.error(
+                `Notifying the urgent thread ${target.threadId} failed:`,
+                error,
+              );
+            }
+          }
         } else {
           skipped.push(target);
         }

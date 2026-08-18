@@ -9,6 +9,7 @@ import {
 } from "../lib/mailbox/connect-messages";
 import { GOOGLE_CONNECT_PATH } from "../lib/mailbox/google-oauth";
 import { MICROSOFT_MAILBOX_CONNECT_PATH } from "../lib/mailbox/microsoft";
+import { UrgentPushToggle } from "./urgent-push";
 
 export default async function HomePage({
   searchParams,
@@ -61,6 +62,9 @@ export default async function HomePage({
           Connecta una bústia de Microsoft 365/Outlook
         </a>
       </p>
+      {/* Read here rather than in the client component: the key is public, but
+          only a Server Component can reach the environment it lives in. */}
+      <UrgentPushToggle publicKey={process.env.VAPID_PUBLIC_KEY ?? ""} />
       <form
         action={async () => {
           "use server";

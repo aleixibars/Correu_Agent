@@ -311,6 +311,39 @@ export const autoReplyRules = pgTable(
 );
 
 /**
+ * A browser that asked to be told about Urgent mail (context.md §5). Web Push is
+ * the only active notification in the product; everything else waits for the
+ * daily digest.
+ */
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    /** Whose browser this is — a subscription dies with the user who enabled it. */
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Push service URL the notification is sent to. */
+    endpoint: text("endpoint").notNull(),
+    /** Client public key and auth secret used to encrypt the payload. */
+    p256dhKey: text("p256dh_key").notNull(),
+    authKey: text("auth_key").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  // Unique on the endpoint alone, not per tenant: the push service already
+  // issues one endpoint per browser, so the same one arriving again is that
+  // browser re-subscribing, not a second subscription.
+  (table) => [
+    unique().on(table.endpoint),
+    index("push_subscriptions_tenant_idx").on(table.tenantId),
+  ],
+);
+
+/**
  * The daily digest of a day's triaged mail (context.md §2, §5). One row per
  * tenant per day, holding the prose the model wrote; the threads it summarises
  * are not copied into it, so the dashboard groups them straight from `threads`
@@ -394,5 +427,7 @@ export type AutoReplyRule = typeof autoReplyRules.$inferSelect;
 export type NewAutoReplyRule = typeof autoReplyRules.$inferInsert;
 export type AuditLogEntry = typeof auditLogEntries.$inferSelect;
 export type NewAuditLogEntry = typeof auditLogEntries.$inferInsert;
+export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
+export type NewPushSubscriptionRow = typeof pushSubscriptions.$inferInsert;
 export type DailyDigest = typeof dailyDigests.$inferSelect;
 export type NewDailyDigest = typeof dailyDigests.$inferInsert;

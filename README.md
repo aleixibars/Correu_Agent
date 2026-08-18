@@ -337,9 +337,25 @@ a l'entorn (`.env` en local, secrets de Render en desplegament):
 Regenerar les claus invalida totes les subscripcions existents: els navegadors
 s'han de tornar a subscriure.
 
+No totes van als dos serveis de Render: el Web Service (`app/`) només llegeix
+`VAPID_PUBLIC_KEY`, que lliura al navegador; el Background Worker (`worker/`) les
+necessita les tres, perquè és qui signa i envia la notificació. El worker les
+llegeix a l'arrencada i peta si en falta cap, igual que amb els secrets de
+Google, Entra i Anthropic — un worker desplegat sense elles entra en bucle de
+reinici en comptes de perdre avisos en silenci.
+
 El codi de servidor (`app/` API routes, `worker/`) importa l'enviament des de
 `@correu-agent/shared/web-push`, no des del barrel arrel: `web-push` és un paquet
 només de Node i el barrel l'importa codi que acaba al navegador.
+
+El circuit complet: al tauler, «Activa les notificacions» registra el service
+worker (`app/public/sw.js`), subscriu el navegador i desa la subscripció a
+`push_subscriptions` via `POST /api/push`. Quan el triatge classifica un fil com
+a Urgent, el worker envia la notificació a totes les subscripcions del tenant i
+esborra les que el servei de push declara caducades. Cap altra categoria genera
+avís actiu: van al digest diari. Un clic a l'avís obre la llista de fils
+(`/fils`); quan existeixi la pàgina d'un fil concret, l'avís hi haurà d'apuntar
+(`URGENT_NOTIFICATION_PATH` a `shared/src/web-push/urgent.ts`).
 
 ## Pipeline d'agents
 

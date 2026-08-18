@@ -50,6 +50,13 @@
       "when": 1787058161090,
       "tag": "0006_daily_digests",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787077889955,
+      "tag": "0007_push_subscriptions",
+      "breakpoints": true
     }
   ]
 }
