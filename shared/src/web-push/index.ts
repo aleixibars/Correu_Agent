@@ -25,9 +25,9 @@ export { parsePushSubscription } from "./subscription";
 export type { PushSubscription } from "./subscription";
 export {
   NO_SUBJECT_LABEL,
+  URGENT_NOTIFICATION_PATH,
   URGENT_TITLE,
   notifyUrgentThread,
-  urgentThreadPath,
 } from "./urgent";
 export type {
   NotifyUrgentThreadInput,

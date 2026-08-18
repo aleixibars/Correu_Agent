@@ -309,7 +309,9 @@ worker (`app/public/sw.js`), subscriu el navegador i desa la subscripció a
 `push_subscriptions` via `POST /api/push`. Quan el triatge classifica un fil com
 a Urgent, el worker envia la notificació a totes les subscripcions del tenant i
 esborra les que el servei de push declara caducades. Cap altra categoria genera
-avís actiu: van al digest diari.
+avís actiu: van al digest diari. Un clic a l'avís obre la llista de fils
+(`/fils`); quan existeixi la pàgina d'un fil concret, l'avís hi haurà d'apuntar
+(`URGENT_NOTIFICATION_PATH` a `shared/src/web-push/urgent.ts`).
 
 ## Pipeline d'agents
 

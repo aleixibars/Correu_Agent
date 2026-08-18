@@ -16,9 +16,14 @@ export const URGENT_TITLE = "Correu urgent";
 /** Stands in for the subject line of mail that arrived without one. */
 export const NO_SUBJECT_LABEL = "(sense assumpte)";
 
-/** Where clicking the notification lands: the thread's page on the dashboard. */
-export const urgentThreadPath = (threadId: string): string =>
-  `/fils/${threadId}`;
+/**
+ * Where clicking the notification lands. The per-thread page `/fils/<id>` has
+ * no route yet, so this points at the processed-thread list, which does exist:
+ * a notification that opens a 404 is worse than one that opens the list, and
+ * the body already names the sender and the subject. Move it to the thread
+ * itself once that page ships.
+ */
+export const URGENT_NOTIFICATION_PATH = "/fils";
 
 export interface NotifyUrgentThreadInput {
   tenantId: string;
@@ -76,7 +81,7 @@ export const notifyUrgentThread = async <
   const notification: WebPushNotification = {
     title: URGENT_TITLE,
     body: thread.fromAddress ? `${thread.fromAddress}: ${subject}` : subject,
-    url: urgentThreadPath(threadId),
+    url: URGENT_NOTIFICATION_PATH,
   };
 
   let sent = 0;

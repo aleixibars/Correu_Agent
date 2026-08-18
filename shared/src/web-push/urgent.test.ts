@@ -2,7 +2,12 @@ import { drizzle } from "drizzle-orm/pg-proxy";
 import { describe, expect, it, vi } from "vitest";
 import type { WebPushSender } from "./sender";
 import { TEST_PUSH_SUBSCRIPTION } from "./test-fixtures";
-import { NO_SUBJECT_LABEL, URGENT_TITLE, notifyUrgentThread } from "./urgent";
+import {
+  NO_SUBJECT_LABEL,
+  URGENT_NOTIFICATION_PATH,
+  URGENT_TITLE,
+  notifyUrgentThread,
+} from "./urgent";
 
 const TENANT_ID = "11111111-1111-1111-1111-111111111111";
 const THREAD_ID = "22222222-2222-2222-2222-222222222222";
@@ -65,7 +70,7 @@ describe("notifyUrgentThread", () => {
       {
         title: URGENT_TITLE,
         body: "client@example.com: Servidor caigut",
-        url: `/fils/${THREAD_ID}`,
+        url: URGENT_NOTIFICATION_PATH,
       },
     );
   });

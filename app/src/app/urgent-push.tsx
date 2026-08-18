@@ -31,7 +31,8 @@ const MESSAGES: Record<Exclude<State, "off" | "on">, string> = {
   unsupported: "Aquest navegador no admet notificacions push.",
   blocked:
     "Heu blocat les notificacions en aquest navegador. Permeteu-les a la configuració del lloc per rebre avisos de correu urgent.",
-  failed: "No s'han pogut canviar les notificacions. Torneu-ho a provar.",
+  failed:
+    "Hi ha hagut un problema amb les notificacions d'aquest navegador.",
 };
 
 const isSupported = (): boolean =>
@@ -52,7 +53,10 @@ export const UrgentPushToggle = ({
   const [state, setState] = useState<State>("loading");
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
+  // Reads what this browser actually holds. Also the way back from a failure:
+  // a failed enable or disable leaves the subscription in an unknown state, so
+  // the honest retry is to look again rather than to repeat the attempt.
+  const check = useCallback(() => {
     if (publicKey === "") {
       setState("unconfigured");
       return;
@@ -66,11 +70,16 @@ export const UrgentPushToggle = ({
       return;
     }
 
+    setState("loading");
     registration()
       .then((worker) => worker.pushManager.getSubscription())
       .then((subscription) => setState(subscription ? "on" : "off"))
       .catch(() => setState("failed"));
   }, [publicKey]);
+
+  useEffect(() => {
+    check();
+  }, [check]);
 
   const enable = useCallback(async () => {
     // Asked before subscribing: a browser that refuses the permission would
@@ -141,8 +150,17 @@ export const UrgentPushToggle = ({
         <button type="button" onClick={toggle(enable)} disabled={busy}>
           Activa les notificacions
         </button>
+      ) : state === "failed" ? (
+        // Kept reachable: without a control here a single network hiccup would
+        // strand the section on an error until the page is reloaded.
+        <>
+          <p role="alert">{MESSAGES.failed}</p>
+          <button type="button" onClick={check}>
+            Torna-ho a provar
+          </button>
+        </>
       ) : (
-        <p role={state === "failed" ? "alert" : "status"}>{MESSAGES[state]}</p>
+        <p role="status">{MESSAGES[state]}</p>
       )}
     </section>
   );

@@ -111,6 +111,13 @@ describe("DELETE /api/push", () => {
     );
   });
 
+  it("forgets nothing for a visitor without a session", async () => {
+    const response = await DELETE(request({ endpoint: SUBSCRIPTION.endpoint }));
+
+    expect(response.status).toBe(401);
+    expect(deletePushSubscription).not.toHaveBeenCalled();
+  });
+
   it("refuses a body with no endpoint", async () => {
     signedIn();
 

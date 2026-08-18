@@ -3,7 +3,11 @@ import { drizzle } from "drizzle-orm/pg-proxy";
 import type { Job } from "pg-boss";
 import { describe, expect, it, vi } from "vitest";
 import { TRIAGE_MODEL, type TriageMessagesClient } from "@correu-agent/shared/triage";
-import { URGENT_TITLE, type WebPushSender } from "@correu-agent/shared/web-push";
+import {
+  URGENT_NOTIFICATION_PATH,
+  URGENT_TITLE,
+  type WebPushSender,
+} from "@correu-agent/shared/web-push";
 import {
   THREAD_TRIAGE_QUEUE,
   createThreadTriageHandler,
@@ -199,7 +203,7 @@ describe("createThreadTriageHandler", () => {
       expect.objectContaining({
         title: URGENT_TITLE,
         body: "client@example.com: Servidor caigut",
-        url: `/fils/${THREAD_ID}`,
+        url: URGENT_NOTIFICATION_PATH,
       }),
     );
   });
