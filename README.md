@@ -300,6 +300,13 @@ a l'entorn (`.env` en local, secrets de Render en desplegament):
 Regenerar les claus invalida totes les subscripcions existents: els navegadors
 s'han de tornar a subscriure.
 
+No totes van als dos serveis de Render: el Web Service (`app/`) només llegeix
+`VAPID_PUBLIC_KEY`, que lliura al navegador; el Background Worker (`worker/`) les
+necessita les tres, perquè és qui signa i envia la notificació. El worker les
+llegeix a l'arrencada i peta si en falta cap, igual que amb els secrets de
+Google, Entra i Anthropic — un worker desplegat sense elles entra en bucle de
+reinici en comptes de perdre avisos en silenci.
+
 El codi de servidor (`app/` API routes, `worker/`) importa l'enviament des de
 `@correu-agent/shared/web-push`, no des del barrel arrel: `web-push` és un paquet
 només de Node i el barrel l'importa codi que acaba al navegador.

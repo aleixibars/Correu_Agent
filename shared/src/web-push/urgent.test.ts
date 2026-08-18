@@ -86,6 +86,17 @@ describe("notifyUrgentThread", () => {
     );
   });
 
+  // Left join: the poll may not have written the mail yet, and a notification
+  // naming the subject alone still beats none.
+  it("names the subject alone when no inbound mail is stored yet", async () => {
+    const { db } = createDb({ thread: ["Servidor caigut", null] });
+    const sender = createSender();
+
+    await notify(db, sender);
+
+    expect(sender.mock.calls[0]?.[1].body).toBe("Servidor caigut");
+  });
+
   it("reads the thread scoped to its tenant", async () => {
     const { db, queries } = createDb();
 
