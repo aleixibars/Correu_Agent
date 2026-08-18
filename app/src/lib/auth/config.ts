@@ -31,6 +31,9 @@ export const THREADS_PATH = "/fils";
 /** The daily digest, read inside the dashboard and never mailed (context.md §5). */
 export const DIGEST_PATH = "/digest";
 
+/** Where the per-category auto-reply switches are configured (context.md §2). */
+export const AUTO_REPLY_PATH = "/auto-resposta";
+
 export interface AuthConfigOptions {
   adapter: Adapter;
   /** Addresses allowed to sign in; anything else is turned away. */
