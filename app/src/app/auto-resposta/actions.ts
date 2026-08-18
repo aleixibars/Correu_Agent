@@ -14,9 +14,11 @@ import { db } from "../../lib/db";
 
 /**
  * The category a submission names, once it is one auto-reply may be switched on
- * for. The form only renders the eligible ones, so anything else is a
- * hand-crafted POST: it is refused here rather than handed to the rule writer,
- * which would store a disabled row for a category nobody may configure.
+ * for. A form field is arbitrary text, so it is matched against the taxonomy
+ * rather than cast to it; the form only renders the eligible categories, so
+ * anything else is a hand-crafted POST and is refused at the boundary. The rule
+ * writer refuses an ineligible category too (`AutoReplyCategoryError`) — this
+ * keeps the refusal here, where the untrusted value entered.
  */
 const eligibleCategory = (value: FormDataEntryValue | null): TriageCategory => {
   const category = TRIAGE_CATEGORIES.find((known) => known === value);

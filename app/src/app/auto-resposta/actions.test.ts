@@ -100,6 +100,30 @@ describe("saveAutoReplyRule", () => {
     expect(setAutoReplyRule).not.toHaveBeenCalled();
   });
 
+  it("refuses a submission that names no category", async () => {
+    signedIn();
+
+    await expect(submit({ enabled: "on" })).rejects.toThrow();
+    expect(setAutoReplyRule).not.toHaveBeenCalled();
+  });
+
+  // A submitted tenant is another tenant's mailbox waiting to be switched on:
+  // the rule is written against the session's tenant whatever the form says.
+  it("ignores a tenant smuggled into the form", async () => {
+    signedIn();
+
+    await submit({
+      category: "comercial",
+      enabled: "on",
+      tenantId: "99999999-9999-9999-9999-999999999999",
+    });
+
+    expect(setAutoReplyRule).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ tenantId: TEST_TENANT_ID }),
+    );
+  });
+
   it("refreshes the settings page so the stored state is what is shown", async () => {
     signedIn();
 

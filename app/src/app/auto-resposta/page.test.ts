@@ -97,7 +97,10 @@ describe("AutoReplyPage", () => {
     const markup = await render();
 
     expect(markup).not.toContain(`value="${category}"`);
-    expect(markup).not.toContain(`name="enabled" id="${category}"`);
+    // The rendered ids, so the assertion fails if a control ever appears rather
+    // than passing on a shape the page never emits.
+    expect(markup).not.toContain(`id="enabled-${category}"`);
+    expect(markup).not.toContain(`id="instructions-${category}"`);
   });
 
   it("says why the ineligible categories are not on offer", async () => {
