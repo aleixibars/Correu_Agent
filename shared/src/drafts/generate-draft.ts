@@ -2,17 +2,14 @@
 // in the database, ask Sonnet for the reply, store it as a pending draft with
 // the headers that keep it inside the thread, and record why.
 
-import { and, desc, eq, or } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { recordAuditLogEntry } from "../audit";
-import { drafts, messages, threads } from "../db/schema";
+import { drafts, threads } from "../db/schema";
 import { needsDraft } from "../triage/taxonomy";
-import {
-  MAX_THREAD_MESSAGES,
-  generateReply,
-  type DraftMessagesClient,
-} from "./generate";
+import { generateReply, type DraftMessagesClient } from "./generate";
 import { buildReplyHeaders, type ReplyHeaders } from "./reply-headers";
+import { loadThreadMessages } from "./thread-messages";
 
 export interface GenerateThreadDraftInput {
   tenantId: string;
@@ -64,24 +61,9 @@ export const generateThreadDraft = async <
   // Newsletters and spam are archived, never answered (context.md §2).
   if (!needsDraft(thread.category)) return null;
 
-  const recent = await db
-    .select({
-      id: messages.id,
-      direction: messages.direction,
-      fromAddress: messages.fromAddress,
-      subject: messages.subject,
-      bodyText: messages.bodyText,
-      snippet: messages.snippet,
-      messageIdHeader: messages.messageIdHeader,
-      inReplyTo: messages.inReplyTo,
-      references: messages.references,
-    })
-    .from(messages)
-    .where(eq(messages.threadId, threadId))
-    // Newest first, because that is the end the model reads and the end the
-    // reply answers; the prompt gets them the way it renders mail, oldest first.
-    .orderBy(desc(messages.sentAt))
-    .limit(MAX_THREAD_MESSAGES);
+  // Newest first, because that is the end the reply answers; the prompt gets
+  // them the way it renders mail, oldest first.
+  const recent = await loadThreadMessages(db, threadId);
 
   const answering = recent[0];
   // Nothing stored yet (the poll writes the thread and its mail as two
