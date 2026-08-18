@@ -7,9 +7,11 @@
 //   - `./db/schema` pulls in drizzle-orm and is server/worker-only.
 //   - `./audit` writes through drizzle, so it is server/worker-only too.
 //   - `./mailbox` reaches both drizzle and `node:crypto`.
+//   - `./mail` calls the provider APIs directly and decodes with `node:buffer`.
 // Server and worker code imports them from `@correu-agent/shared/token-encryption`,
 // `@correu-agent/shared/web-push`, `@correu-agent/shared/db/schema`,
-// `@correu-agent/shared/audit` and `@correu-agent/shared/mailbox`.
+// `@correu-agent/shared/audit`, `@correu-agent/shared/mailbox` and
+// `@correu-agent/shared/mail`.
 
 export const APP_NAME = "Correu Agent";
 

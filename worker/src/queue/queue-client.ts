@@ -24,6 +24,27 @@ export const createQueueClient = (connectionString: string): PgBoss =>
   new PgBoss({ connectionString, schema: QUEUE_SCHEMA });
 
 /**
+ * `createQueue()` does nothing when the queue already exists and pg-boss refuses
+ * to change a policy afterwards, so a queue first created by an earlier worker
+ * keeps whatever policy it was born with — silently, and the de-duplication
+ * above would never apply. The queue holds nothing worth keeping (a lost tick
+ * only means polling two minutes later), so a wrong policy is fixed by
+ * recreating the queue rather than left to rot.
+ */
+const ensurePollQueue = async (boss: PgBoss, name: string): Promise<void> => {
+  await boss.createQueue(name, { policy: MAILBOX_POLL_QUEUE_POLICY });
+
+  const queue = await boss.getQueue(name);
+  if (!queue || queue.policy === MAILBOX_POLL_QUEUE_POLICY) return;
+
+  console.warn(
+    `Queue "${name}" exists with policy "${queue.policy}"; recreating it as "${MAILBOX_POLL_QUEUE_POLICY}".`,
+  );
+  await boss.deleteQueue(name);
+  await boss.createQueue(name, { policy: MAILBOX_POLL_QUEUE_POLICY });
+};
+
+/**
  * Connects to Postgres, makes sure the `mailbox-poll` queue exists and starts
  * consuming it with the given handler. pg-boss creates/migrates its own schema
  * on `start()`.
@@ -33,19 +54,7 @@ export const startQueue = async (
   handleMailboxPoll: WorkHandler<MailboxPollJobData, MailboxPollResult>,
 ): Promise<void> => {
   await boss.start();
-  await boss.createQueue(MAILBOX_POLL_QUEUE, {
-    policy: MAILBOX_POLL_QUEUE_POLICY,
-  });
-
-  // createQueue does nothing to a queue that already exists, and pg-boss
-  // refuses to change a policy afterwards — a queue created by an older worker
-  // would keep stacking duplicate polls in silence, so say so out loud.
-  const queue = await boss.getQueue(MAILBOX_POLL_QUEUE);
-  if (queue && queue.policy !== MAILBOX_POLL_QUEUE_POLICY) {
-    console.warn(
-      `Queue "${MAILBOX_POLL_QUEUE}" has policy "${queue.policy}", not "${MAILBOX_POLL_QUEUE_POLICY}": duplicate poll jobs can pile up. Delete the queue once so it is recreated.`,
-    );
-  }
+  await ensurePollQueue(boss, MAILBOX_POLL_QUEUE);
 
   await boss.work<MailboxPollJobData, MailboxPollResult>(
     MAILBOX_POLL_QUEUE,

@@ -2,6 +2,7 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import type { WorkHandler } from "pg-boss";
 import type { MailboxMessageSummary } from "@correu-agent/shared/mailbox";
 import { loadPollableMailboxAccount } from "../poll/accounts";
+import { pollGmailMailbox, type GmailPollConfig } from "../poll/gmail";
 import { pollMicrosoftMailbox, type MicrosoftPollConfig } from "../poll/microsoft";
 
 /** Queue that drives the 2-minute mailbox polling cadence (context.md §8). */
@@ -34,6 +35,7 @@ export interface MailboxPollDeps<
   TSchema extends Record<string, unknown>,
 > {
   db: PgDatabase<T, TSchema>;
+  google: GmailPollConfig;
   microsoft: MicrosoftPollConfig;
 }
 
@@ -57,6 +59,7 @@ export const createMailboxPollHandler = <
   TSchema extends Record<string, unknown> = Record<string, never>,
 >({
   db,
+  google,
   microsoft,
 }: MailboxPollDeps<T, TSchema>): WorkHandler<
   MailboxPollJobData,
@@ -71,6 +74,8 @@ export const createMailboxPollHandler = <
     if (!account) return null;
 
     switch (account.provider) {
+      case "google":
+        return pollGmailMailbox(db, account, google);
       case "microsoft":
         return pollMicrosoftMailbox(db, account, microsoft);
       default:
@@ -103,6 +108,10 @@ export const createMailboxPollHandler = <
         polled.push(target);
         messages.push(...found.map((message) => ({ ...target, message })));
       } catch (error) {
+        // One mailbox with a revoked grant or an exhausted quota must not hide
+        // the rest of the batch, but it must not disappear either: pg-boss keeps
+        // nothing but the job result, so the failure is both logged and reported.
+        console.error(`Polling mailbox ${target.mailboxAccountId} failed:`, error);
         failed.push({ ...target, error: errorMessage(error) });
       }
     }

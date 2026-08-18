@@ -6,8 +6,9 @@ import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { mailboxAccounts, type MailProvider } from "@correu-agent/shared/db/schema";
 
-/** Providers this worker has a poller for; Gmail joins the list with its own. */
+/** Providers this worker has a poller for. */
 export const POLLED_PROVIDERS = [
+  "google",
   "microsoft",
 ] as const satisfies readonly MailProvider[];
 

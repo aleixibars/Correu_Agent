@@ -157,15 +157,50 @@ per bústia amb un `singletonKey` propi, així una consulta lenta no deixa una c
 de consultes duplicades al darrere. Qui ho fa complir és la política `short` de
 la cua (`worker/src/queue/queue-client.ts`): amb la política per defecte el
 `singletonKey` no filtra res. pg-boss fixa la política en crear la cua i no la
-deixa canviar després, així que una cua creada per un worker anterior s'ha
-d'esborrar un cop perquè es torni a crear — el worker ho avisa a l'arrencada.
+deixa canviar després, així que una cua creada per un worker anterior amb una
+altra política s'esborra i es torna a crear a l'arrencada (avisant-ne): no hi ha
+res a la cua que valgui la pena conservar, un tic perdut només vol dir consultar
+el correu dos minuts més tard.
+
 El primer tic és immediat: un worker que acaba de reiniciar no ha d'esperar dos
 minuts per mirar el correu.
 
 La feina es processa a `worker/src/queue/mailbox-poll.ts`: rellegeix la bústia de
 la base de dades (els tokens i el cursor es mouen entre encuar i processar) i la
 consulta pel client del proveïdor. Una bústia que falla no atura la resta del
-lot; si cap no s'ha pogut consultar, la feina falla perquè pg-boss la reintenti.
+lot: l'error es registra amb l'id de la bústia i es reporta al resultat de la
+feina. Si cap no s'ha pogut consultar, la feina falla perquè pg-boss la
+reintenti.
+
+Persistir els fils i missatges que troba el polling és el pas següent del
+pipeline.
+
+### Gmail/Google Workspace
+
+`worker/src/poll/gmail.ts` + `shared/src/mail/gmail.ts`:
+
+- Renova l'access token amb el refresh token desat quan queda menys d'un minut
+  de vida, i el torna a desar xifrat.
+- La primera consulta d'una bústia no descarrega res: només demana el
+  `historyId` actual i el desa com a cursor, així el correu anterior a la
+  connexió no s'importa (`context.md` §4).
+- Les consultes següents demanen l'historial des del cursor desat. Si Gmail ja
+  l'ha caducat (guarda l'historial una setmana), es reprèn des d'ara i es
+  registra un avís: el correu saltat entremig no es recupera.
+- Un poll agafa com a molt `MAX_MESSAGES_PER_POLL` missatges i deixa la resta
+  per al tic següent, avançant el cursor fins al darrer registre d'historial
+  processat. Sense aquest límit, una bústia molt endarrerida faria una feina més
+  llarga que la caducitat del job de pg-boss i no avançaria mai.
+- Queden fora els esborranys propis i el correu que ja és a la paperera (igual
+  que a Outlook, on només es llegeix la safata d'entrada); el correu enviat es
+  marca com a `outbound`.
+- Si una pàgina d'historial posterior a la primera desapareix a mitja consulta,
+  es conserva el correu ja llegit i es reprèn des del darrer registre processat:
+  tornar a començar des d'ara saltaria la resta de l'historial.
+- Variables necessàries al worker: `DATABASE_URL`, `AUTH_GOOGLE_ID`,
+  `AUTH_GOOGLE_SECRET` i `TOKEN_ENCRYPTION_KEY`. Es llegeixen en arrencar: sense
+  elles el worker no arrenca, en lloc de fallar cada poll en silenci cada 2
+  minuts.
 
 ### Microsoft 365/Outlook
 

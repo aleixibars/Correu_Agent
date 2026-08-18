@@ -1,7 +1,7 @@
-import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
 import { APP_NAME } from "@correu-agent/shared";
+import { createDatabase } from "./db";
 import { POLL_INTERVAL_MS } from "./poll-interval";
+import { loadGmailPollConfig, type GmailPollConfig } from "./poll/gmail";
 import {
   loadMicrosoftPollConfig,
   type MicrosoftPollConfig,
@@ -22,11 +22,12 @@ if (!databaseUrl) {
   throw new Error("DATABASE_URL is required to start the worker.");
 }
 
-// Read at boot, not per poll: a missing Entra secret should stop the worker
-// rather than fail one mailbox at a time, two minutes apart, forever.
+// Read at boot, not per poll: a missing Google or Entra secret should stop the
+// worker rather than fail one mailbox at a time, two minutes apart, forever.
+const google: GmailPollConfig = loadGmailPollConfig();
 const microsoft: MicrosoftPollConfig = loadMicrosoftPollConfig();
 
-const db = drizzle(new Pool({ connectionString: databaseUrl }));
+const db = createDatabase(databaseUrl);
 const boss = createQueueClient(databaseUrl);
 
 boss.on("error", (error) => {
@@ -55,7 +56,7 @@ const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
-await startQueue(boss, createMailboxPollHandler({ db, microsoft }));
+await startQueue(boss, createMailboxPollHandler({ db, google, microsoft }));
 schedule = startMailboxPollSchedule({ boss, db });
 
 console.log(

@@ -3,22 +3,35 @@ import { describe, expect, it, vi } from "vitest";
 import { MAILBOX_POLL_QUEUE } from "./mailbox-poll";
 import { MAILBOX_POLL_QUEUE_POLICY, startQueue } from "./queue-client";
 
-const createBoss = (policy: string = MAILBOX_POLL_QUEUE_POLICY) => {
+/**
+ * pg-boss's own semantics, as far as `startQueue` can see them: `createQueue`
+ * does nothing when the queue already exists, so a queue keeps the policy it was
+ * created with until it is deleted.
+ */
+const createBoss = (existingPolicy?: string) => {
   const calls: string[] = [];
+  let policy = existingPolicy;
   const boss = {
     start: vi.fn(async () => {
       calls.push("start");
     }),
-    createQueue: vi.fn(async () => {
+    createQueue: vi.fn(async (name: string, options?: { policy?: string }) => {
       calls.push("createQueue");
+      if (policy === undefined) policy = options?.policy ?? "standard";
     }),
-    getQueue: vi.fn(async () => ({ name: MAILBOX_POLL_QUEUE, policy })),
+    getQueue: vi.fn(async () =>
+      policy === undefined ? null : { name: MAILBOX_POLL_QUEUE, policy },
+    ),
+    deleteQueue: vi.fn(async () => {
+      calls.push("deleteQueue");
+      policy = undefined;
+    }),
     work: vi.fn(async () => {
       calls.push("work");
       return "worker-1";
     }),
   } as unknown as PgBoss;
-  return { boss, calls };
+  return { boss, calls, currentPolicy: () => policy };
 };
 
 const handleMailboxPoll = vi.fn(async () => ({
@@ -43,16 +56,32 @@ describe("startQueue", () => {
     expect(boss.work).toHaveBeenCalledWith(MAILBOX_POLL_QUEUE, handleMailboxPoll);
   });
 
-  it("warns when an already existing queue has another policy", async () => {
+  it("recreates a queue an earlier worker left on another policy", async () => {
     // createQueue is a no-op on an existing queue and pg-boss refuses to change
-    // a policy afterwards, so this would otherwise go unnoticed.
-    const { boss } = createBoss("standard");
+    // a policy afterwards, so the de-duplication would silently not apply.
+    const { boss, calls, currentPolicy } = createBoss("standard");
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     await startQueue(boss, handleMailboxPoll);
 
+    expect(calls).toEqual([
+      "start",
+      "createQueue",
+      "deleteQueue",
+      "createQueue",
+      "work",
+    ]);
+    expect(currentPolicy()).toBe(MAILBOX_POLL_QUEUE_POLICY);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("standard"));
-    expect(boss.work).toHaveBeenCalled();
     warn.mockRestore();
+  });
+
+  it("leaves a queue already on the right policy alone", async () => {
+    const { boss, calls } = createBoss(MAILBOX_POLL_QUEUE_POLICY);
+
+    await startQueue(boss, handleMailboxPoll);
+
+    expect(calls).not.toContain("deleteQueue");
+    expect(boss.work).toHaveBeenCalled();
   });
 });
