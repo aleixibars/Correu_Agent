@@ -11,11 +11,13 @@ import {
 
 const createClient = (
   text = JSON.stringify({ language: "ca", body: "Bon dia,\n\nHi treballem." }),
+  stopReason: Anthropic.Message["stop_reason"] = "end_turn",
 ) => {
   const create = vi.fn(
     async (_params: Anthropic.MessageCreateParamsNonStreaming) =>
       ({
         model: DRAFT_MODEL,
+        stop_reason: stopReason,
         content: [{ type: "text", text }],
       }) as unknown as Anthropic.Message,
   );
@@ -74,6 +76,38 @@ describe("generateReply", () => {
 
     await expect(generateReply(client, thread())).resolves.toEqual({
       body: "Bon dia, ho revisem.",
+      language: null,
+      model: DRAFT_MODEL,
+    });
+  });
+
+  it("refuses to hand on a reply the token cap cut in half", async () => {
+    // The half that came back is half a JSON envelope, and the thread's only
+    // pending slot must not be spent on a mail that stops mid-sentence.
+    const { client } = createClient(
+      '{"language":"ca","body":"Bon dia, us enviem el pre',
+      "max_tokens",
+    );
+
+    await expect(generateReply(client, thread())).rejects.toThrow(/token cap/);
+  });
+
+  it("refuses to hand on an answer with no reply in it", async () => {
+    // A refusal comes back with no text block at all.
+    const { client } = createClient("");
+
+    await expect(generateReply(client, thread())).rejects.toThrow(/no reply/);
+  });
+
+  it("keeps no language it cannot read as one", async () => {
+    // The tag is kept forever in the audit trail (context.md §7); a sentence
+    // there answers nothing about which language the mail went out in.
+    const { client } = createClient(
+      JSON.stringify({ language: "Catalan (detected)", body: "Bon dia." }),
+    );
+
+    await expect(generateReply(client, thread())).resolves.toEqual({
+      body: "Bon dia.",
       language: null,
       model: DRAFT_MODEL,
     });

@@ -149,6 +149,19 @@ const answerText = (message: Anthropic.Message): string =>
     .join("");
 
 /**
+ * A language tag, as far as the audit trail is concerned: `ca`, `es-419`. The
+ * field is written by the model and kept forever in the audit metadata
+ * (context.md §7), so a model that answers "Catalan" — or a sentence — leaves
+ * no tag rather than a tag nothing can read.
+ */
+const LANGUAGE_TAG = /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i;
+
+const parseLanguage = (language: unknown): string | null =>
+  typeof language === "string" && LANGUAGE_TAG.test(language.trim())
+    ? language.trim()
+    : null;
+
+/**
  * A model that answered with prose rather than the requested object still wrote
  * a reply, and a reviewer can read it — the alternative is throwing away a
  * finished draft over its envelope.
@@ -159,10 +172,7 @@ const parseReply = (answer: string): Pick<GeneratedReply, "body" | "language"> =
     if (parsed && typeof parsed === "object" && "body" in parsed) {
       const { body, language } = parsed as { body: unknown; language?: unknown };
       if (typeof body === "string") {
-        return {
-          body: body.trim(),
-          language: typeof language === "string" ? language : null,
-        };
+        return { body: body.trim(), language: parseLanguage(language) };
       }
     }
   } catch {
@@ -176,6 +186,11 @@ const parseReply = (answer: string): Pick<GeneratedReply, "body" | "language"> =
  * Writes the reply to one thread (context.md §2). The draft answers in the
  * language the thread is written in (context.md §6) — detection is the model's,
  * and what it detected comes back alongside the text.
+ *
+ * Throws when the answer is not a finished reply. A thread holds one pending
+ * draft at a time (`drafts_thread_pending_idx`), so storing a mail cut in half
+ * — or an empty one — would take that slot and leave the thread unanswerable
+ * until the user discards it by hand; a throw is a job the queue retries.
  */
 export const generateReply = async (
   client: DraftMessagesClient,
@@ -192,8 +207,25 @@ export const generateReply = async (
     messages: [{ role: "user", content: renderThread(thread) }],
   });
 
+  // The cap cuts the answer mid-token, so what comes back is half a mail — and
+  // half a *JSON* one, which `parseReply` can only hand on as the raw
+  // `{"language":"ca","body":"Bon di` it reads as prose.
+  if (answer.stop_reason === "max_tokens") {
+    throw new Error(
+      `The model's reply hit the ${MAX_TOKENS}-token cap and came back unfinished.`,
+    );
+  }
+
+  const reply = parseReply(answerText(answer));
+  // A refusal answers with no text at all (the prompt tells the model not to,
+  // which is not the same as it never happening), and a model can answer the
+  // requested shape with an empty body.
+  if (!reply.body) {
+    throw new Error("The model answered with no reply to draft.");
+  }
+
   return {
-    ...parseReply(answerText(answer)),
+    ...reply,
     // What actually answered, which is not always what was asked for.
     model: answer.model,
   };
