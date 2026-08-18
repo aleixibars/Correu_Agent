@@ -11,6 +11,11 @@ import {
   type RetentionPurgeResult,
 } from "./retention-purge";
 import {
+  THREAD_DRAFT_QUEUE,
+  type ThreadDraftJobData,
+  type ThreadDraftResult,
+} from "./thread-draft";
+import {
   THREAD_TRIAGE_QUEUE,
   type ThreadTriageJobData,
   type ThreadTriageResult,
@@ -61,6 +66,7 @@ const ensureQueue = async (boss: PgBoss, name: string): Promise<void> => {
 export interface QueueHandlers {
   mailboxPoll: WorkHandler<MailboxPollJobData, MailboxPollResult>;
   threadTriage: WorkHandler<ThreadTriageJobData, ThreadTriageResult>;
+  threadDraft: WorkHandler<ThreadDraftJobData, ThreadDraftResult>;
   retentionPurge: WorkHandler<RetentionPurgeJobData, RetentionPurgeResult>;
 }
 
@@ -68,14 +74,14 @@ export interface QueueHandlers {
  * Connects to Postgres, makes sure the worker's queues exist and starts
  * consuming them. pg-boss creates/migrates its own schema on `start()`.
  *
- * The mailbox poll and the thread triage are driven from the worker's own
- * 2-minute tick, while the retention purge rides pg-boss's cron: a daily job
- * must not restart its clock every time the worker is redeployed, and must fire
- * once for the cluster rather than once per instance.
+ * The mailbox poll, the thread triage and the drafting are driven from the
+ * worker's own 2-minute tick, while the retention purge rides pg-boss's cron: a
+ * daily job must not restart its clock every time the worker is redeployed, and
+ * must fire once for the cluster rather than once per instance.
  */
 export const startQueue = async (
   boss: PgBoss,
-  { mailboxPoll, threadTriage, retentionPurge }: QueueHandlers,
+  { mailboxPoll, threadTriage, threadDraft, retentionPurge }: QueueHandlers,
 ): Promise<void> => {
   await boss.start();
 
@@ -89,6 +95,12 @@ export const startQueue = async (
   await boss.work<ThreadTriageJobData, ThreadTriageResult>(
     THREAD_TRIAGE_QUEUE,
     threadTriage,
+  );
+
+  await ensureQueue(boss, THREAD_DRAFT_QUEUE);
+  await boss.work<ThreadDraftJobData, ThreadDraftResult>(
+    THREAD_DRAFT_QUEUE,
+    threadDraft,
   );
 
   await ensureQueue(boss, RETENTION_PURGE_QUEUE);

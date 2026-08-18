@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   AUTO_REPLY_ELIGIBLE_CATEGORIES,
+  DRAFT_ELIGIBLE_CATEGORIES,
   TRIAGE_CATEGORIES,
   isAutoReplyEligible,
+  needsDraft,
 } from "./index";
 
 describe("triage categories", () => {
@@ -28,6 +30,21 @@ describe("triage categories", () => {
     for (const category of AUTO_REPLY_ELIGIBLE_CATEGORIES) {
       expect(TRIAGE_CATEGORIES).toContain(category);
     }
+  });
+
+  it("never drafts a reply to a newsletter", () => {
+    // Newsletters and spam are archived or labelled, never answered (context.md §2).
+    expect(needsDraft("newsletter")).toBe(false);
+  });
+
+  it("drafts a reply to every other category", () => {
+    expect(DRAFT_ELIGIBLE_CATEGORIES).toEqual(
+      TRIAGE_CATEGORIES.filter((category) => category !== "newsletter"),
+    );
+    // Including the catch-all: it is where an unclear thread lands, so skipping
+    // it would silently drop business mail.
+    expect(needsDraft("personal")).toBe(true);
+    expect(needsDraft("urgent")).toBe(true);
   });
 });
 

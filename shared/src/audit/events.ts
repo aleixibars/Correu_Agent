@@ -48,6 +48,12 @@ export type DraftGeneratedEvent = EventBase & {
   actor: SystemActor;
   draftId: string;
   model: string;
+  /**
+   * The language the model detected in the thread and answered in (context.md
+   * §6). Null when it did not report one — the draft is still a draft, but "why
+   * was this mail written in Spanish" then has no answer here.
+   */
+  language: string | null;
   /** True when an auto-reply rule asked for this draft rather than the dashboard. */
   autoReply: boolean;
 };
@@ -158,7 +164,11 @@ const transitionOf = (event: AuditEvent): Transition => {
     case "draft_generated":
       return {
         after: { status: "pending" satisfies DraftStatus },
-        details: { model: event.model, autoReply: event.autoReply },
+        details: {
+          model: event.model,
+          language: event.language,
+          autoReply: event.autoReply,
+        },
       };
     case "draft_approved":
       return draftTransition("pending", "approved", event.edit);
