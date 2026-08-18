@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createGmailClient } from "./gmail";
+import { MAX_MESSAGES_PER_POLL, createGmailClient } from "./gmail";
 
 const ACCESS_TOKEN = "access-1";
 
@@ -242,6 +242,59 @@ describe("createGmailClient", () => {
 
     expect(result).toEqual({ messages: [], cursor: "9000", cursorReset: true });
     expect(requested.every((path) => !path.includes("/history"))).toBe(true);
+  });
+
+  it("stops at the message cap and resumes from the last history record taken", async () => {
+    const ids = Array.from({ length: MAX_MESSAGES_PER_POLL + 5 }, (_, i) => `msg-${i}`);
+    const { fetchMock } = gmailResponds({
+      history: [
+        {
+          // One record per message, so the cap lands mid-page and the resume
+          // point is a record id rather than the page's `historyId`.
+          history: ids.map((id, index) => ({
+            id: String(2000 + index),
+            messagesAdded: [added(id)],
+          })),
+          nextPageToken: "page-2",
+          historyId: "9999",
+        },
+      ],
+      messages: Object.fromEntries(
+        ids.map((id) => [id, gmailMessage({ id })]),
+      ),
+    });
+
+    const result = await createGmailClient(ACCESS_TOKEN).fetchNewMessages("1000");
+
+    expect(result.messages).toHaveLength(MAX_MESSAGES_PER_POLL);
+    // Not "9999": that is where the mailbox is now, and taking it would skip
+    // the messages this poll deliberately left for the next tick.
+    expect(result.cursor).toBe(String(2000 + MAX_MESSAGES_PER_POLL - 1));
+    expect(result.cursorReset).toBe(false);
+    // The truncated poll also stops asking for further pages.
+    const historyCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/history"),
+    );
+    expect(historyCalls).toHaveLength(1);
+  });
+
+  it("takes a single oversized history record whole, so the cursor always moves", async () => {
+    const ids = Array.from({ length: MAX_MESSAGES_PER_POLL + 5 }, (_, i) => `msg-${i}`);
+    gmailResponds({
+      history: [
+        {
+          history: [{ id: "2001", messagesAdded: ids.map((id) => added(id)) }],
+          nextPageToken: "page-2",
+          historyId: "9999",
+        },
+      ],
+      messages: Object.fromEntries(ids.map((id) => [id, gmailMessage({ id })])),
+    });
+
+    const result = await createGmailClient(ACCESS_TOKEN).fetchNewMessages("1000");
+
+    expect(result.messages).toHaveLength(ids.length);
+    expect(result.cursor).toBe("2001");
   });
 
   it("sends the mailbox access token on every request", async () => {

@@ -206,26 +206,41 @@ const currentHistoryId = async (accessToken: string): Promise<string> => {
   return historyId;
 };
 
-/** Message ids added since the cursor, in the order Gmail reports them, deduplicated. */
-const addedMessageIds = (body: Record<string, unknown>): string[] => {
-  const ids: string[] = [];
-  for (const record of (Array.isArray(body.history) ? body.history : []) as Record<
-    string,
-    unknown
-  >[]) {
-    const messagesAdded = Array.isArray(record.messagesAdded)
-      ? record.messagesAdded
-      : [];
-    for (const entry of messagesAdded as { message?: GmailMessage }[]) {
-      const id = asString(entry.message?.id);
-      // The full labels come from the message fetch; the history entry is only
-      // trusted for "a draft was saved", which is never mail that arrived.
-      const isDraft = asStringArray(entry.message?.labelIds).includes(DRAFT_LABEL);
-      if (id && !isDraft) ids.push(id);
-    }
-  }
-  return [...new Set(ids)];
-};
+/**
+ * One history record: its own id, which is where a later poll resumes from
+ * (`startHistoryId` is exclusive), and the message ids it says were added.
+ */
+type HistoryRecord = { id: string | null; messageIds: string[] };
+
+const historyRecords = (body: Record<string, unknown>): HistoryRecord[] =>
+  ((Array.isArray(body.history) ? body.history : []) as Record<string, unknown>[]).map(
+    (record) => {
+      const messagesAdded = (
+        Array.isArray(record.messagesAdded) ? record.messagesAdded : []
+      ) as { message?: GmailMessage }[];
+
+      const messageIds: string[] = [];
+      for (const entry of messagesAdded) {
+        const id = asString(entry.message?.id);
+        // The full labels come from the message fetch; the history entry is only
+        // trusted for "a draft was saved", which is never mail that arrived.
+        const isDraft = asStringArray(entry.message?.labelIds).includes(DRAFT_LABEL);
+        if (id && !isDraft) messageIds.push(id);
+      }
+
+      return { id: asString(record.id), messageIds };
+    },
+  );
+
+/**
+ * How much one poll takes on before it stops and leaves the rest for the next
+ * tick. A mailbox that fell a long way behind (worker down for a day, a bulk
+ * import) can have thousands of messages waiting, and each one costs a separate
+ * Gmail fetch: without a bound the job would outlive pg-boss's expiry, be
+ * retried from the same cursor, and the mailbox would never make progress
+ * again. Stopping early is safe because the cursor moves with the work done.
+ */
+export const MAX_MESSAGES_PER_POLL = 200;
 
 /**
  * A Gmail client bound to one mailbox's access token. Refreshing that token is
@@ -239,9 +254,14 @@ export const createGmailClient = (accessToken: string): MailProviderClient => ({
       return { messages: [], cursor: await currentHistoryId(accessToken), cursorReset: true };
     }
 
-    const messageIds: string[] = [];
+    const messageIds = new Set<string>();
+    // Where a truncated poll resumes from: the last record taken in full, never
+    // the page's `historyId` (that one is the mailbox's current position, so it
+    // would skip whatever this poll left behind).
+    let lastRecordId: string | null = null;
     let latestHistoryId = cursor;
     let pageToken: string | undefined;
+    let truncated = false;
 
     do {
       const page = await gmailGet(accessToken, "/history", {
@@ -260,14 +280,29 @@ export const createGmailClient = (accessToken: string): MailProviderClient => ({
         };
       }
 
-      messageIds.push(...addedMessageIds(page));
+      for (const record of historyRecords(page)) {
+        for (const id of record.messageIds) messageIds.add(id);
+        if (record.id) lastRecordId = record.id;
+        // Checked after taking the record, not before: a single record holding
+        // more than the cap must still be consumed, or the poll would stop
+        // without moving the cursor and repeat itself forever.
+        if (messageIds.size >= MAX_MESSAGES_PER_POLL) {
+          truncated = true;
+          break;
+        }
+      }
+
       latestHistoryId = readHistoryId(page) ?? latestHistoryId;
       pageToken = asString(page.nextPageToken) ?? undefined;
-    } while (pageToken);
+    } while (pageToken && !truncated);
 
     const messages: ProviderMessage[] = [];
-    for (const id of [...new Set(messageIds)]) {
-      const raw = await gmailGet(accessToken, `/messages/${id}`, { format: "full" });
+    for (const id of messageIds) {
+      const raw = await gmailGet(
+        accessToken,
+        `/messages/${encodeURIComponent(id)}`,
+        { format: "full" },
+      );
       // Deleted between the history page and this fetch — normal, not an error.
       if (!raw) continue;
 
@@ -275,6 +310,10 @@ export const createGmailClient = (accessToken: string): MailProviderClient => ({
       if (message) messages.push(message);
     }
 
-    return { messages, cursor: latestHistoryId, cursorReset: false };
+    return {
+      messages,
+      cursor: truncated && lastRecordId ? lastRecordId : latestHistoryId,
+      cursorReset: false,
+    };
   },
 });

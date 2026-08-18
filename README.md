@@ -169,6 +169,13 @@ ha push ni webhooks al PoC.
   que falli d'entrada que no pas que cada poll falli en silenci cada 2 minuts.
 - Si una bústia perd la finestra d'historial de Gmail, el poll ho registra amb un
   avís i ho reporta al resultat de la feina: el correu saltat no es recupera.
+- Un poll agafa com a molt `MAX_MESSAGES_PER_POLL` missatges i deixa la resta per
+  al tic següent, avançant el cursor fins al darrer registre d'historial
+  processat. Sense aquest límit, una bústia molt endarrerida faria una feina més
+  llarga que la caducitat del job de pg-boss i no avançaria mai.
+- Si el poll d'una bústia falla, l'error es registra amb l'id de la bústia i la
+  resta del lot es continua polling; el job acaba fallant perquè pg-boss el
+  reintenti.
 - Persistir els fils i missatges que troba el polling és el pas següent del
   pipeline.
 

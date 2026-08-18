@@ -141,6 +141,34 @@ describe("createMailboxPollHandler", () => {
     warn.mockRestore();
   });
 
+  it("polls the rest of the batch when one mailbox fails, then fails the job", async () => {
+    const broken = new Error("Google refused the mailbox refresh token (400): invalid_grant");
+    const { handle, pollGmailMailbox } = handlerPolling(
+      vi.fn(async (target: GmailPollTarget) => {
+        if (target.mailboxAccountId === "mailbox-1") throw broken;
+        return outcome(target);
+      }),
+    );
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    // Rethrown so pg-boss retries: a swallowed failure would be recorded as a
+    // successful poll and the mailbox would go quiet unnoticed.
+    await expect(
+      handle([
+        job({ tenantId: "tenant-1", mailboxAccountId: "mailbox-1" }, "job-1"),
+        job({ tenantId: "tenant-1", mailboxAccountId: "mailbox-2" }, "job-2"),
+      ]),
+    ).rejects.toBe(broken);
+
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining("mailbox-1"),
+      broken,
+    );
+    // The healthy mailbox in the same batch still got its turn.
+    expect(pollGmailMailbox).toHaveBeenCalledTimes(2);
+    error.mockRestore();
+  });
+
   it("handles an empty batch", async () => {
     const { handle } = handlerPolling();
 

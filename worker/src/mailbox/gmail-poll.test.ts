@@ -85,12 +85,11 @@ const recordingDatabase = ({
     statements.push({ sql, params });
     if (!sql.startsWith("select")) return { rows: [] };
     if (!account) return { rows: [] };
+    // Positional, in the order `pollGmailMailbox` selects the columns.
     return {
       rows: [
         [
           MAILBOX_ID,
-          TENANT_ID,
-          "bustia@example.com",
           "1000",
           encryptToken("access-1", encryptionKey),
           refreshToken ? encryptToken(refreshToken, encryptionKey) : null,

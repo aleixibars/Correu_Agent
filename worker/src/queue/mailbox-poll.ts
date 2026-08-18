@@ -66,28 +66,43 @@ export const createMailboxPollHandler = ({
   }
 
   const polled: MailboxPollOutcome[] = [];
+  const failures: unknown[] = [];
+
   for (const target of targets.values()) {
     // Mailboxes are polled one after another rather than all at once: the PoC
     // has a handful of them, and a burst of parallel calls is what provider
     // rate limits punish.
-    const outcome = await pollGmailMailbox(target);
-    // Null means the mailbox was disconnected after the job was queued.
-    if (!outcome) continue;
+    try {
+      const outcome = await pollGmailMailbox(target);
+      // Null means the mailbox was disconnected after the job was queued.
+      if (!outcome) continue;
 
-    if (outcome.cursorReset) {
-      console.warn(
-        `Mailbox ${outcome.mailboxAccountId} lost its Gmail history window; polling resumed at ${outcome.cursor} and the mail in between was skipped.`,
-      );
+      if (outcome.cursorReset) {
+        console.warn(
+          `Mailbox ${outcome.mailboxAccountId} lost its Gmail history window; polling resumed at ${outcome.cursor} and the mail in between was skipped.`,
+        );
+      }
+
+      polled.push({
+        tenantId: outcome.tenantId,
+        mailboxAccountId: outcome.mailboxAccountId,
+        newMessages: outcome.messages.length,
+        cursor: outcome.cursor,
+        cursorReset: outcome.cursorReset,
+      });
+    } catch (error) {
+      // One mailbox with a revoked grant or an exhausted quota must not hide the
+      // rest of the batch, and pg-boss stores nothing but the failure itself:
+      // without this line the only trace of a permanently broken mailbox would
+      // be a job silently failing every two minutes.
+      console.error(`Polling mailbox ${target.mailboxAccountId} failed:`, error);
+      failures.push(error);
     }
-
-    polled.push({
-      tenantId: outcome.tenantId,
-      mailboxAccountId: outcome.mailboxAccountId,
-      newMessages: outcome.messages.length,
-      cursor: outcome.cursor,
-      cursorReset: outcome.cursorReset,
-    });
   }
+
+  // Rethrown after every mailbox has had its turn so pg-boss still retries the
+  // job — swallowing the error would mark the poll as a success.
+  if (failures.length > 0) throw failures[0];
 
   return { polled };
 };

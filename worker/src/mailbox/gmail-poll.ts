@@ -93,8 +93,6 @@ export const pollGmailMailbox = async <
   const [account] = await db
     .select({
       id: mailboxAccounts.id,
-      tenantId: mailboxAccounts.tenantId,
-      emailAddress: mailboxAccounts.emailAddress,
       syncCursor: mailboxAccounts.syncCursor,
       accessTokenEncrypted: mailboxAccounts.accessTokenEncrypted,
       refreshTokenEncrypted: mailboxAccounts.refreshTokenEncrypted,
