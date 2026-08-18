@@ -24,8 +24,12 @@ export default function NotFound() {
       <h1>Aquesta pàgina no existeix</h1>
       <p className="meta">Error 404</p>
       <section className="card">
+        {/* No parla només de seccions inexistents: `fils/[id]` crida
+            `notFound()` quan el fil no existeix o no és d'aquest compte, i
+            aquesta és la pantalla que hi surt. */}
         <p>
-          L&apos;adreça que has seguit no correspon a cap secció del tauler.
+          L&apos;adreça que has seguit no porta enlloc del tauler: pot ser un
+          enllaç antic, o un fil que ja no hi és.
         </p>
         <p>
           <Link href={DASHBOARD_PATH} className="btn">
