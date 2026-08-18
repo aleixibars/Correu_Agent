@@ -2,17 +2,19 @@
 // asks the Gmail API what changed since the mailbox's stored `historyId` and
 // hands the new messages back in the provider-agnostic shape of `./types`.
 
+import { errorDetail, readJson } from "./google-errors";
 import type {
   MailPollResult,
   MailProviderClient,
   ProviderMessage,
 } from "./types";
 
-export const GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
+const GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
 
 /** Gmail labels that decide what a message is, rather than how it looks. */
 const DRAFT_LABEL = "DRAFT";
 const SENT_LABEL = "SENT";
+const TRASH_LABEL = "TRASH";
 
 type GmailHeader = { name?: unknown; value?: unknown };
 
@@ -37,23 +39,6 @@ const asString = (value: unknown): string | null =>
 
 const asStringArray = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-
-const readJson = async (response: Response): Promise<Record<string, unknown>> => {
-  try {
-    return (await response.json()) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-};
-
-const errorDetail = (body: Record<string, unknown>): string => {
-  const { error } = body;
-  if (typeof error === "string") return error;
-  if (error && typeof error === "object" && "message" in error) {
-    return String((error as { message: unknown }).message);
-  }
-  return "unknown error";
-};
 
 /**
  * `null` on 404 so the caller can tell "gone" apart from "broken": an expired
@@ -166,7 +151,12 @@ const toProviderMessage = (message: GmailMessage): ProviderMessage | null => {
   if (!providerMessageId || !providerThreadId) return null;
 
   const labelIds = asStringArray(message.labelIds);
-  if (labelIds.includes(DRAFT_LABEL)) return null;
+  // A draft the mailbox is writing itself is not mail that arrived, and mail
+  // already in the bin is mail the owner threw away: neither is worth triaging.
+  // The Graph client leaves both out too, by reading the inbox alone.
+  if (labelIds.includes(DRAFT_LABEL) || labelIds.includes(TRASH_LABEL)) {
+    return null;
+  }
 
   const headers = (Array.isArray(message.payload?.headers)
     ? message.payload?.headers
@@ -255,9 +245,9 @@ export const createGmailClient = (accessToken: string): MailProviderClient => ({
     }
 
     const messageIds = new Set<string>();
-    // Where a truncated poll resumes from: the last record taken in full, never
-    // the page's `historyId` (that one is the mailbox's current position, so it
-    // would skip whatever this poll left behind).
+    // Where a poll that stopped early resumes from: the last record taken in
+    // full, never the page's `historyId` (that one is the mailbox's current
+    // position, so it would skip whatever this poll left behind).
     let lastRecordId: string | null = null;
     let latestHistoryId = cursor;
     let pageToken: string | undefined;
@@ -270,14 +260,23 @@ export const createGmailClient = (accessToken: string): MailProviderClient => ({
         pageToken,
       });
 
-      // Gmail keeps history for about a week; past that the cursor is gone and
-      // the only honest answer is to restart from now.
       if (!page) {
-        return {
-          messages: [],
-          cursor: await currentHistoryId(accessToken),
-          cursorReset: true,
-        };
+        // On the first request the stored cursor itself is gone: Gmail keeps
+        // history for about a week, and the only honest answer is to restart
+        // from now.
+        if (!pageToken) {
+          return {
+            messages: [],
+            cursor: await currentHistoryId(accessToken),
+            cursorReset: true,
+          };
+        }
+        // On a later page the cursor was still good a moment ago, so this is a
+        // page that went stale mid-poll. Keep what has already been taken and
+        // resume from there; restarting from now would skip the rest of the
+        // history this poll had not reached yet.
+        truncated = true;
+        break;
       }
 
       for (const record of historyRecords(page)) {
@@ -312,7 +311,11 @@ export const createGmailClient = (accessToken: string): MailProviderClient => ({
 
     return {
       messages,
-      cursor: truncated && lastRecordId ? lastRecordId : latestHistoryId,
+      // A poll that ran to the end of the history is at the mailbox's current
+      // position; one that stopped early is only as far as the last record it
+      // took, and falls back to where it started rather than to a position it
+      // never reached.
+      cursor: truncated ? (lastRecordId ?? cursor) : latestHistoryId,
       cursorReset: false,
     };
   },

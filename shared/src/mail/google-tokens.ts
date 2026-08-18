@@ -2,6 +2,8 @@
 // so the encrypted refresh token stored at connection time is the only
 // credential it has: the short-lived access token is minted from it here.
 
+import { errorDetail, readJson } from "./google-errors";
+
 export const GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 
 /** The mailbox grant reuses the dashboard's Google app (context.md §9) — one pair of secrets. */
@@ -27,26 +29,6 @@ export const loadGoogleOAuthCredentials = (
     );
   }
   return { clientId, clientSecret };
-};
-
-const readJson = async (
-  response: Response,
-): Promise<Record<string, unknown>> => {
-  try {
-    return (await response.json()) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-};
-
-const errorDetail = (body: Record<string, unknown>): string => {
-  const { error, error_description: description } = body;
-  if (typeof description === "string") return description;
-  if (typeof error === "string") return error;
-  if (error && typeof error === "object" && "message" in error) {
-    return String((error as { message: unknown }).message);
-  }
-  return "unknown error";
 };
 
 export const refreshGoogleAccessToken = async (

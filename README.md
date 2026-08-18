@@ -191,7 +191,12 @@ pipeline.
   per al tic següent, avançant el cursor fins al darrer registre d'historial
   processat. Sense aquest límit, una bústia molt endarrerida faria una feina més
   llarga que la caducitat del job de pg-boss i no avançaria mai.
-- Queden fora els esborranys propis; el correu enviat es marca com a `outbound`.
+- Queden fora els esborranys propis i el correu que ja és a la paperera (igual
+  que a Outlook, on només es llegeix la safata d'entrada); el correu enviat es
+  marca com a `outbound`.
+- Si una pàgina d'historial posterior a la primera desapareix a mitja consulta,
+  es conserva el correu ja llegit i es reprèn des del darrer registre processat:
+  tornar a començar des d'ara saltaria la resta de l'historial.
 - Variables necessàries al worker: `DATABASE_URL`, `AUTH_GOOGLE_ID`,
   `AUTH_GOOGLE_SECRET` i `TOKEN_ENCRYPTION_KEY`. Es llegeixen en arrencar: sense
   elles el worker no arrenca, en lloc de fallar cada poll en silenci cada 2

@@ -190,6 +190,18 @@ describe("createGmailClient", () => {
     expect(result.cursor).toBe("1100");
   });
 
+  it("ignores mail already in the bin, which nobody is waiting on", async () => {
+    gmailResponds({
+      history: [{ history: [{ id: "1001", messagesAdded: [added("msg-1")] }], historyId: "1100" }],
+      messages: { "msg-1": gmailMessage({ labelIds: ["TRASH"] }) },
+    });
+
+    const result = await createGmailClient(ACCESS_TOKEN).fetchNewMessages("1000");
+
+    expect(result.messages).toEqual([]);
+    expect(result.cursor).toBe("1100");
+  });
+
   it("skips a message deleted between the history page and the fetch", async () => {
     gmailResponds({
       history: [
@@ -295,6 +307,42 @@ describe("createGmailClient", () => {
 
     expect(result.messages).toHaveLength(ids.length);
     expect(result.cursor).toBe("2001");
+  });
+
+  it("keeps the mail of the pages it read when a later history page is gone", async () => {
+    let historyCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) => {
+        const url = new URL(String(input));
+        if (url.pathname.endsWith("/history")) {
+          historyCalls += 1;
+          // The stored cursor was good a moment ago, so the second page going
+          // missing is not an expired history window.
+          return historyCalls === 1
+            ? jsonResponse({
+                history: [{ id: "1001", messagesAdded: [added("msg-1")] }],
+                nextPageToken: "page-2",
+                historyId: "9999",
+              })
+            : jsonResponse({ error: { message: "Not Found" } }, 404);
+        }
+        if (url.pathname.endsWith("/profile")) {
+          return jsonResponse({ historyId: "9000" });
+        }
+        return jsonResponse(gmailMessage());
+      }),
+    );
+
+    const result = await createGmailClient(ACCESS_TOKEN).fetchNewMessages("1000");
+
+    expect(result.messages.map((message) => message.providerMessageId)).toEqual([
+      "msg-1",
+    ]);
+    // Neither "9999" nor a restart from now: both would skip the history this
+    // poll never reached.
+    expect(result.cursor).toBe("1001");
+    expect(result.cursorReset).toBe(false);
   });
 
   it("sends the mailbox access token on every request", async () => {
