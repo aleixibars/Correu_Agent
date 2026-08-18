@@ -1,9 +1,11 @@
 // Catalan copy for the outcome of a mailbox connection, shown on the dashboard
-// after Google redirects the user back (context.md §11: dashboard in Catalan).
+// after the provider redirects the user back (context.md §11: dashboard in
+// Catalan). Shared by the Gmail and the Microsoft 365/Outlook flows, so the
+// success line names no provider.
 
 import type { MailboxConnectionErrorCode } from "./connect-google-mailbox";
 
-/** Value of the `?bustia=` parameter the callback redirects home with. */
+/** Value of the `?bustia=` parameter the callbacks redirect home with. */
 export const MAILBOX_STATUS_PARAM = "bustia";
 export const MAILBOX_REASON_PARAM = "motiu";
 export const MAILBOX_CONNECTED_STATUS = "connectada";
@@ -56,7 +58,7 @@ export const mailboxConnectionNotice = (
 ): MailboxConnectionNotice | null => {
   switch (first(status)) {
     case MAILBOX_CONNECTED_STATUS:
-      return { ok: true, text: "Bústia de Gmail connectada." };
+      return { ok: true, text: "Bústia connectada." };
     case MAILBOX_FAILED_STATUS:
       return {
         ok: false,

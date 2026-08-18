@@ -12,7 +12,7 @@ describe("mailboxConnectionNotice", () => {
   it("confirms a connected mailbox", () => {
     expect(mailboxConnectionNotice(MAILBOX_CONNECTED_STATUS, undefined)).toEqual({
       ok: true,
-      text: "Bústia de Gmail connectada.",
+      text: "Bústia connectada.",
     });
   });
 
@@ -51,7 +51,7 @@ describe("mailboxOutcomeQuery", () => {
   it("round-trips a success through the notice the dashboard renders", () => {
     expect(noticeFor(mailboxOutcomeQuery())).toEqual({
       ok: true,
-      text: "Bústia de Gmail connectada.",
+      text: "Bústia connectada.",
     });
   });
 

@@ -89,12 +89,17 @@ de l'esquema i desaria els tokens OAuth del proveïdor en clar. Les credencials 
 llegir una bústia van xifrades a `mailbox_accounts` (`context.md` §7); les taules de
 login només guarden l'enllaç d'identitat.
 
-## Connexió de bústies (Gmail)
+## Connexió de bústies
 
 Iniciar la sessió al tauler no dona accés al correu: el login només identifica
-qui hi ha al davant. Connectar una bústia és un segon flux OAuth
-(`app/src/lib/mailbox/`) que demana els permisos de Gmail i desa els tokens
-xifrats a `mailbox_accounts` (`context.md` §7).
+qui hi ha al davant. Connectar una bústia és un segon flux OAuth per proveïdor,
+que demana els permisos de correu i desa els tokens xifrats a `mailbox_accounts`
+(`context.md` §7). Els dos fluxos tornen al tauler amb el mateix paràmetre
+`?bustia=` i comparteixen els missatges de `app/src/lib/mailbox/connect-messages.ts`.
+
+### Gmail
+
+Codi a `app/src/lib/mailbox/` (`google-oauth.ts`, `connect-google-mailbox.ts`).
 
 - Comença a `/api/mailbox/google/connect` (enllaç al tauler) i torna a
   `/api/mailbox/google/callback`.
@@ -111,6 +116,37 @@ xifrats a `mailbox_accounts` (`context.md` §7).
   el cursor, per no saltar-se el correu arribat mentrestant.
 - `TOKEN_ENCRYPTION_KEY` és obligatòria: sense clau el callback no pot desar
   els tokens.
+
+### Microsoft 365/Outlook
+
+`/api/mailbox/microsoft/connect` (enllaç des del tauler) porta l'usuari al
+consentiment d'Entra ID amb els permisos que necessita el pipeline —
+`Mail.Read`, `Mail.Send` i `offline_access` — i `/api/mailbox/microsoft/callback`
+desa la bústia a `mailbox_accounts` amb els tokens xifrats (`context.md` §7).
+
+És un flux a part del login: entrar amb Microsoft només diu qui hi ha al tauler,
+i no dóna cap accés al correu. Reutilitza el mateix registre d'app
+(`AUTH_MICROSOFT_ENTRA_ID_ID` / `_SECRET` / `_ISSUER`), així que només cal
+registrar-hi una URL de redirecció més:
+`https://<domini>/api/mailbox/microsoft/callback`. Els permisos `Mail.Read` i
+`Mail.Send` (delegats) s'han d'afegir al registre d'app.
+
+Detalls del flux:
+
+- Cal `TOKEN_ENCRYPTION_KEY`: sense clau (o sense les variables d'Entra), la
+  connexió s'atura al tauler i ni tan sols envia l'usuari a la pantalla de
+  consentiment, que li demanaria accés al correu per després llençar-lo.
+- L'estat CSRF i el verificador PKCE viuen en una galeta `httpOnly` d'un sol ús
+  que caduca als 10 minuts; si caduca, el tauler ho diu i es pot tornar a
+  començar.
+- La URL de redirecció la marca `AUTH_URL` (igual que el flux de Gmail), no les
+  capçaleres `X-Forwarded-*`: el proxy de Render les posa, però qui truca també
+  pot posar-les.
+- Sense `offline_access` consentit, Entra no retorna cap refresh token i la
+  connexió es rebutja: la bústia deixaria de ser consultable en una hora.
+- Reconnectar una bústia ja connectada només refresca les credencials: no mou
+  `connected_at` ni esborra `sync_cursor`, perquè el correu arribat mentrestant
+  segueix sent seu (`context.md` §4).
 
 ## Polling de bústies
 
