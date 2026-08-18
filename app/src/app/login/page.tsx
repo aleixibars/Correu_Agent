@@ -21,11 +21,13 @@ export default async function LoginPage({
   // Auth.js redirects here with `?error=…` when a login is refused.
   searchParams: Promise<{ error?: string | string[] }>;
 }) {
+  const message = loginErrorMessage((await searchParams).error);
+
   // Auth.js sends the visitor back here after a successful login too, and a
   // second set of login buttons is a dead end — carry them on to the dashboard.
-  if (await auth()) redirect(DASHBOARD_PATH);
-
-  const message = loginErrorMessage((await searchParams).error);
+  // An error still gets shown first: bouncing on it would swallow the only
+  // explanation the visitor gets for a refused login.
+  if (message === null && (await auth())) redirect(DASHBOARD_PATH);
 
   return (
     <main>

@@ -6,6 +6,7 @@ import { Children, isValidElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "next-auth";
+import { TEST_TENANT_ID } from "../../lib/auth/test-fixtures";
 
 const auth = vi.fn<() => Promise<Session | null>>(async () => null);
 const signIn = vi.fn();
@@ -26,6 +27,17 @@ const signInForms = async (): Promise<ReactElement[]> =>
     (child): child is ReactElement =>
       isValidElement(child) && child.type === "form",
   );
+
+const signedIn = (): void => {
+  auth.mockResolvedValue({
+    user: {
+      id: "user-1",
+      tenantId: TEST_TENANT_ID,
+      email: "aleix@example.com",
+    },
+    expires: new Date(Date.now() + 60_000).toISOString(),
+  });
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -63,15 +75,19 @@ describe("LoginPage", () => {
   });
 
   it("sends an already signed-in visitor to the dashboard", async () => {
-    auth.mockResolvedValue({
-      user: {
-        id: "user-1",
-        tenantId: "11111111-1111-1111-1111-111111111111",
-        email: "aleix@example.com",
-      },
-      expires: new Date(Date.now() + 60_000).toISOString(),
-    });
+    signedIn();
 
     await expect(render()).rejects.toThrow("NEXT_REDIRECT");
+  });
+
+  // The redirect must not fire first: the message is the only explanation a
+  // visitor gets for a refused login, and the stale session cookie of the
+  // provider they signed in with earlier is still on the request.
+  it("still explains a refused login to a visitor with a session", async () => {
+    signedIn();
+
+    expect(await render("OAuthAccountNotLinked")).toContain(
+      "Aquesta adreça ja està vinculada a",
+    );
   });
 });
