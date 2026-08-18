@@ -1,6 +1,9 @@
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  // `tsconfig.json` keeps `jsx: "preserve"` for Next's own compiler, so the
+  // JSX in Server Components has to be told to compile here instead.
+  esbuild: { jsx: "automatic" },
   test: {
     environment: "node",
     server: {
