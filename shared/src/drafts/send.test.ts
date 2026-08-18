@@ -364,6 +364,24 @@ describe("sendAutoReplyDraft", () => {
     ).toBe(false);
   });
 
+  it("does not send a thread triage has not reached yet", async () => {
+    const { db, queries } = createDb({ draft: draftRow({ threadCategory: null }) });
+    const { sender, sendReply } = createSender();
+
+    const result = await sendAutoReplyDraft(db, sender, {
+      tenantId: TENANT_ID,
+      draftId: DRAFT_ID,
+      now: NOW,
+    });
+
+    expect(result).toBeNull();
+    expect(sendReply).not.toHaveBeenCalled();
+    // No category means no rule could have asked for this one (context.md §4).
+    expect(
+      queries.some(({ sql }) => sql.includes('from "auto_reply_rules"')),
+    ).toBe(false);
+  });
+
   it("does not send when the rule was switched off after the draft was written", async () => {
     const { db } = createDb({ rule: [] });
     const { sender, sendReply } = createSender();

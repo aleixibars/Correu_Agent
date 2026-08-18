@@ -25,7 +25,9 @@ export type DraftedThreadResult = ThreadDraftJobData & {
   /**
    * The outbound message the auto-reply was stored as. Null when the draft waits
    * for the dashboard, when the rule was switched off while the model was
-   * writing, or when the send failed — the draft then stands as a pending one.
+   * writing, or when the send failed. A send that failed before claiming the
+   * draft leaves it pending for the dashboard; one that failed after it left the
+   * draft `approved`, because the mail may already have gone out.
    */
   sentMessageId: string | null;
 };
@@ -110,9 +112,11 @@ export const createThreadDraftHandler = <
             const sent = await autoReply({ ...target, draftId: result.draftId });
             sentMessageId = sent?.sentMessageId ?? null;
           } catch (error) {
-            // The draft itself is written and stands as a pending one the
-            // dashboard can send by hand, so this is reported rather than
-            // thrown: retrying the job would only draft the thread again.
+            // The draft itself is written, so this is reported rather than
+            // thrown: retrying the job would only draft the thread again. What
+            // the dashboard can still do with it depends on how far the send
+            // got — pending if it failed before claiming the draft, `approved`
+            // if after, since the mail may already have left (context.md §2).
             console.error(
               `Auto-replying to thread ${target.threadId} failed:`,
               error,

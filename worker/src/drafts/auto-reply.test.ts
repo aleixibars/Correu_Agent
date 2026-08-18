@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { drizzle } from "drizzle-orm/pg-proxy";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { encryptToken } from "@correu-agent/shared/token-encryption";
 import { createThreadAutoReplySender } from "./auto-reply";
 
@@ -79,6 +79,10 @@ const createDb = ({
   });
   return { db, queries };
 };
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 const gmailSends = () => {
   const fetchMock = vi.fn(async (_url: string | URL, _init?: RequestInit) =>
