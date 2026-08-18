@@ -1,6 +1,7 @@
 // Aggregating one day of triaged mail for the daily digest (context.md §2, §5).
 // The grouping is what both readers need: the model that writes the digest, and
-// the dashboard that renders it — so neither has to re-derive it and disagree.
+// the dashboard that will render it — so neither has to re-derive it and
+// disagree.
 
 import { and, asc, eq, gte, isNotNull, lt } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
@@ -30,8 +31,14 @@ export const digestDayRange = (day: string): { start: Date; end: Date } => {
   const start = new Date(`${day}T00:00:00.000Z`);
   // Round-tripped rather than only pattern-matched: "2026-02-31" is a
   // well-formed date that `Date` silently rolls forward into March, which would
-  // digest a day nobody asked for instead of failing.
-  if (!DIGEST_DAY_PATTERN.test(day) || digestDay(start) !== day) {
+  // digest a day nobody asked for instead of failing. The NaN check comes first
+  // because a day `Date` rejects outright ("2026-13-01") would otherwise blow up
+  // in `toISOString()` with "Invalid time value" instead of naming the input.
+  if (
+    !DIGEST_DAY_PATTERN.test(day) ||
+    Number.isNaN(start.getTime()) ||
+    digestDay(start) !== day
+  ) {
     throw new Error(`A digest day is a UTC calendar date, not "${day}".`);
   }
   return { start, end: new Date(start.getTime() + DAY_MS) };

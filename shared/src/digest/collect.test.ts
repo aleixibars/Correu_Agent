@@ -53,6 +53,13 @@ describe("digestDayRange", () => {
     expect(() => digestDayRange("01/06/2026")).toThrow();
     expect(() => digestDayRange("2026-02-31")).toThrow();
   });
+
+  it("names the day it rejected, even one Date cannot parse at all", () => {
+    // "2026-13-01" is not a date `Date` rolls forward, it is one it refuses:
+    // the day has to be named in the error rather than surface as an
+    // "Invalid time value" from deep inside the range check.
+    expect(() => digestDayRange("2026-13-01")).toThrow(/"2026-13-01"/);
+  });
 });
 
 describe("collectDailyDigest", () => {

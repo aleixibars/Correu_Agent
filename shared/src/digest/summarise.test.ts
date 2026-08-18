@@ -133,7 +133,17 @@ describe("summariseDailyDigest", () => {
     expect(rendered).not.toContain(`Butlletí ${MAX_DIGEST_THREADS_PER_CATEGORY}`);
     // The count the model reports must still be the day's real one, so what was
     // dropped is stated rather than silently missing.
-    expect(rendered).toContain("3");
-    expect(rendered).toContain(String(over));
+    expect(rendered).toContain("(3 fils més, no llistats)");
+    expect(rendered).toContain(`newsletter (${over})`);
+  });
+
+  it("refuses to hand back an empty digest", async () => {
+    const { client } = createClient("   ");
+
+    // The column is `not null`: storing this would leave the dashboard with a
+    // heading over a blank day that nothing ever retries.
+    await expect(summariseDailyDigest(client, content())).rejects.toThrow(
+      "2026-06-01",
+    );
   });
 });

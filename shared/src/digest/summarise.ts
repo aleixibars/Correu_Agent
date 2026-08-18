@@ -113,5 +113,15 @@ export const summariseDailyDigest = async (
     messages: [{ role: "user", content: renderDigest(content) }],
   });
 
-  return { summary: answerText(answer), model: answer.model };
+  const summary = answerText(answer);
+
+  // A model that answers with nothing (a refusal that carries no text, a call
+  // that came back tool-use-only) must not be stored: the row is `not null`, so
+  // an empty answer would show as a heading over a blank day and never be
+  // retried. Failing hands the tenant to the job's error path instead.
+  if (summary === "") {
+    throw new Error(`The model answered with no digest for ${content.day}.`);
+  }
+
+  return { summary, model: answer.model };
 };

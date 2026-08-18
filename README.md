@@ -290,8 +290,8 @@ a la mateixa bústia vigilada seria circular.
 - L'agregació viu a `shared/src/digest/collect.ts`
   (`@correu-agent/shared/digest`): agrupa els fils per categoria, en l'ordre de
   la taxonomia (`context.md` §4), i deixa fora les categories on no ha arribat
-  res. El tauler llegeix la mateixa funció, així que no hi ha dues maneres
-  d'agrupar un mateix dia.
+  res. Quan el tauler mostri el digest llegirà aquesta mateixa funció, així que
+  no hi haurà dues maneres d'agrupar un mateix dia.
 - El dia és el dia **UTC** en què el fil es va triar (`triaged_at`), no el dia en
   què va arribar el correu: no hi ha zona horària per tenant i un correu de les
   23:59 classificat després de mitjanit ha de sortir a un sol digest, no a cap ni
@@ -310,6 +310,9 @@ a la mateixa bústia vigilada seria circular.
 - Un dia sense correu processat no genera cap fila ni cap crida al model. Tornar
   a executar un dia (`daily_digests` és únic per tenant i data) el reescriu: és
   una correcció, mai un segon digest del mateix correu.
+- Si el model respon sense text, el digest d'aquell tenant falla en lloc de
+  desar-se buit: la columna és `not null` i una fila buida seria un titular
+  damunt d'un dia en blanc que ja ningú no tornaria a generar.
 
 ## Notificacions Web Push (VAPID)
 
