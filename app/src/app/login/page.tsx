@@ -1,5 +1,7 @@
+import { redirect } from "next/navigation";
 import { APP_NAME } from "@correu-agent/shared";
-import { signIn } from "../../auth";
+import { auth, signIn } from "../../auth";
+import { DASHBOARD_PATH } from "../../lib/auth/config";
 import { loginErrorMessage } from "../../lib/auth/login-errors";
 
 // Pantalla de login del tauler (context.md §9). Els dos proveïdors són els
@@ -21,6 +23,12 @@ export default async function LoginPage({
 }) {
   const message = loginErrorMessage((await searchParams).error);
 
+  // Auth.js sends the visitor back here after a successful login too, and a
+  // second set of login buttons is a dead end — carry them on to the dashboard.
+  // An error still gets shown first: bouncing on it would swallow the only
+  // explanation the visitor gets for a refused login.
+  if (message === null && (await auth())) redirect(DASHBOARD_PATH);
+
   return (
     <main>
       <h1>{APP_NAME}</h1>
@@ -31,7 +39,7 @@ export default async function LoginPage({
           key={id}
           action={async () => {
             "use server";
-            await signIn(id, { redirectTo: "/" });
+            await signIn(id, { redirectTo: DASHBOARD_PATH });
           }}
         >
           <button type="submit">{label}</button>
