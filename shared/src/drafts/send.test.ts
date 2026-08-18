@@ -21,6 +21,7 @@ const draftRow = ({
   parentFromAddress = "client@example.com" as string | null,
   references = null as string | null,
   threadSubject = "Pressupost" as string | null,
+  parentSubject = "Pressupost" as string | null,
 } = {}) => [
   status,
   body,
@@ -33,7 +34,7 @@ const draftRow = ({
   null,
   references,
   parentFromAddress,
-  "Pressupost",
+  parentSubject,
 ];
 
 const createSender = (): { sender: MailSenderClient; sendReply: ReturnType<typeof vi.fn> } => {
@@ -138,6 +139,23 @@ describe("approveAndSendDraft", () => {
     expect(audits[1]!.join(" ")).toContain(SENT_MESSAGE_ID);
   });
 
+  it("moves the thread's clock so a replied thread does not sink in the list", async () => {
+    const { db, queries } = createDb();
+    const { sender } = createSender();
+
+    await approveAndSendDraft(db, sender, {
+      tenantId: TENANT_ID,
+      draftId: DRAFT_ID,
+      actorUserId: USER_ID,
+      now: NOW,
+    });
+
+    const bump = queries.find(({ sql }) => sql.startsWith('update "threads"'))!;
+    // `greatest`, so mail polled out of order cannot pull the clock backwards.
+    expect(bump.sql).toContain("greatest");
+    expect(bump.params).toContain(THREAD_ID);
+  });
+
   it("sends the text the user edited and records the edit", async () => {
     const { db, queries } = createDb();
     const { sender, sendReply } = createSender();
@@ -222,6 +240,22 @@ describe("approveAndSendDraft", () => {
     });
 
     expect(sendReply.mock.calls[0]![0].subject).toBe("Re: Pressupost");
+  });
+
+  it("answers mail that arrived without a subject without one", async () => {
+    const { db } = createDb({
+      draft: draftRow({ threadSubject: null, parentSubject: null }),
+    });
+    const { sender, sendReply } = createSender();
+
+    await approveAndSendDraft(db, sender, {
+      tenantId: TENANT_ID,
+      draftId: DRAFT_ID,
+      actorUserId: USER_ID,
+      now: NOW,
+    });
+
+    expect(sendReply.mock.calls[0]![0].subject).toBe("");
   });
 
   it("refuses to send an empty reply the user blanked out", async () => {

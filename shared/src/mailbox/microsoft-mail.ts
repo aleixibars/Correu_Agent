@@ -41,11 +41,15 @@ interface GraphMessage {
   "@removed"?: { reason?: string };
 }
 
-interface GraphPage {
+/** The error envelope Graph answers a refused request with, on any endpoint. */
+interface GraphError {
+  error?: { code?: string; message?: string };
+}
+
+interface GraphPage extends GraphError {
   value?: GraphMessage[];
   "@odata.nextLink"?: string;
   "@odata.deltaLink"?: string;
-  error?: { code?: string; message?: string };
 }
 
 export interface MicrosoftMailboxSync {
@@ -73,6 +77,21 @@ const query = (params: Record<string, string>): string =>
     .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
     .join("&");
 
+const nonJsonError = (status: number): Error =>
+  new Error(`Microsoft Graph returned a non-JSON response (${status}).`);
+
+/**
+ * Graph names what it refused in the body; the status is the fallback for a
+ * refusal that arrived without one. Shared by the read and write paths so both
+ * surface a failure the same way.
+ */
+const requestFailed = (status: number, body: GraphError | null): Error =>
+  new Error(
+    `Microsoft Graph mail request failed: ${body?.error?.code ?? status}${
+      body?.error?.message ? ` — ${body.error.message}` : ""
+    }`,
+  );
+
 const readPage = async (
   url: string,
   accessToken: string,
@@ -86,18 +105,10 @@ const readPage = async (
   try {
     body = (await response.json()) as GraphPage;
   } catch {
-    throw new Error(
-      `Microsoft Graph returned a non-JSON response (${response.status}).`,
-    );
+    throw nonJsonError(response.status);
   }
 
-  if (!response.ok) {
-    throw new Error(
-      `Microsoft Graph mail request failed: ${body.error?.code ?? response.status}${
-        body.error?.message ? ` — ${body.error.message}` : ""
-      }`,
-    );
-  }
+  if (!response.ok) throw requestFailed(response.status, body);
 
   return body;
 };
@@ -270,27 +281,17 @@ const graphPost = async (
 
   // A successful send answers `202 Accepted` with no body at all.
   const text = await response.text();
-  let parsed: (GraphMessage & { error?: { code?: string; message?: string } }) | null = null;
+  let parsed: (GraphMessage & GraphError) | null = null;
   if (text !== "") {
     try {
-      parsed = JSON.parse(text) as GraphMessage & {
-        error?: { code?: string; message?: string };
-      };
+      parsed = JSON.parse(text) as GraphMessage & GraphError;
     } catch {
       if (response.ok) return {};
-      throw new Error(
-        `Microsoft Graph returned a non-JSON response (${response.status}).`,
-      );
+      throw nonJsonError(response.status);
     }
   }
 
-  if (!response.ok) {
-    throw new Error(
-      `Microsoft Graph mail request failed: ${parsed?.error?.code ?? response.status}${
-        parsed?.error?.message ? ` — ${parsed.error.message}` : ""
-      }`,
-    );
-  }
+  if (!response.ok) throw requestFailed(response.status, parsed);
 
   return parsed ?? {};
 };

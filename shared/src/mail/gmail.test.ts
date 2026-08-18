@@ -458,6 +458,16 @@ describe("createGmailSender", () => {
     expect(sentMime(fetchMock).headers).toContain("Subject: =?UTF-8?B?");
   });
 
+  it("sends a subject-less reply without a header that ends in whitespace", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+
+    // Mail that arrived untitled is answered untitled (`replySubject`), so the
+    // header carries no value at all.
+    await createGmailSender(ACCESS_TOKEN).sendReply(outgoingReply({ subject: "" }));
+
+    expect(sentMime(fetchMock).headers.split("\r\n")).toContain("Subject:");
+  });
+
   it("does not let a line break in a subject open a header of its own", async () => {
     const fetchMock = gmailAccepts({ id: "sent-1" });
 

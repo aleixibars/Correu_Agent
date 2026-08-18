@@ -64,6 +64,10 @@ const encodeHeaderValue = (value: string): string => {
  * start of the continuation — unfolding gives back exactly what went in.
  */
 const foldHeader = (name: string, value: string): string => {
+  // A header with no value stays bare: `Subject: ` would end its line in
+  // whitespace, which canonicalisation and some MTAs strip anyway.
+  if (value === "") return `${name}:`;
+
   const lines: string[] = [];
   let line = `${name}:`;
 
