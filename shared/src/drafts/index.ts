@@ -6,3 +6,4 @@
 export * from "./generate";
 export * from "./generate-draft";
 export * from "./reply-headers";
+export * from "./send";

@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MAX_MESSAGES_PER_POLL, createGmailClient } from "./gmail";
+import {
+  MAX_MESSAGES_PER_POLL,
+  createGmailClient,
+  createGmailSender,
+} from "./gmail";
 
 const ACCESS_TOKEN = "access-1";
 
@@ -369,5 +373,106 @@ describe("createGmailClient", () => {
     await expect(
       createGmailClient(ACCESS_TOKEN).fetchNewMessages("1000"),
     ).rejects.toThrow(/Rate Limit Exceeded/);
+  });
+});
+
+const outgoingReply = (overrides: Record<string, unknown> = {}) => ({
+  fromAddress: "bustia@example.com",
+  toAddresses: ["client@example.com"],
+  ccAddresses: [] as string[],
+  subject: "Re: Pressupost anual",
+  bodyText: "Bon dia,\n\nUs enviem el pressupost.",
+  providerThreadId: "thread-1",
+  inReplyToProviderMessageId: "msg-1",
+  inReplyTo: "<msg-1@example.com>",
+  references: "<msg-0@example.com> <msg-1@example.com>",
+  ...overrides,
+});
+
+const gmailAccepts = (body: unknown, status = 200) => {
+  const fetchMock = vi.fn(
+    async (input: string | URL, init?: RequestInit) => {
+      void input;
+      void init;
+      return jsonResponse(body, status);
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+};
+
+const sentMime = (fetchMock: ReturnType<typeof gmailAccepts>) => {
+  const init = fetchMock.mock.calls[0]![1] as RequestInit;
+  const sent = JSON.parse(String(init.body)) as { raw: string; threadId: string };
+  const mime = Buffer.from(sent.raw, "base64url").toString("utf8");
+  const separator = mime.indexOf("\r\n\r\n");
+  return {
+    threadId: sent.threadId,
+    headers: mime.slice(0, separator),
+    body: Buffer.from(mime.slice(separator + 4), "base64").toString("utf8"),
+  };
+};
+
+describe("createGmailSender", () => {
+  it("sends the reply into the thread it answers", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1", threadId: "thread-1" });
+
+    const result = await createGmailSender(ACCESS_TOKEN).sendReply(outgoingReply());
+
+    expect(String(fetchMock.mock.calls[0]![0])).toContain("/messages/send");
+    const { threadId, headers, body } = sentMime(fetchMock);
+    // Gmail threads by `threadId`; every other client threads by the headers.
+    expect(threadId).toBe("thread-1");
+    expect(headers).toContain("From: bustia@example.com");
+    expect(headers).toContain("To: client@example.com");
+    expect(headers).toContain("In-Reply-To: <msg-1@example.com>");
+    expect(headers).toContain(
+      "References: <msg-0@example.com> <msg-1@example.com>",
+    );
+    expect(body).toBe("Bon dia,\n\nUs enviem el pressupost.");
+    expect(result).toEqual({ providerMessageId: "sent-1", messageIdHeader: null });
+  });
+
+  it("encodes a subject a header cannot carry as it stands", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(
+      outgoingReply({ subject: "Re: Pressupost de l\u2019any" }),
+    );
+
+    // RFC 2047, or the accent would not survive a US-ASCII header.
+    expect(sentMime(fetchMock).headers).toContain("Subject: =?UTF-8?B?");
+  });
+
+  it("does not let a line break in a subject open a header of its own", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(
+      outgoingReply({ subject: "Pressupost\r\nBcc: tercer@example.com" }),
+    );
+
+    const lines = sentMime(fetchMock).headers.split("\r\n");
+    expect(lines.some((line) => line.startsWith("Bcc:"))).toBe(false);
+    expect(lines).toContain("Subject: Pressupost Bcc: tercer@example.com");
+  });
+
+  it("leaves the threading headers out when the mail answered had no Message-ID", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(
+      outgoingReply({ inReplyTo: null, references: null }),
+    );
+
+    const { headers } = sentMime(fetchMock);
+    expect(headers).not.toContain("In-Reply-To:");
+    expect(headers).not.toContain("References:");
+  });
+
+  it("fails loudly when Gmail refuses the send", async () => {
+    gmailAccepts({ error: { message: "Insufficient Permission" } }, 403);
+
+    await expect(
+      createGmailSender(ACCESS_TOKEN).sendReply(outgoingReply()),
+    ).rejects.toThrow(/Insufficient Permission/);
   });
 });

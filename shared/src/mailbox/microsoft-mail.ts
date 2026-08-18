@@ -2,10 +2,16 @@
 // poll (context.md §8). The worker never calls Graph itself: it goes through
 // this client so Gmail and Graph stay swappable behind one message shape.
 
-import type { ProviderMessage } from "../mail/types";
+import type {
+  MailSenderClient,
+  OutgoingReply,
+  ProviderMessage,
+  SentReply,
+} from "../mail/types";
 
 const GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0";
 const INBOX_URL = `${GRAPH_BASE_URL}/me/mailFolders/inbox/messages`;
+const MESSAGES_URL = `${GRAPH_BASE_URL}/me/messages`;
 
 /**
  * Everything a message row needs (context.md §7): the body travels with the poll
@@ -242,3 +248,105 @@ const sortedByArrival = (
   [...messages.values()].sort(
     (a, b) => (a.sentAt?.getTime() ?? 0) - (b.sentAt?.getTime() ?? 0),
   );
+
+/**
+ * A Graph request that writes. `readPage` is for enumerating the inbox; this one
+ * posts and tolerates the empty body Graph answers a send with.
+ */
+const graphPost = async (
+  url: string,
+  accessToken: string,
+  fetch: typeof globalThis.fetch,
+  body?: unknown,
+): Promise<GraphMessage> => {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+
+  // A successful send answers `202 Accepted` with no body at all.
+  const text = await response.text();
+  let parsed: (GraphMessage & { error?: { code?: string; message?: string } }) | null = null;
+  if (text !== "") {
+    try {
+      parsed = JSON.parse(text) as GraphMessage & {
+        error?: { code?: string; message?: string };
+      };
+    } catch {
+      if (response.ok) return {};
+      throw new Error(
+        `Microsoft Graph returned a non-JSON response (${response.status}).`,
+      );
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `Microsoft Graph mail request failed: ${parsed?.error?.code ?? response.status}${
+        parsed?.error?.message ? ` — ${parsed.error.message}` : ""
+      }`,
+    );
+  }
+
+  return parsed ?? {};
+};
+
+const recipients = (addresses: string[]): GraphRecipient[] =>
+  addresses.map((address) => ({ emailAddress: { address } }));
+
+/**
+ * Sends the reply of an approved draft through Graph (context.md §2).
+ *
+ * Graph has no "send this MIME into that conversation" call, so the reply is
+ * created *from* the message being answered — `createReply` is what keeps it in
+ * the conversation, exactly as the RFC 5322 headers do on the Gmail side.
+ * Recipients and subject are set explicitly rather than left to Graph's
+ * defaults, so both providers send the same mail.
+ */
+export const createMicrosoftSender = ({
+  accessToken,
+  fetch = globalThis.fetch,
+}: {
+  accessToken: string;
+  fetch?: typeof globalThis.fetch;
+}): MailSenderClient => ({
+  async sendReply(reply: OutgoingReply): Promise<SentReply> {
+    const draft = await graphPost(
+      `${MESSAGES_URL}/${encodeURIComponent(reply.inReplyToProviderMessageId)}/createReply`,
+      accessToken,
+      fetch,
+      {
+        message: {
+          subject: reply.subject,
+          toRecipients: recipients(reply.toAddresses),
+          ccRecipients: recipients(reply.ccAddresses),
+          body: { contentType: "Text", content: reply.bodyText },
+        },
+      },
+    );
+
+    if (!draft.id) {
+      throw new Error("Microsoft Graph created no reply draft to send.");
+    }
+
+    await graphPost(
+      `${MESSAGES_URL}/${encodeURIComponent(draft.id)}/send`,
+      accessToken,
+      fetch,
+    );
+
+    return {
+      // The id of the draft that was sent. Graph can renumber a message when it
+      // moves to Sent Items, but only the inbox is ever polled (context.md §4),
+      // so this id is never matched against one the provider reports later.
+      providerMessageId: draft.id,
+      // The `Message-ID` is assigned when the draft is created, so it is already
+      // the one the recipient will see.
+      messageIdHeader: draft.internetMessageId ?? null,
+    };
+  },
+});
