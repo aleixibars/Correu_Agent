@@ -1,0 +1,78 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { APP_NAME } from "@correu-agent/shared";
+import { auth } from "../../auth";
+import { DASHBOARD_PATH, LOGIN_PATH } from "../../lib/auth/config";
+import { categoryLabel } from "../../lib/category-labels";
+import { db } from "../../lib/db";
+import { listThreads } from "../../lib/threads/list-threads";
+import { threadStatusLabel } from "../../lib/threads/thread-status";
+
+export const metadata = {
+  title: `Fils · ${APP_NAME}`,
+};
+
+// El tauler és una eina d'oficina en horari local (context.md §5), així que la
+// data es formata al fus del negoci i no al del servidor de Render.
+const dateFormat = new Intl.DateTimeFormat("ca-ES", {
+  dateStyle: "short",
+  timeStyle: "short",
+  timeZone: "Europe/Madrid",
+});
+
+// Un correu sense assumpte arriba com a cadena buida, no com a null: Gmail
+// envia la capçalera `Subject:` buida i Graph un `subject` buit. Sense això la
+// cel·la quedaria en blanc i la fila semblaria trencada.
+const subjectLabel = (subject: string | null): string =>
+  subject !== null && subject.trim() !== "" ? subject : "(Sense assumpte)";
+
+export default async function ThreadsPage() {
+  const session = await auth();
+  if (!session) redirect(LOGIN_PATH);
+
+  const threads = await listThreads(db, { tenantId: session.user.tenantId });
+
+  return (
+    <main>
+      <h1>Fils</h1>
+      {threads.length === 0 ? (
+        <p>Encara no hi ha cap fil processat.</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Assumpte</th>
+              <th scope="col">Categoria</th>
+              <th scope="col">Estat</th>
+              <th scope="col">Últim missatge</th>
+            </tr>
+          </thead>
+          <tbody>
+            {threads.map(({ id, subject, category, status, lastMessageAt }) => (
+              <tr key={id}>
+                <td>{subjectLabel(subject)}</td>
+                {/* Un fil sense categoria és un fil que el triatge encara no ha
+                    tocat; l'estat ja ho diu, així que la cel·la no repeteix el
+                    motiu. */}
+                <td>{category === null ? "—" : categoryLabel(category)}</td>
+                <td>{threadStatusLabel(status)}</td>
+                <td>
+                  {lastMessageAt === null ? (
+                    "—"
+                  ) : (
+                    <time dateTime={lastMessageAt.toISOString()}>
+                      {dateFormat.format(lastMessageAt)}
+                    </time>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <p>
+        <Link href={DASHBOARD_PATH}>Torna al tauler</Link>
+      </p>
+    </main>
+  );
+}
