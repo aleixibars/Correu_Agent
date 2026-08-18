@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   MAILBOX_CONNECTED_STATUS,
   MAILBOX_FAILED_STATUS,
+  MAILBOX_REASON_PARAM,
+  MAILBOX_STATUS_PARAM,
   mailboxConnectionNotice,
+  mailboxOutcomeQuery,
 } from "./connect-messages";
 
 describe("mailboxConnectionNotice", () => {
@@ -31,5 +34,38 @@ describe("mailboxConnectionNotice", () => {
 
   it("shows nothing when the visitor simply opened the dashboard", () => {
     expect(mailboxConnectionNotice(undefined, undefined)).toBeNull();
+  });
+});
+
+describe("mailboxOutcomeQuery", () => {
+  const noticeFor = (query: string) => {
+    const params = new URLSearchParams(query);
+    return mailboxConnectionNotice(
+      params.get(MAILBOX_STATUS_PARAM) ?? undefined,
+      params.get(MAILBOX_REASON_PARAM) ?? undefined,
+    );
+  };
+
+  // The routes write the query and the dashboard reads it, so the two halves
+  // are only ever right together.
+  it("round-trips a success through the notice the dashboard renders", () => {
+    expect(noticeFor(mailboxOutcomeQuery())).toEqual({
+      ok: true,
+      text: "Bústia de Gmail connectada.",
+    });
+  });
+
+  it("round-trips every failure reason", () => {
+    for (const reason of [
+      "access_denied",
+      "state_mismatch",
+      "scopes_refused",
+      "oauth_failed",
+    ] as const) {
+      expect(noticeFor(mailboxOutcomeQuery(reason))).toEqual(
+        mailboxConnectionNotice(MAILBOX_FAILED_STATUS, reason),
+      );
+      expect(noticeFor(mailboxOutcomeQuery(reason))?.ok).toBe(false);
+    }
   });
 });

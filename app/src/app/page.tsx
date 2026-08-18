@@ -44,9 +44,11 @@ export default async function HomePage({
         <p role={notice.ok ? "status" : "alert"}>{notice.text}</p>
       )}
       <p>
-        <Link href={GOOGLE_CONNECT_PATH} prefetch={false}>
-          Connecta una bústia de Gmail
-        </Link>
+        {/* A plain anchor, not `next/link`: the target is a route handler that
+            redirects off-site to Google, and a client-side navigation would run
+            it twice — once for the RSC fetch that cannot follow the cross-origin
+            redirect, once for the hard navigation that replaces it. */}
+        <a href={GOOGLE_CONNECT_PATH}>Connecta una bústia de Gmail</a>
       </p>
       <form
         action={async () => {

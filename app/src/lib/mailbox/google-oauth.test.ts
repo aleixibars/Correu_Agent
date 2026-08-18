@@ -218,6 +218,24 @@ describe("fetchGmailProfile", () => {
     expect(init.headers).toMatchObject({ authorization: "Bearer access-1" });
   });
 
+  it("accepts a numeric historyId, which the API reference types as a uint64", async () => {
+    stubFetch(
+      jsonResponse({ emailAddress: "bustia@example.com", historyId: 98765 }),
+    );
+
+    await expect(fetchGmailProfile("access-1")).resolves.toMatchObject({
+      historyId: "98765",
+    });
+  });
+
+  it("refuses a profile with no historyId instead of an empty cursor", async () => {
+    // An empty cursor is not "start from now": the worker cannot resume from it,
+    // and only mail newer than the connection is ever processed (context.md §4).
+    stubFetch(jsonResponse({ emailAddress: "bustia@example.com" }));
+
+    await expect(fetchGmailProfile("access-1")).rejects.toThrow(/historyId/);
+  });
+
   it("fails loudly when Gmail refuses the token", async () => {
     stubFetch(jsonResponse({ error: { message: "Invalid Credentials" } }, 401));
 

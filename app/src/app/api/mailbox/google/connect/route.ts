@@ -4,6 +4,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "../../../../../auth";
 import { LOGIN_PATH } from "../../../../../lib/auth/config";
+import { mailboxOutcomeQuery } from "../../../../../lib/mailbox/connect-messages";
 import {
   MAILBOX_OAUTH_COOKIE,
   MAILBOX_OAUTH_COOKIE_MAX_AGE_SECONDS,
@@ -21,11 +22,20 @@ export const GET = async (request: NextRequest): Promise<NextResponse> => {
     return NextResponse.redirect(publicAppUrl(request, LOGIN_PATH));
   }
 
-  const client = loadGoogleOAuthClient(
-    process.env,
-    resolveGoogleCallbackUrl(request),
-  );
-  const authorization = createGoogleAuthorizationRequest(client);
+  let authorization;
+  try {
+    authorization = createGoogleAuthorizationRequest(
+      loadGoogleOAuthClient(process.env, resolveGoogleCallbackUrl(request)),
+    );
+  } catch (error) {
+    // Missing Google credentials are a deployment mistake, not something the
+    // user did — but a raw 500 would say so in English, so it lands on the
+    // dashboard with the same Catalan notice as any other failed attempt.
+    console.error("Could not start the Gmail mailbox connection:", error);
+    return NextResponse.redirect(
+      publicAppUrl(request, `/?${mailboxOutcomeQuery("oauth_failed")}`),
+    );
+  }
 
   const response = NextResponse.redirect(authorization.url);
   response.cookies.set(

@@ -262,10 +262,19 @@ export const fetchGmailProfile = async (
     throw new Error("Gmail returned no address for the connected mailbox.");
   }
 
-  return {
-    emailAddress,
-    historyId: String(body.historyId ?? ""),
-  };
+  // Gmail sends the historyId as a string, but the API reference types it as a
+  // uint64, so a numeric one is accepted too. It is refused when absent rather
+  // than stored empty: an empty cursor is not "start from now", it is a cursor
+  // the worker cannot resume from, and only new mail is ever processed (§4).
+  const historyId =
+    typeof body.historyId === "number"
+      ? String(body.historyId)
+      : optionalString(body.historyId);
+  if (!historyId) {
+    throw new Error("Gmail returned no historyId to resume polling from.");
+  }
+
+  return { emailAddress, historyId };
 };
 
 /**

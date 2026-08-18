@@ -124,7 +124,7 @@ describe("connectGoogleMailbox", () => {
 
     await connect(db);
 
-    const { params } = statements[0]!;
+    const { sql, params } = statements[0]!;
     const envelopes = params.filter(
       (param): param is string =>
         typeof param === "string" && param.startsWith("v1:"),
@@ -132,6 +132,27 @@ describe("connectGoogleMailbox", () => {
     expect(
       envelopes.map((envelope) => decryptToken(envelope, encryptionKey)),
     ).toEqual(["access-1"]);
+    // Nothing is written for the refresh token, so on a reconnect the stored
+    // one has to survive the upsert — otherwise the worker loses the only
+    // credential it can poll with once the access token expires.
+    expect(sql).toContain(
+      '"refresh_token_encrypted" = coalesce(excluded.refresh_token_encrypted, "mailbox_accounts"."refresh_token_encrypted")',
+    );
+  });
+
+  it("leaves the sync cursor alone when the same mailbox is reconnected", async () => {
+    googleResponds();
+    const { db, statements } = recordingDatabase();
+
+    await connect(db);
+
+    // Moving the cursor forward on a reconnect would skip every mail that
+    // arrived while the mailbox was disconnected (context.md §4).
+    const { sql } = statements[0]!;
+    const conflictClause = sql.slice(sql.indexOf("do update set"));
+    expect(conflictClause).not.toBe("");
+    expect(conflictClause).not.toContain("sync_cursor");
+    expect(conflictClause).not.toContain("connected_at");
   });
 
   it("refuses a consent screen where the user unticked the send grant", async () => {

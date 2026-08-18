@@ -58,7 +58,9 @@ un JWT, perquè tancar la sessió sigui definitiu.
 Variables d'entorn:
 
 - `AUTH_SECRET` — `openssl rand -base64 32`.
-- `AUTH_URL` — URL pública del tauler (p. ex. `https://correu.onrender.com`).
+- `AUTH_URL` — URL pública del tauler, només l'origen i sense camí (p. ex.
+  `https://correu.onrender.com`): Auth.js pren qualsevol camí d'aquí com a base
+  de les seves rutes.
 - `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` — credencials de l'app de Google Cloud Console.
 - `AUTH_MICROSOFT_ENTRA_ID_ID` / `AUTH_MICROSOFT_ENTRA_ID_SECRET` — registre d'app a Entra ID.
 - `AUTH_MICROSOFT_ENTRA_ID_ISSUER` — limita el login a un sol directori d'Azure.

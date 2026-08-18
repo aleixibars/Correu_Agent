@@ -26,6 +26,21 @@ const REASON_MESSAGES: Record<MailboxConnectionReason, string> = {
   oauth_failed: "No s'ha pogut connectar la bústia. Torneu-ho a provar.",
 };
 
+/**
+ * Query string the mailbox routes redirect the dashboard home with — the other
+ * half of `mailboxConnectionNotice`, kept beside it so the parameter names are
+ * written once.
+ */
+export const mailboxOutcomeQuery = (reason?: MailboxConnectionReason): string =>
+  new URLSearchParams(
+    reason === undefined
+      ? { [MAILBOX_STATUS_PARAM]: MAILBOX_CONNECTED_STATUS }
+      : {
+          [MAILBOX_STATUS_PARAM]: MAILBOX_FAILED_STATUS,
+          [MAILBOX_REASON_PARAM]: reason,
+        },
+  ).toString();
+
 const first = (value: string | string[] | undefined): string | undefined =>
   Array.isArray(value) ? value[0] : value;
 
