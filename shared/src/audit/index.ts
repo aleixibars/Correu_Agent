@@ -7,6 +7,7 @@ export type {
   AuditAction,
   AuditActor,
   AuditEvent,
+  AutoReplyRuleChangedEvent,
   AutoReplySentEvent,
   DraftApprovedEvent,
   DraftDiscardedEvent,

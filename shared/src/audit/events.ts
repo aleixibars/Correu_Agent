@@ -1,5 +1,6 @@
 // Audit trail for every non-bookkeeping action (context.md §7): classification,
-// draft generated/approved/discarded/regenerated and mail actually sent. The
+// draft generated/approved/discarded/regenerated, mail actually sent and the
+// auto-reply switches that let mail go out unapproved in the first place. The
 // question it has to answer for a real client is "why was this mail sent", so an
 // entry says who acted, on what, and what the state was either side of the act.
 
@@ -12,12 +13,21 @@ export type SystemActor = { type: "system" };
 export type UserActor = { type: "user"; userId: string };
 export type AuditActor = SystemActor | UserActor;
 
-type EventBase = {
+/** What every entry carries, whatever it is about: whose tenant, and when. */
+type TenantEventBase = {
   tenantId: string;
-  /** The thread the action belongs to, on draft actions too, so one query by thread returns the full trail. */
-  threadId: string;
   /** Defaults to the database's `now()`; pass it when the action happened earlier than the write. */
   occurredAt?: Date;
+};
+
+/**
+ * An action on one thread. The tenant-wide configuration acts build on
+ * `TenantEventBase` instead — that split is what `buildAuditLogEntry` reads to
+ * decide whether an entry has a thread to hang off.
+ */
+type EventBase = TenantEventBase & {
+  /** The thread the action belongs to, on draft actions too, so one query by thread returns the full trail. */
+  threadId: string;
 };
 
 /**
@@ -103,6 +113,24 @@ export type AutoReplySentEvent = EventBase & {
   sentMessageId: string;
 };
 
+/**
+ * Someone moved a category's auto-reply switch (context.md §2). Not attached to
+ * a thread — it is the act that lets *later* mail leave the mailbox with nobody
+ * approving it, so without it the trail of an auto-reply stops at "a rule was
+ * on" with no record of who turned it on.
+ */
+export type AutoReplyRuleChangedEvent = TenantEventBase & {
+  action: "auto_reply_rule_changed";
+  actor: UserActor;
+  category: TriageCategory;
+  enabled: boolean;
+  previousEnabled: boolean;
+  /** The guidance the rule now carries; null when the tenant gave none. */
+  instructions: string | null;
+  /** The guidance it carried before — rewriting it changes what auto-replies say. */
+  previousInstructions: string | null;
+};
+
 export type AuditEvent =
   | MailReceivedEvent
   | ThreadClassifiedEvent
@@ -111,15 +139,17 @@ export type AuditEvent =
   | DraftDiscardedEvent
   | DraftRegeneratedEvent
   | DraftSentEvent
-  | AutoReplySentEvent;
+  | AutoReplySentEvent
+  | AutoReplyRuleChangedEvent;
 
 /** Derived from the events, so the union above is the single source of truth. */
 export type AuditAction = AuditEvent["action"];
 
 /**
- * The same actions as a value, in pipeline order — for dashboard filters and
- * for iterating them in tests. `satisfies` rejects an action no event declares;
- * a *missing* one is caught by the test that compares this list to the events.
+ * The same actions as a value, in pipeline order with the configuration act
+ * that permits an auto-reply last — for dashboard filters and for iterating
+ * them in tests. `satisfies` rejects an action no event declares; a *missing*
+ * one is caught by the test that compares this list to the events.
  */
 export const AUDIT_ACTIONS = [
   "mail_received",
@@ -130,6 +160,7 @@ export const AUDIT_ACTIONS = [
   "draft_regenerated",
   "draft_sent",
   "auto_reply_sent",
+  "auto_reply_rule_changed",
 ] as const satisfies readonly AuditAction[];
 
 type Transition = {
@@ -187,6 +218,18 @@ const transitionOf = (event: AuditEvent): Transition => {
         ...draftTransition("approved", "sent"),
         details: { sentMessageId: event.sentMessageId },
       };
+    case "auto_reply_rule_changed":
+      return {
+        // The guidance rides in the transition rather than in the details: a
+        // rewrite with the switch left on is a real change to what goes out
+        // unapproved, and a bare `enabled: true -> true` would hide it.
+        before: {
+          enabled: event.previousEnabled,
+          instructions: event.previousInstructions,
+        },
+        after: { enabled: event.enabled, instructions: event.instructions },
+        details: { category: event.category },
+      };
     case "auto_reply_sent":
       return {
         // An auto-reply is never approved, so it goes straight from pending to sent.
@@ -212,7 +255,7 @@ export const buildAuditLogEntry = (event: AuditEvent): NewAuditLogEntry => {
     actorType: event.actor.type,
     actorUserId: event.actor.type === "user" ? event.actor.userId : null,
     action: event.action,
-    threadId: event.threadId,
+    threadId: "threadId" in event ? event.threadId : null,
     draftId: "draftId" in event ? event.draftId : null,
     metadata: { ...(before ? { before } : {}), after, ...details },
     ...(event.occurredAt ? { createdAt: event.occurredAt } : {}),
