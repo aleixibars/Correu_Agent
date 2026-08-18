@@ -5,6 +5,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "../../../../../auth";
 import { LOGIN_PATH } from "../../../../../lib/auth/config";
 import { mailboxOutcomeQuery } from "../../../../../lib/mailbox/connect-messages";
+import { publicAppUrl } from "../../../../../lib/mailbox/public-url";
 import {
   MAILBOX_OAUTH_COOKIE,
   MAILBOX_OAUTH_COOKIE_MAX_AGE_SECONDS,
@@ -12,7 +13,6 @@ import {
   createGoogleAuthorizationRequest,
   encodeMailboxOAuthCookie,
   loadGoogleOAuthClient,
-  publicAppUrl,
   resolveGoogleCallbackUrl,
 } from "../../../../../lib/mailbox/google-oauth";
 

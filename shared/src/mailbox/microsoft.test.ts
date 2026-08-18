@@ -9,7 +9,7 @@ import {
 
 const AUTHORIZATION_REQUEST = {
   clientId: "entra-client-id",
-  redirectUri: "https://correu.example/api/mailboxes/microsoft/callback",
+  redirectUri: "https://correu.example/api/mailbox/microsoft/callback",
   state: "state-value",
   codeChallenge: "challenge-value",
 };

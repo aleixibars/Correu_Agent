@@ -6,9 +6,9 @@ import { describe, expect, it } from "vitest";
 import { decryptToken } from "@correu-agent/shared/token-encryption";
 import { LOGIN_PATH } from "../auth/config";
 import {
-  MAILBOX_OAUTH_COOKIE,
   MICROSOFT_MAILBOX_CALLBACK_PATH,
   MICROSOFT_MAILBOX_CONNECT_PATH,
+  MICROSOFT_MAILBOX_OAUTH_COOKIE,
   createMicrosoftMailboxHandlers,
 } from "./microsoft";
 
@@ -23,6 +23,7 @@ const ENV = {
   AUTH_MICROSOFT_ENTRA_ID_ID: "entra-client-id",
   AUTH_MICROSOFT_ENTRA_ID_SECRET: "entra-client-secret",
   AUTH_MICROSOFT_ENTRA_ID_ISSUER: `https://login.microsoftonline.com/${DIRECTORY_ID}/v2.0`,
+  AUTH_URL: "https://correu.example",
   TOKEN_ENCRYPTION_KEY: ENCRYPTION_KEY.toString("base64"),
 };
 
@@ -89,14 +90,11 @@ const handlersFor = (
     fetch: options.fetch ?? stubFetch().fetch,
   });
 
-/** Render terminates TLS at its proxy, so the public origin is only in the headers. */
+/** Render terminates TLS at its proxy, so the request URL carries the internal
+    host and the public one comes from `AUTH_URL`. */
 const request = (path: string, cookie?: string): NextRequest =>
   new NextRequest(`http://10.0.0.7:3000${path}`, {
-    headers: {
-      "x-forwarded-proto": "https",
-      "x-forwarded-host": "correu.example",
-      ...(cookie ? { cookie } : {}),
-    },
+    headers: cookie ? { cookie } : {},
   });
 
 const cookieOf = (response: Response): string => {
@@ -147,22 +145,32 @@ describe("microsoft mailbox connect", () => {
     );
   });
 
-  it("takes the outermost host when a proxy chain appended its own", async () => {
-    const chained = new NextRequest(
+  it("ignores a forwarded host a client made up, and never registers it as the callback", async () => {
+    const spoofed = new NextRequest(
       `http://10.0.0.7:3000${MICROSOFT_MAILBOX_CONNECT_PATH}`,
-      {
-        headers: {
-          "x-forwarded-proto": "https, http",
-          "x-forwarded-host": "correu.example, 10.0.0.7:3000",
-        },
-      },
+      { headers: { "x-forwarded-host": "atacant.example" } },
     );
 
-    const response = await handlersFor().connect(chained);
+    const response = await handlersFor().connect(spoofed);
     const authorizeUrl = new URL(response.headers.get("location")!);
 
     expect(authorizeUrl.searchParams.get("redirect_uri")).toBe(
       `https://correu.example${MICROSOFT_MAILBOX_CALLBACK_PATH}`,
+    );
+  });
+
+  it("falls back to the request origin when `AUTH_URL` is unset, for local runs", async () => {
+    const response = await handlersFor({
+      env: { ...ENV, AUTH_URL: undefined },
+    }).connect(request(MICROSOFT_MAILBOX_CONNECT_PATH));
+    const authorizeUrl = new URL(response.headers.get("location")!);
+
+    expect(authorizeUrl.searchParams.get("redirect_uri")).toBe(
+      `http://10.0.0.7:3000${MICROSOFT_MAILBOX_CALLBACK_PATH}`,
+    );
+    // No TLS in front of it, so a `Secure` cookie would never come back.
+    expect(response.headers.get("set-cookie")?.toLowerCase()).not.toContain(
+      "secure",
     );
   });
 
@@ -174,7 +182,7 @@ describe("microsoft mailbox connect", () => {
       }).connect(request(MICROSOFT_MAILBOX_CONNECT_PATH));
 
       expect(response.headers.get("location")).toBe(
-        "https://correu.example/?bustia=error",
+        "https://correu.example/?bustia=error&motiu=oauth_failed",
       );
     },
   );
@@ -186,7 +194,7 @@ describe("microsoft mailbox connect", () => {
     const authorizeUrl = new URL(response.headers.get("location")!);
     const setCookie = response.headers.get("set-cookie") ?? "";
     const [state, verifier] = cookieOf(response)
-      .slice(`${MAILBOX_OAUTH_COOKIE}=`.length)
+      .slice(`${MICROSOFT_MAILBOX_OAUTH_COOKIE}=`.length)
       .split(".");
 
     expect(setCookie.toLowerCase()).toContain("httponly");
@@ -248,7 +256,7 @@ describe("microsoft mailbox callback", () => {
     );
     // The one-shot state must not survive the exchange.
     expect(response.headers.get("set-cookie")).toContain(
-      `${MAILBOX_OAUTH_COOKIE}=;`,
+      `${MICROSOFT_MAILBOX_OAUTH_COOKIE}=;`,
     );
   });
 
@@ -260,7 +268,9 @@ describe("microsoft mailbox callback", () => {
       request(callbackPath({ code: "auth-code", state: "forged" }), cookie),
     );
 
-    expect(response.status).toBe(400);
+    expect(response.headers.get("location")).toBe(
+      "https://correu.example/?bustia=error&motiu=state_mismatch",
+    );
     expect(queries).toHaveLength(0);
   });
 
@@ -269,7 +279,9 @@ describe("microsoft mailbox callback", () => {
       request(callbackPath({ code: "auth-code", state: "whatever" })),
     );
 
-    expect(response.status).toBe(400);
+    expect(response.headers.get("location")).toBe(
+      "https://correu.example/?bustia=error&motiu=state_mismatch",
+    );
   });
 
   it("sends an anonymous visitor to the login page", async () => {
@@ -290,7 +302,7 @@ describe("microsoft mailbox callback", () => {
     );
   });
 
-  it("reports a consent the user refused at Microsoft", async () => {
+  it("tells the user their own cancellation apart from a failure", async () => {
     const { authorizeUrl, cookie } = await startConnection();
     const { db, queries } = createRecordingDb();
 
@@ -305,7 +317,7 @@ describe("microsoft mailbox callback", () => {
     );
 
     expect(response.headers.get("location")).toBe(
-      "https://correu.example/?bustia=error",
+      "https://correu.example/?bustia=error&motiu=access_denied",
     );
     expect(queries).toHaveLength(0);
   });
@@ -328,7 +340,7 @@ describe("microsoft mailbox callback", () => {
     );
 
     expect(response.headers.get("location")).toBe(
-      "https://correu.example/?bustia=error",
+      "https://correu.example/?bustia=error&motiu=oauth_failed",
     );
     expect(queries).toHaveLength(0);
   });

@@ -18,20 +18,25 @@ import {
 import { loadTokenEncryptionKey } from "@correu-agent/shared/token-encryption";
 import { LOGIN_PATH } from "../auth/config";
 // The outcome the dashboard reads off the URL once the flow is over. The Gmail
-// flow writes the same query string and the dashboard reads it, so the names
-// and the values are spelled in one place.
+// flow writes the same query string and the dashboard reads it, so the names,
+// the values and the Catalan copy are spelled in one place.
 import {
-  MAILBOX_CONNECTED_STATUS,
-  MAILBOX_FAILED_STATUS,
-  MAILBOX_STATUS_PARAM,
+  mailboxOutcomeQuery,
+  type MailboxConnectionReason,
 } from "./connect-messages";
+import { publicAppUrl } from "./public-url";
 
-export const MICROSOFT_MAILBOX_CONNECT_PATH = "/api/mailboxes/microsoft/connect";
+export const MICROSOFT_MAILBOX_CONNECT_PATH = "/api/mailbox/microsoft/connect";
 export const MICROSOFT_MAILBOX_CALLBACK_PATH =
-  "/api/mailboxes/microsoft/callback";
+  "/api/mailbox/microsoft/callback";
 
-/** Holds `<state>.<codeVerifier>` between the two legs of the OAuth flow. */
-export const MAILBOX_OAUTH_COOKIE = "correu-agent.mailbox-oauth";
+/**
+ * Holds `<state>.<codeVerifier>` between the two legs of the OAuth flow. Named
+ * apart from the Gmail one: the two flows can be half-finished at the same time
+ * in the same browser, and Gmail's cookie is scoped to the whole `/api/mailbox`
+ * subtree, so a shared name would have them overwrite each other.
+ */
+export const MICROSOFT_MAILBOX_OAUTH_COOKIE = "correu-mailbox-oauth-microsoft";
 
 /** Long enough for a consent screen, short enough that a stale state is dead. */
 const OAUTH_COOKIE_MAX_AGE_SECONDS = 10 * 60;
@@ -50,30 +55,6 @@ export interface MicrosoftMailboxHandlers {
   connect: (request: NextRequest) => Promise<NextResponse>;
   callback: (request: NextRequest) => Promise<NextResponse>;
 }
-
-/** Chained proxies append rather than replace, so the value can be a list. */
-const firstForwarded = (value: string | null): string | undefined =>
-  value?.split(",")[0]?.trim() || undefined;
-
-/**
- * Render terminates TLS at its proxy, so the request URL carries an internal
- * host — the redirect URI registered at Entra has to be the public one. The
- * forwarded headers are trusted for the same reason `trustHost` is set on the
- * Auth.js config: on Render they are the only place the public origin appears.
- */
-const publicOrigin = (request: NextRequest): string => {
-  const host = firstForwarded(request.headers.get("x-forwarded-host"));
-  if (!host) return request.nextUrl.origin;
-  const protocol =
-    firstForwarded(request.headers.get("x-forwarded-proto")) ?? "https";
-  return `${protocol}://${host}`;
-};
-
-const dashboardResult = (origin: string, result: string): URL => {
-  const url = new URL("/", origin);
-  url.searchParams.set(MAILBOX_STATUS_PARAM, result);
-  return url;
-};
 
 const randomUrlSafe = (): string => randomBytes(32).toString("base64url");
 
@@ -112,11 +93,20 @@ export const createMicrosoftMailboxHandlers = <
     tenant: microsoftTenantFromIssuer(env.AUTH_MICROSOFT_ENTRA_ID_ISSUER),
   });
 
-  const connect = async (request: NextRequest): Promise<NextResponse> => {
-    const origin = publicOrigin(request);
-    const session = await auth();
-    if (!session) return NextResponse.redirect(new URL(LOGIN_PATH, origin));
+  const appUrl = (request: NextRequest, path: string): string =>
+    publicAppUrl(request, path, env);
 
+  const outcome = (
+    request: NextRequest,
+    reason?: MailboxConnectionReason,
+  ): NextResponse =>
+    NextResponse.redirect(appUrl(request, `/?${mailboxOutcomeQuery(reason)}`));
+
+  const connect = async (request: NextRequest): Promise<NextResponse> => {
+    const session = await auth();
+    if (!session) return NextResponse.redirect(appUrl(request, LOGIN_PATH));
+
+    const redirectUri = appUrl(request, MICROSOFT_MAILBOX_CALLBACK_PATH);
     let clientId: string;
     let tenant: string;
     try {
@@ -128,9 +118,7 @@ export const createMicrosoftMailboxHandlers = <
     } catch (error) {
       // The message names the missing variable, so it stays in the server log.
       console.error("Cannot start the Microsoft mailbox connection:", error);
-      return NextResponse.redirect(
-        dashboardResult(origin, MAILBOX_FAILED_STATUS),
-      );
+      return outcome(request, "oauth_failed");
     }
 
     const state = randomUrlSafe();
@@ -140,92 +128,104 @@ export const createMicrosoftMailboxHandlers = <
       buildMicrosoftAuthorizationUrl({
         clientId,
         tenant,
-        redirectUri: `${origin}${MICROSOFT_MAILBOX_CALLBACK_PATH}`,
+        redirectUri,
         state,
         codeChallenge: pkceChallenge(codeVerifier),
       }),
     );
-    response.cookies.set(MAILBOX_OAUTH_COOKIE, `${state}.${codeVerifier}`, {
-      httpOnly: true,
-      // Lax, not strict: the browser arrives back here from Microsoft, and a
-      // strict cookie would not be sent on that cross-site navigation.
-      sameSite: "lax",
-      secure: origin.startsWith("https:"),
-      path: MICROSOFT_MAILBOX_CALLBACK_PATH,
-      maxAge: OAUTH_COOKIE_MAX_AGE_SECONDS,
-    });
+    response.cookies.set(
+      MICROSOFT_MAILBOX_OAUTH_COOKIE,
+      `${state}.${codeVerifier}`,
+      {
+        httpOnly: true,
+        // Lax, not strict: the browser arrives back here from Microsoft, and a
+        // strict cookie would not be sent on that cross-site navigation.
+        sameSite: "lax",
+        secure: redirectUri.startsWith("https:"),
+        path: MICROSOFT_MAILBOX_CALLBACK_PATH,
+        maxAge: OAUTH_COOKIE_MAX_AGE_SECONDS,
+      },
+    );
     return response;
   };
 
   const callback = async (request: NextRequest): Promise<NextResponse> => {
-    const origin = publicOrigin(request);
     const session = await auth();
-    if (!session) return NextResponse.redirect(new URL(LOGIN_PATH, origin));
-
+    const query = request.nextUrl.searchParams;
     const [storedState, codeVerifier] = (
-      request.cookies.get(MAILBOX_OAUTH_COOKIE)?.value ?? ""
+      request.cookies.get(MICROSOFT_MAILBOX_OAUTH_COOKIE)?.value ?? ""
     ).split(".");
-    const state = request.nextUrl.searchParams.get("state") ?? "";
-    if (!storedState || !codeVerifier || !matchesStoredState(state, storedState)) {
-      // Not a user-facing failure: either the flow never started here, or
-      // something else sent the browser to this URL.
-      return new NextResponse("Estat OAuth invàlid.", { status: 400 });
-    }
 
-    const finish = (result: string): NextResponse => {
-      const response = NextResponse.redirect(dashboardResult(origin, result));
-      // One-shot state: it must not be replayable after this exchange.
-      response.cookies.set(MAILBOX_OAUTH_COOKIE, "", {
-        path: MICROSOFT_MAILBOX_CALLBACK_PATH,
-        maxAge: 0,
-      });
-      return response;
+    const respond = async (): Promise<NextResponse> => {
+      // The session can have expired while the user was on the consent screen.
+      if (!session) return NextResponse.redirect(appUrl(request, LOGIN_PATH));
+
+      // Either the flow never started in this browser, or the cookie timed out
+      // — both are recoverable by starting again from the dashboard.
+      if (
+        !storedState ||
+        !codeVerifier ||
+        !matchesStoredState(query.get("state") ?? "", storedState)
+      ) {
+        return outcome(request, "state_mismatch");
+      }
+
+      if (query.get("error") === "access_denied") {
+        return outcome(request, "access_denied");
+      }
+      const code = query.get("code");
+      if (query.get("error") || !code) {
+        console.error(
+          `Microsoft mailbox consent refused: ${query.get("error") ?? "no code returned"}`,
+        );
+        return outcome(request, "oauth_failed");
+      }
+
+      try {
+        const { clientId, clientSecret, tenant } = oauthConfig();
+        const encryptionKey = loadTokenEncryptionKey(env);
+
+        const tokens = await exchangeMicrosoftAuthorizationCode({
+          clientId,
+          clientSecret,
+          tenant,
+          redirectUri: appUrl(request, MICROSOFT_MAILBOX_CALLBACK_PATH),
+          code,
+          codeVerifier,
+          fetch,
+        });
+
+        const identity = await fetchMicrosoftMailboxIdentity({
+          accessToken: tokens.accessToken,
+          fetch,
+        });
+
+        await connectMailboxAccount(db, {
+          tenantId: session.user.tenantId,
+          userId: session.user.id,
+          provider: "microsoft",
+          emailAddress: identity.emailAddress,
+          providerAccountId: identity.providerAccountId,
+          tokens,
+          encryptionKey,
+        });
+      } catch (error) {
+        // The message can carry Entra diagnostics, so it stays in the server log.
+        console.error("Failed to connect the Microsoft mailbox:", error);
+        return outcome(request, "oauth_failed");
+      }
+
+      return outcome(request);
     };
 
-    const providerError = request.nextUrl.searchParams.get("error");
-    const code = request.nextUrl.searchParams.get("code");
-    if (providerError || !code) {
-      console.error(
-        `Microsoft mailbox consent refused: ${providerError ?? "no code returned"}`,
-      );
-      return finish(MAILBOX_FAILED_STATUS);
-    }
-
-    try {
-      const { clientId, clientSecret, tenant } = oauthConfig();
-      const encryptionKey = loadTokenEncryptionKey(env);
-
-      const tokens = await exchangeMicrosoftAuthorizationCode({
-        clientId,
-        clientSecret,
-        tenant,
-        redirectUri: `${origin}${MICROSOFT_MAILBOX_CALLBACK_PATH}`,
-        code,
-        codeVerifier,
-        fetch,
-      });
-
-      const identity = await fetchMicrosoftMailboxIdentity({
-        accessToken: tokens.accessToken,
-        fetch,
-      });
-
-      await connectMailboxAccount(db, {
-        tenantId: session.user.tenantId,
-        userId: session.user.id,
-        provider: "microsoft",
-        emailAddress: identity.emailAddress,
-        providerAccountId: identity.providerAccountId,
-        tokens,
-        encryptionKey,
-      });
-
-      return finish(MAILBOX_CONNECTED_STATUS);
-    } catch (error) {
-      // The message can carry Entra diagnostics, so it stays in the server log.
-      console.error("Failed to connect the Microsoft mailbox:", error);
-      return finish(MAILBOX_FAILED_STATUS);
-    }
+    const response = await respond();
+    // The state is single-use whatever the outcome, so a stale cookie can never
+    // be replayed against a second callback.
+    response.cookies.delete({
+      name: MICROSOFT_MAILBOX_OAUTH_COOKIE,
+      path: MICROSOFT_MAILBOX_CALLBACK_PATH,
+    });
+    return response;
   };
 
   return { connect, callback };

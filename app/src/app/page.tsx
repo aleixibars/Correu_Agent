@@ -7,10 +7,8 @@ import {
   MAILBOX_STATUS_PARAM,
   mailboxConnectionNotice,
 } from "../lib/mailbox/connect-messages";
+import { GOOGLE_CONNECT_PATH } from "../lib/mailbox/google-oauth";
 import { MICROSOFT_MAILBOX_CONNECT_PATH } from "../lib/mailbox/microsoft";
-
-/** Where the Gmail connection flow starts (`api/mailbox/google/connect`). */
-const GOOGLE_CONNECT_PATH = "/api/mailbox/google/connect";
 
 export default async function HomePage({
   searchParams,
