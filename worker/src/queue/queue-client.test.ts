@@ -169,10 +169,14 @@ describe("startQueue", () => {
       }),
     );
     // The backoff has to stay inside the UTC day being digested, or a late
-    // retry would re-derive "yesterday" and cover the wrong one.
+    // retry would re-derive "yesterday" and cover the wrong one. pg-boss waits
+    // `retryDelay * (2^n / 2 + 2^n / 2 * random())` with `n = retryCount + 1`
+    // (`pg-boss@12.27`, `dist/manager.js:1274-1276`), so the worst case of one
+    // attempt is the full `retryDelay * 2^(retryCount + 1)`, not half of it.
     const worstCaseSeconds = Array.from(
       { length: DAILY_DIGEST_RETRY.retryLimit },
-      (_unused, retryCount) => DAILY_DIGEST_RETRY.retryDelay * 2 ** retryCount,
+      (_unused, retryCount) =>
+        DAILY_DIGEST_RETRY.retryDelay * 2 ** (retryCount + 1),
     ).reduce((total, delay) => total + delay, 0);
     const hoursLeftInDay = 24 - Number(DAILY_DIGEST_CRON.split(" ")[1]);
     expect(worstCaseSeconds).toBeLessThan(hoursLeftInDay * 60 * 60);

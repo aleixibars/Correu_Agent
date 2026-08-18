@@ -29,9 +29,10 @@ export const DAILY_DIGEST_CRON = "0 5 * * *";
  * needs rotating — and the day would be lost for good. Backing off buys the
  * hours those take to clear.
  *
- * The delays stay well inside the day being digested: 05:00 UTC plus a worst
- * case of roughly four hours of backoff is still the same UTC day, so a retry
- * never crosses midnight and re-aims at the day after the one it was queued for.
+ * The delays stay inside the day being digested: pg-boss's backoff is jittered
+ * up to `retryDelay * 2^(retryCount + 1)` per attempt, so four retries are at
+ * most 7.5 h — 05:00 UTC plus that is still the same UTC day, and a retry never
+ * crosses midnight to re-aim at the day after the one it was queued for.
  */
 export const DAILY_DIGEST_RETRY = {
   retryLimit: 4,

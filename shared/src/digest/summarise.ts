@@ -3,6 +3,7 @@
 // `./generate`.
 
 import type Anthropic from "@anthropic-ai/sdk";
+import { defuseTag } from "../prompt/untrusted";
 import type { DailyDigestContent, DigestSection } from "./collect";
 
 /** Prose the user reads every morning, so it runs on Sonnet, not Haiku (context.md §6). */
@@ -58,14 +59,20 @@ const SYSTEM_PROMPT = [
 
 /**
  * The fence is forgeable by anyone who can pick a subject line, so the tags are
- * defanged on the way in — same treatment, and same reason, as the classifier's
- * `<thread>` fence.
+ * defanged on the way in — the same helper, and the same reason, as the
+ * classifier's and the drafter's `<thread>` fence.
  */
-const defuseFence = (text: string): string =>
-  text.replace(/<(\/?)digest>/gi, "($1digest)");
+const defuseFence = (text: string): string => defuseTag(text, "digest");
+
+/**
+ * A stored subject is one line, so a newline in one is somebody's doing: left
+ * in, a subject could open its own `## urgent (99)` section and read as the
+ * day's structure rather than as one item inside it.
+ */
+const flatten = (text: string): string => text.replace(/\s+/g, " ").trim();
 
 const renderSubject = (subject: string | null): string => {
-  const text = subject?.trim() || "(sense assumpte)";
+  const text = flatten(subject ?? "") || "(sense assumpte)";
   return defuseFence(
     text.length > MAX_SUBJECT_CHARS
       ? `${text.slice(0, MAX_SUBJECT_CHARS)}…`
