@@ -199,6 +199,25 @@ describe("persistPolledMessages", () => {
     expect(inserts(queries, "audit_log_entries")).toEqual([]);
   });
 
+  it("dates mail the provider left undated by the poll instead of dropping it", async () => {
+    const { db, queries } = createDb();
+
+    await persistPolledMessages(db, {
+      tenantId: TENANT_ID,
+      mailboxAccountId: MAILBOX_ID,
+      // Gmail documents `internalDate` as optional, so a message can arrive
+      // without one; the poll instant is the closest honest answer, and a
+      // `NULL` here would leave the thread unordered.
+      messages: [message({ sentAt: null })],
+      now: NOW,
+    });
+
+    expect(inserts(queries, "threads")[0]!.params).toContain(NOW.toISOString());
+    expect(inserts(queries, "messages")[0]!.params).toContain(
+      NOW.toISOString(),
+    );
+  });
+
   it("does nothing at all when the poll found no mail", async () => {
     const { db, queries } = createDb();
 

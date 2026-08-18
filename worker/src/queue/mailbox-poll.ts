@@ -1,6 +1,5 @@
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import type { WorkHandler } from "pg-boss";
-import type { ProviderMessage } from "@correu-agent/shared/mail";
 import {
   persistPolledMessages,
   type PersistedThread,
@@ -11,6 +10,7 @@ import {
 } from "../poll/accounts";
 import { pollGmailMailbox, type GmailPollConfig } from "../poll/gmail";
 import { pollMicrosoftMailbox, type MicrosoftPollConfig } from "../poll/microsoft";
+import type { MailboxPoll } from "../poll/types";
 
 /** Queue that drives the 2-minute mailbox polling cadence (context.md §8). */
 export const MAILBOX_POLL_QUEUE = "mailbox-poll";
@@ -79,7 +79,7 @@ export const createMailboxPollHandler = <
 > => {
   const pollProvider = (
     account: PollableMailboxAccount,
-  ): Promise<ProviderMessage[]> => {
+  ): Promise<MailboxPoll> => {
     switch (account.provider) {
       case "google":
         return pollGmailMailbox(db, account, google);
@@ -100,13 +100,18 @@ export const createMailboxPollHandler = <
     // Disconnected between queueing and working: nothing to poll, nothing wrong.
     if (!account) return null;
 
-    // Persisted in the same job as the poll: the cursor has already moved on,
-    // so mail left unwritten here would never be offered again.
-    return persistPolledMessages(db, {
+    const { messages, commit } = await pollProvider(account);
+    const persisted = await persistPolledMessages(db, {
       tenantId: target.tenantId,
       mailboxAccountId: target.mailboxAccountId,
-      messages: await pollProvider(account),
+      messages,
     });
+    // Only now: the cursor is the mailbox's memory of what it has already been
+    // shown, so moving it before the rows are written would lose the mail of a
+    // poll that died in between — the provider never offers it a second time.
+    await commit();
+
+    return persisted;
   };
 
   return async (jobs) => {

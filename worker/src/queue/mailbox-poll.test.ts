@@ -60,6 +60,16 @@ const createDb = (
   });
 };
 
+/** Names the step a statement belongs to, so a test can assert on their order. */
+const shape = (sql: string): string => {
+  if (sql.startsWith("select")) return "load account";
+  if (sql.includes('insert into "threads"')) return "thread";
+  if (sql.includes('insert into "messages"')) return "message";
+  if (sql.includes('insert into "audit_log_entries"')) return "audit";
+  if (sql.includes('update "mailbox_accounts"')) return "cursor";
+  return "other";
+};
+
 const graphPage = (messageId: string) => ({
   value: [
     {
@@ -201,8 +211,17 @@ describe("createMailboxPollHandler", () => {
       job({ tenantId: TENANT_ID, mailboxAccountId: MAILBOX_ID }),
     ]);
 
-    expect(statements.some((sql) => sql.includes('insert into "threads"'))).toBe(true);
-    expect(statements.some((sql) => sql.includes('insert into "messages"'))).toBe(true);
+    // Ordering, not just presence: the cursor is the mailbox's memory of what it
+    // has been shown, so it only moves once the mail is on disk. Advancing it
+    // first would lose the batch of a poll that died in between — Graph never
+    // replays a spent delta link.
+    expect(statements.map(shape).filter((step) => step !== "other")).toEqual([
+      "load account",
+      "thread",
+      "message",
+      "audit",
+      "cursor",
+    ]);
     expect(result.threads).toEqual([
       {
         tenantId: TENANT_ID,
@@ -213,6 +232,30 @@ describe("createMailboxPollHandler", () => {
         newMessages: 1,
       },
     ]);
+  });
+
+  it("leaves the cursor alone when the mail it found could not be stored", async () => {
+    const statements: string[] = [];
+    const db = drizzle(async (sql) => {
+      statements.push(sql);
+      if (sql.startsWith("select")) return { rows: [accountRow(MAILBOX_ID, TENANT_ID)] };
+      if (sql.includes('insert into "threads"')) return { rows: [threadRow()] };
+      if (sql.includes('insert into "messages"')) throw new Error("Neon is down");
+      return { rows: [] };
+    });
+    const { fetch } = stubFetch(() => graphPage("message-1"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      createMailboxPollHandler(deps(db, fetch))([
+        job({ tenantId: TENANT_ID, mailboxAccountId: MAILBOX_ID }),
+      ]),
+    ).rejects.toThrow(/Every mailbox in the batch failed/);
+
+    // The mailbox stays where it was, so pg-boss's retry is offered the same
+    // mail again instead of the provider silently skipping past it.
+    expect(statements.map(shape)).not.toContain("cursor");
+    error.mockRestore();
   });
 
   it("does not send a thread that was already triaged back through triage", async () => {

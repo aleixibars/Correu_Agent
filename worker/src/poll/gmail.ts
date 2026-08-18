@@ -1,6 +1,7 @@
 // Polling one connected Gmail mailbox (context.md §8): renew the access token if
-// it is about to die, ask Gmail what changed since the stored history cursor,
-// and move the cursor on. The Gmail calls themselves live in the shared client.
+// it is about to die and ask Gmail what changed since the stored history cursor.
+// Moving that cursor on is the caller's `commit`, once the mail is stored. The
+// Gmail calls themselves live in the shared client.
 
 import { and, eq } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
@@ -10,7 +11,6 @@ import {
   loadGoogleOAuthCredentials,
   refreshGoogleAccessToken,
   type GoogleOAuthCredentials,
-  type ProviderMessage,
 } from "@correu-agent/shared/mail";
 import {
   decryptToken,
@@ -18,6 +18,7 @@ import {
   loadTokenEncryptionKey,
 } from "@correu-agent/shared/token-encryption";
 import type { PollableMailboxAccount } from "./accounts";
+import type { MailboxPoll } from "./types";
 
 /**
  * A token about to expire mid-poll is as good as expired: Gmail may take a few
@@ -43,12 +44,13 @@ export const loadGmailPollConfig = (
 });
 
 /**
- * New mail in one Gmail mailbox since its last poll.
+ * New mail in one Gmail mailbox since its last poll, plus the `commit` that
+ * moves the cursor on once that mail is stored.
  *
- * The cursor is written after Gmail answered, so a poll that dies mid-flight
- * repeats itself rather than skipping mail; the same message reaching the
- * pipeline twice is settled by the uniqueness of `(thread, provider message id)`
- * when it is persisted.
+ * The cursor is not written here: a poll that dies mid-flight has to repeat
+ * itself rather than skip mail, and the same message reaching the pipeline
+ * twice is settled by the uniqueness of `(thread, provider message id)` when it
+ * is persisted.
  */
 export const pollGmailMailbox = async <
   T extends PgQueryResultHKT,
@@ -57,7 +59,7 @@ export const pollGmailMailbox = async <
   db: PgDatabase<T, TSchema>,
   account: PollableMailboxAccount,
   { credentials, encryptionKey, now = () => new Date() }: GmailPollConfig,
-): Promise<ProviderMessage[]> => {
+): Promise<MailboxPoll> => {
   const polledAt = now();
   const accessToken = await currentAccessToken(db, account, {
     credentials,
@@ -77,17 +79,20 @@ export const pollGmailMailbox = async <
     );
   }
 
-  await db
-    .update(mailboxAccounts)
-    .set({ syncCursor: poll.cursor, lastPolledAt: polledAt })
-    .where(
-      and(
-        eq(mailboxAccounts.id, account.id),
-        eq(mailboxAccounts.tenantId, account.tenantId),
-      ),
-    );
-
-  return poll.messages;
+  return {
+    messages: poll.messages,
+    commit: async () => {
+      await db
+        .update(mailboxAccounts)
+        .set({ syncCursor: poll.cursor, lastPolledAt: polledAt })
+        .where(
+          and(
+            eq(mailboxAccounts.id, account.id),
+            eq(mailboxAccounts.tenantId, account.tenantId),
+          ),
+        );
+    },
+  };
 };
 
 /**
