@@ -1,5 +1,12 @@
 import { PgBoss, type WorkHandler } from "pg-boss";
 import {
+  DAILY_DIGEST_CRON,
+  DAILY_DIGEST_QUEUE,
+  DAILY_DIGEST_RETRY,
+  type DailyDigestJobData,
+  type DailyDigestResult,
+} from "./daily-digest";
+import {
   MAILBOX_POLL_QUEUE,
   type MailboxPollJobData,
   type MailboxPollResult,
@@ -68,6 +75,7 @@ export interface QueueHandlers {
   threadTriage: WorkHandler<ThreadTriageJobData, ThreadTriageResult>;
   threadDraft: WorkHandler<ThreadDraftJobData, ThreadDraftResult>;
   retentionPurge: WorkHandler<RetentionPurgeJobData, RetentionPurgeResult>;
+  dailyDigest: WorkHandler<DailyDigestJobData, DailyDigestResult>;
 }
 
 /**
@@ -75,13 +83,20 @@ export interface QueueHandlers {
  * consuming them. pg-boss creates/migrates its own schema on `start()`.
  *
  * The mailbox poll, the thread triage and the drafting are driven from the
- * worker's own 2-minute tick, while the retention purge rides pg-boss's cron: a
- * daily job must not restart its clock every time the worker is redeployed, and
- * must fire once for the cluster rather than once per instance.
+ * worker's own 2-minute tick, while the retention purge and the daily digest
+ * ride pg-boss's cron: a daily job must not restart its clock every time the
+ * worker is redeployed, and must fire once for the cluster rather than once per
+ * instance.
  */
 export const startQueue = async (
   boss: PgBoss,
-  { mailboxPoll, threadTriage, threadDraft, retentionPurge }: QueueHandlers,
+  {
+    mailboxPoll,
+    threadTriage,
+    threadDraft,
+    retentionPurge,
+    dailyDigest,
+  }: QueueHandlers,
 ): Promise<void> => {
   await boss.start();
 
@@ -114,5 +129,18 @@ export const startQueue = async (
   await boss.work<RetentionPurgeJobData, RetentionPurgeResult>(
     RETENTION_PURGE_QUEUE,
     retentionPurge,
+  );
+
+  await ensureQueue(boss, DAILY_DIGEST_QUEUE);
+  // Unlike the purge, a failed digest run is not made good by tomorrow's: each
+  // run covers one day and nothing revisits it, so this one carries its own
+  // retry schedule rather than pg-boss's immediate default.
+  await boss.schedule(DAILY_DIGEST_QUEUE, DAILY_DIGEST_CRON, {}, {
+    singletonKey: DAILY_DIGEST_QUEUE,
+    ...DAILY_DIGEST_RETRY,
+  });
+  await boss.work<DailyDigestJobData, DailyDigestResult>(
+    DAILY_DIGEST_QUEUE,
+    dailyDigest,
   );
 };

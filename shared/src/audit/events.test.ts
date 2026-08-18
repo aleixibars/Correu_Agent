@@ -87,7 +87,22 @@ const EVENTS: { [A in AuditAction]: Extract<AuditEvent, { action: A }> } = {
     category: "comercial",
     sentMessageId: MESSAGE_ID,
   },
+  auto_reply_rule_changed: {
+    action: "auto_reply_rule_changed",
+    tenantId: TENANT_ID,
+    actor: USER,
+    category: "comercial",
+    previousEnabled: false,
+    enabled: true,
+    instructions: null,
+    previousInstructions: null,
+  },
 };
+
+/** The actions that belong to a thread; the rest are tenant-wide configuration. */
+const THREAD_ACTIONS = AUDIT_ACTIONS.filter(
+  (action) => action !== "auto_reply_rule_changed",
+);
 
 /** Every action's `metadata.before` / `metadata.after`, i.e. the transition it records. */
 const TRANSITIONS: Record<
@@ -120,20 +135,35 @@ const TRANSITIONS: Record<
     before: { status: "pending" },
     after: { status: "sent" },
   },
+  auto_reply_rule_changed: {
+    before: { enabled: false, instructions: null },
+    after: { enabled: true, instructions: null },
+  },
 };
 
 const metadataOf = (event: AuditEvent): Record<string, unknown> =>
   buildAuditLogEntry(event).metadata as Record<string, unknown>;
 
 describe("buildAuditLogEntry", () => {
-  it.each(AUDIT_ACTIONS)("records %s against its thread", (action) => {
+  it.each(AUDIT_ACTIONS)("records %s against its tenant", (action) => {
     const entry = buildAuditLogEntry(EVENTS[action]);
 
     expect(entry.action).toBe(action);
     expect(entry.tenantId).toBe(TENANT_ID);
+  });
+
+  it.each(THREAD_ACTIONS)("records %s against its thread", (action) => {
     // Every draft action carries its thread too, so one query by thread returns
     // the whole "why was this mail sent" trail (context.md §7).
-    expect(entry.threadId).toBe(THREAD_ID);
+    expect(buildAuditLogEntry(EVENTS[action]).threadId).toBe(THREAD_ID);
+  });
+
+  it("records an auto-reply switch against no thread", () => {
+    // Turning a category on is what permits *later* mail to go out unapproved,
+    // so it belongs to the tenant, not to any one thread (context.md §2).
+    expect(
+      buildAuditLogEntry(EVENTS.auto_reply_rule_changed).threadId,
+    ).toBeNull();
   });
 
   it.each(AUDIT_ACTIONS)("records the before/after state of %s", (action) => {
@@ -215,6 +245,41 @@ describe("buildAuditLogEntry", () => {
   it("records which sent message a send produced", () => {
     expect(metadataOf(EVENTS.draft_sent).sentMessageId).toBe(MESSAGE_ID);
     expect(metadataOf(EVENTS.auto_reply_sent).sentMessageId).toBe(MESSAGE_ID);
+  });
+
+  it("records which category's switch was moved, and to what", () => {
+    const metadata = metadataOf({
+      ...EVENTS.auto_reply_rule_changed,
+      instructions: "Respon en to proper.",
+    });
+
+    expect(metadata.category).toBe("comercial");
+    expect(metadata.before).toEqual({ enabled: false, instructions: null });
+    expect(metadata.after).toEqual({
+      enabled: true,
+      instructions: "Respon en to proper.",
+    });
+  });
+
+  it("records a rewrite of the guidance with the switch left alone", () => {
+    // The switch stays on either side, so the guidance is the only thing that
+    // says what changed about the mail this rule sends unapproved.
+    const metadata = metadataOf({
+      ...EVENTS.auto_reply_rule_changed,
+      previousEnabled: true,
+      enabled: true,
+      previousInstructions: "Respon en to proper.",
+      instructions: "Ofereix sempre un descompte.",
+    });
+
+    expect(metadata.before).toEqual({
+      enabled: true,
+      instructions: "Respon en to proper.",
+    });
+    expect(metadata.after).toEqual({
+      enabled: true,
+      instructions: "Ofereix sempre un descompte.",
+    });
   });
 
   it("records which category's rule fired an auto-reply", () => {
