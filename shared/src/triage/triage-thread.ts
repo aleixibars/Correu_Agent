@@ -62,6 +62,13 @@ export const triageThread = async <
     // The classifier drops anything past this anyway, so the rows are not read.
     .limit(MAX_THREAD_MESSAGES);
 
+  // The poll writes the thread row and its messages as two statements, so a
+  // tick can land between them and see a thread with no mail stored yet.
+  // Classifying it on its subject alone would stamp `triaged_at` and lock that
+  // guess in forever — the guard below never lets a thread back in. Leave it for
+  // the next tick, which is two minutes away.
+  if (threadMessages.length === 0) return null;
+
   const { category, model } = await classifyThread(client, {
     subject: thread.subject,
     messages: threadMessages,

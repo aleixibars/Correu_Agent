@@ -35,6 +35,9 @@ describe("queueThreadTriage", () => {
     await expect(queueThreadTriage(boss, db)).resolves.toBe(1);
 
     expect(queries[0]!.sql).toContain('"triaged_at" is null');
+    // A thread the poll created but has not written the mail of yet is not
+    // classifiable: queueing it would spend an Anthropic call on a subject line.
+    expect(queries[0]!.sql).toContain('from "messages"');
     expect(send).toHaveBeenCalledWith(
       THREAD_TRIAGE_QUEUE,
       { tenantId: TENANT_ID, threadId: THREAD_ID },

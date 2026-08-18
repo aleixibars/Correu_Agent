@@ -4,10 +4,10 @@
 // failed for good — is then picked up by the next tick instead of staying
 // unclassified forever.
 
-import { asc, isNull } from "drizzle-orm";
+import { and, asc, eq, exists, isNull, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import type { PgBoss } from "pg-boss";
-import { threads } from "@correu-agent/shared/db/schema";
+import { messages, threads } from "@correu-agent/shared/db/schema";
 import { POLL_INTERVAL_MS } from "../poll-interval";
 import { THREAD_TRIAGE_QUEUE, type ThreadTriageJobData } from "../queue/thread-triage";
 
@@ -27,7 +27,21 @@ export const listThreadsAwaitingTriage = async <
   db
     .select({ id: threads.id, tenantId: threads.tenantId })
     .from(threads)
-    .where(isNull(threads.triagedAt))
+    .where(
+      and(
+        isNull(threads.triagedAt),
+        // A thread whose mail is not stored yet is not classifiable: the poll
+        // writes the thread row and its messages separately, so a tick can see
+        // the one without the other. Queueing it would spend an Anthropic call
+        // on a subject line and stamp the answer in permanently.
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(messages)
+            .where(eq(messages.threadId, threads.id)),
+        ),
+      ),
+    )
     // Oldest mail first: a thread waiting since the previous tick is answered
     // before one that arrived a second ago.
     .orderBy(asc(threads.lastMessageAt))

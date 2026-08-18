@@ -78,19 +78,33 @@ const SYSTEM_PROMPT = [
 const truncate = (text: string): string =>
   text.length > MAX_BODY_CHARS ? `${text.slice(0, MAX_BODY_CHARS)}…` : text;
 
+/**
+ * The mail is fenced between `<thread>` tags, so mail that writes those tags
+ * itself could close the fence early and have the rest of it read as the
+ * operator talking. Telling the model the fence is untrusted does not stop the
+ * fence from being forgeable, and the category a forgery would dictate gates
+ * both the urgent push notification (context.md §5) and auto-reply eligibility
+ * (context.md §2) — so the tags are defanged on the way in. Anyone can mail
+ * this inbox.
+ */
+const defuseFence = (text: string): string =>
+  text.replace(/<(\/?)thread>/gi, "($1thread)");
+
 const renderMessage = (message: ThreadMessageToClassify): string =>
-  [
-    `From: ${message.fromAddress}`,
-    `Subject: ${message.subject ?? "(no subject)"}`,
-    // The body is gone once it is purged (context.md §7), and a stored snippet
-    // is still enough to place the thread.
-    truncate(message.bodyText ?? message.snippet ?? "(no body)"),
-  ].join("\n");
+  defuseFence(
+    [
+      `From: ${message.fromAddress}`,
+      `Subject: ${message.subject ?? "(no subject)"}`,
+      // The body is gone once it is purged (context.md §7), and a stored snippet
+      // is still enough to place the thread.
+      truncate(message.bodyText ?? message.snippet ?? "(no body)"),
+    ].join("\n"),
+  );
 
 const renderThread = (thread: ThreadToClassify): string =>
   [
     "<thread>",
-    `Thread subject: ${thread.subject ?? "(no subject)"}`,
+    `Thread subject: ${defuseFence(thread.subject ?? "(no subject)")}`,
     "",
     ...thread.messages.slice(0, MAX_THREAD_MESSAGES).map(renderMessage),
     "</thread>",

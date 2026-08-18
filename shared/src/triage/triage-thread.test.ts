@@ -140,13 +140,20 @@ describe("triageThread", () => {
     expect(queries.map(({ sql }) => shape(sql))).not.toContain("audit");
   });
 
-  it("classifies a thread whose mail is only a subject", async () => {
-    const { db } = createDb({ messages: [] });
+  it("leaves a thread whose mail is not stored yet for the next tick", async () => {
+    // The poll writes the thread row and its messages separately, so a tick can
+    // see the one without the other. Triaging on the subject alone would stamp
+    // `triaged_at` and lock that guess in — nothing ever re-triages a thread.
+    const { db, queries } = createDb({ messages: [] });
     const { client, create } = createClient("newsletter");
 
     await expect(
       triageThread(db, client, { tenantId: TENANT_ID, threadId: THREAD_ID }),
-    ).resolves.toMatchObject({ category: "newsletter" });
-    expect(create).toHaveBeenCalledOnce();
+    ).resolves.toBeNull();
+    expect(create).not.toHaveBeenCalled();
+    expect(queries.map(({ sql }) => shape(sql))).toEqual([
+      "load thread",
+      "load messages",
+    ]);
   });
 });
