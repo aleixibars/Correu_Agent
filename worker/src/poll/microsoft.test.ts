@@ -34,6 +34,9 @@ const DELTA_PAGE = {
       subject: "Pressupost",
       receivedDateTime: "2026-01-01T08:00:00Z",
       isDraft: false,
+      from: { emailAddress: { address: "client@example.com" } },
+      toRecipients: [{ emailAddress: { address: "bustia@example.com" } }],
+      body: { contentType: "text", content: "Bon dia" },
     },
   ],
   "@odata.deltaLink": "https://delta/2",
@@ -92,15 +95,20 @@ describe("pollMicrosoftMailbox", () => {
     expect(calls[0]!.headers.get("authorization")).toBe(
       "Bearer stored-access-token",
     );
-    expect(messages).toEqual([
-      {
-        providerMessageId: "message-1",
-        providerThreadId: "conversation-1",
-        messageIdHeader: "<message-1@example.com>",
-        subject: "Pressupost",
-        receivedAt: new Date("2026-01-01T08:00:00Z"),
-      },
-    ]);
+    expect(messages).toHaveLength(1);
+    // The whole message, body included: it is stored as it arrives and never
+    // fetched from Graph a second time (context.md §7).
+    expect(messages[0]).toMatchObject({
+      providerMessageId: "message-1",
+      providerThreadId: "conversation-1",
+      direction: "inbound",
+      messageIdHeader: "<message-1@example.com>",
+      fromAddress: "client@example.com",
+      toAddresses: ["bustia@example.com"],
+      subject: "Pressupost",
+      bodyText: "Bon dia",
+      sentAt: new Date("2026-01-01T08:00:00Z"),
+    });
     expect(queries).toHaveLength(1);
     expect(queries[0]!.sql).toContain('update "mailbox_accounts"');
     expect(queries[0]!.params).toContain("https://delta/2");

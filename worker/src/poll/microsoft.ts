@@ -5,11 +5,11 @@
 import { and, eq } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { mailboxAccounts } from "@correu-agent/shared/db/schema";
+import type { ProviderMessage } from "@correu-agent/shared/mail";
 import {
   fetchMicrosoftNewMessages,
   microsoftTenantFromIssuer,
   refreshMicrosoftAccessToken,
-  type MailboxMessageSummary,
   type MicrosoftTokenSet,
 } from "@correu-agent/shared/mailbox";
 import {
@@ -79,7 +79,7 @@ export const pollMicrosoftMailbox = async <
     fetch = globalThis.fetch,
     now = () => new Date(),
   }: MicrosoftPollConfig,
-): Promise<MailboxMessageSummary[]> => {
+): Promise<ProviderMessage[]> => {
   if (!account.refreshTokenEncrypted) {
     throw new Error(
       `Mailbox ${account.emailAddress} has no refresh token — it has to be reconnected.`,

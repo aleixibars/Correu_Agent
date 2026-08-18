@@ -13,6 +13,7 @@ export type {
   DraftGeneratedEvent,
   DraftRegeneratedEvent,
   DraftSentEvent,
+  MailReceivedEvent,
   SystemActor,
   ThreadClassifiedEvent,
   UserActor,

@@ -122,12 +122,18 @@ describe("pollGmailMailbox", () => {
     });
 
     expect(messages).toHaveLength(1);
-    expect(messages[0]).toEqual({
+    // The whole message, body included: it is stored as it arrives and never
+    // fetched from Gmail a second time (context.md §7).
+    expect(messages[0]).toMatchObject({
       providerMessageId: "msg-1",
       providerThreadId: "thread-1",
+      direction: "inbound",
       messageIdHeader: "<msg-1@example.com>",
+      fromAddress: "client@example.com",
+      toAddresses: ["bustia@example.com"],
       subject: "Pressupost",
-      receivedAt: new Date(1700000000000),
+      bodyText: "Bon dia",
+      sentAt: new Date(1700000000000),
     });
 
     // Only new mail is polled (context.md §4): history resumes from the cursor.

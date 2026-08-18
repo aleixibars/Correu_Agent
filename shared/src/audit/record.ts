@@ -7,8 +7,11 @@ import { buildAuditLogEntry, type AuditEvent } from "./events";
  * Drizzle Postgres database — the app's connection, the worker's, or a
  * transaction handle passed in from an enclosing write.
  */
-export const recordAuditLogEntry = async <T extends PgQueryResultHKT>(
-  db: PgDatabase<T>,
+export const recordAuditLogEntry = async <
+  T extends PgQueryResultHKT,
+  TSchema extends Record<string, unknown> = Record<string, never>,
+>(
+  db: PgDatabase<T, TSchema>,
   event: AuditEvent,
 ): Promise<void> => {
   await db.insert(auditLogEntries).values(buildAuditLogEntry(event));

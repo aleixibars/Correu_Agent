@@ -2,14 +2,21 @@
 // poll (context.md §8). The worker never calls Graph itself: it goes through
 // this client so Gmail and Graph stay swappable behind one message shape.
 
-import type { MailboxMessageSummary } from "./messages";
+import type { ProviderMessage } from "../mail/types";
 
 const GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0";
 const INBOX_URL = `${GRAPH_BASE_URL}/me/mailFolders/inbox/messages`;
 
-/** Only what a poll hands on; the body is fetched when the message is persisted. */
+/**
+ * Everything a message row needs (context.md §7): the body travels with the poll
+ * so persisting it does not cost a second Graph call per message.
+ */
 const MESSAGE_FIELDS =
-  "id,conversationId,internetMessageId,subject,receivedDateTime,isDraft";
+  "id,conversationId,internetMessageId,subject,receivedDateTime,isDraft,from,sender,toRecipients,ccRecipients,bodyPreview,body";
+
+interface GraphRecipient {
+  emailAddress?: { address?: string | null } | null;
+}
 
 interface GraphMessage {
   id?: string;
@@ -18,6 +25,12 @@ interface GraphMessage {
   subject?: string | null;
   receivedDateTime?: string;
   isDraft?: boolean;
+  from?: GraphRecipient | null;
+  sender?: GraphRecipient | null;
+  toRecipients?: GraphRecipient[];
+  ccRecipients?: GraphRecipient[];
+  bodyPreview?: string | null;
+  body?: { contentType?: string | null; content?: string | null } | null;
   /** Present on a delta entry that reports a deletion rather than a message. */
   "@removed"?: { reason?: string };
 }
@@ -31,7 +44,7 @@ interface GraphPage {
 
 export interface MicrosoftMailboxSync {
   /** New mail, oldest first, de-duplicated across pages. */
-  messages: MailboxMessageSummary[];
+  messages: ProviderMessage[];
   /** Where the next poll resumes from — persisted in `mailbox_accounts.sync_cursor`. */
   deltaLink: string;
 }
@@ -83,10 +96,20 @@ const readPage = async (
   return body;
 };
 
-const toSummary = (
+const address = (recipient: GraphRecipient | null | undefined): string | null => {
+  const value = recipient?.emailAddress?.address?.trim().toLowerCase();
+  return value ? value : null;
+};
+
+const addresses = (recipients: GraphRecipient[] | undefined): string[] =>
+  (recipients ?? [])
+    .map(address)
+    .filter((value): value is string => value !== null);
+
+const toProviderMessage = (
   message: GraphMessage,
   since: Date,
-): MailboxMessageSummary | null => {
+): ProviderMessage | null => {
   // A deletion, a draft this mailbox is writing itself, or an entry too thin to
   // identify: none of them is incoming mail to triage.
   if (message["@removed"] || message.isDraft) return null;
@@ -97,12 +120,30 @@ const toSummary = (
   const receivedAt = new Date(message.receivedDateTime);
   if (Number.isNaN(receivedAt.getTime()) || receivedAt <= since) return null;
 
+  const isHtml = message.body?.contentType?.toLowerCase() === "html";
+  const content = message.body?.content ?? null;
+
   return {
     providerMessageId: message.id,
     providerThreadId: message.conversationId,
+    // Only the inbox is read, so everything a poll brings back arrived here.
+    direction: "inbound",
     messageIdHeader: message.internetMessageId ?? null,
+    // Graph only carries In-Reply-To/References inside `internetMessageHeaders`,
+    // which the delta endpoint does not serve; a reply to a Graph conversation
+    // is threaded by `conversationId` instead.
+    inReplyTo: null,
+    references: null,
+    fromAddress: address(message.from) ?? address(message.sender) ?? "",
+    toAddresses: addresses(message.toRecipients),
+    ccAddresses: addresses(message.ccRecipients),
     subject: message.subject ?? null,
-    receivedAt,
+    snippet: message.bodyPreview ?? null,
+    bodyText: isHtml ? null : content,
+    bodyHtml: isHtml ? content : null,
+    // Graph dates a message by when the mailbox received it, which is the
+    // instant the thread is ordered by.
+    sentAt: receivedAt,
   };
 };
 
@@ -114,10 +155,10 @@ const toSummary = (
 const readCollection = async (
   url: string,
   { accessToken, since, fetch }: { accessToken: string; since: Date; fetch: typeof globalThis.fetch },
-): Promise<{ messages: Map<string, MailboxMessageSummary>; deltaLink?: string }> => {
+): Promise<{ messages: Map<string, ProviderMessage>; deltaLink?: string }> => {
   // Graph repeats a message across pages when it changes mid-enumeration, and a
   // delta reports an already-seen message again when a flag on it changes.
-  const messages = new Map<string, MailboxMessageSummary>();
+  const messages = new Map<string, ProviderMessage>();
   let next: string | undefined = url;
   let deltaLink: string | undefined;
 
@@ -127,8 +168,8 @@ const readCollection = async (
   while (next) {
     const page: GraphPage = await readPage(next, accessToken, fetch);
     for (const message of page.value ?? []) {
-      const summary = toSummary(message, since);
-      if (summary) messages.set(summary.providerMessageId, summary);
+      const parsed = toProviderMessage(message, since);
+      if (parsed) messages.set(parsed.providerMessageId, parsed);
     }
     deltaLink = page["@odata.deltaLink"] ?? deltaLink;
     next = page["@odata.nextLink"];
@@ -194,8 +235,10 @@ export const fetchMicrosoftNewMessages = async ({
 };
 
 const sortedByArrival = (
-  messages: Map<string, MailboxMessageSummary>,
-): MailboxMessageSummary[] =>
+  messages: Map<string, ProviderMessage>,
+): ProviderMessage[] =>
+  // `sentAt` is the arrival instant here, and never null: a message without a
+  // usable `receivedDateTime` is dropped before it reaches this point.
   [...messages.values()].sort(
-    (a, b) => a.receivedAt.getTime() - b.receivedAt.getTime(),
+    (a, b) => (a.sentAt?.getTime() ?? 0) - (b.sentAt?.getTime() ?? 0),
   );

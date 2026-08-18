@@ -1,7 +1,14 @@
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import type { WorkHandler } from "pg-boss";
-import type { MailboxMessageSummary } from "@correu-agent/shared/mailbox";
-import { loadPollableMailboxAccount } from "../poll/accounts";
+import type { ProviderMessage } from "@correu-agent/shared/mail";
+import {
+  persistPolledMessages,
+  type PersistedThread,
+} from "@correu-agent/shared/mailbox";
+import {
+  loadPollableMailboxAccount,
+  type PollableMailboxAccount,
+} from "../poll/accounts";
 import { pollGmailMailbox, type GmailPollConfig } from "../poll/gmail";
 import { pollMicrosoftMailbox, type MicrosoftPollConfig } from "../poll/microsoft";
 
@@ -17,16 +24,21 @@ export type MailboxPollJobData = {
 /** A mailbox account polled in a batch — same shape as the job payload. */
 export type MailboxPollTarget = MailboxPollJobData;
 
-/** A message the poll found, kept next to the mailbox it belongs to. */
-export type PolledMailboxMessage = MailboxPollTarget & {
-  message: MailboxMessageSummary;
+/** A thread the poll wrote to, kept next to the mailbox it belongs to. */
+export type PolledMailboxThread = MailboxPollTarget & {
+  threadId: string;
+  providerThreadId: string;
+  /** False for a thread that already has a category: a reply never re-triages it (context.md §4). */
+  needsTriage: boolean;
+  /** How much mail this poll really stored — 0 when the provider repeated itself. */
+  newMessages: number;
 };
 
 export type FailedMailboxPoll = MailboxPollTarget & { error: string };
 
 export type MailboxPollResult = {
   polled: MailboxPollTarget[];
-  messages: PolledMailboxMessage[];
+  threads: PolledMailboxThread[];
   failed: FailedMailboxPoll[];
 };
 
@@ -46,9 +58,9 @@ const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
 /**
- * Polls every mailbox account named in the batch and reports the new mail it
- * found; persisting those messages and triaging them is the next stage of the
- * pipeline.
+ * Polls every mailbox account named in the batch, stores what it found as
+ * threads and messages, and reports the threads that were written to; triaging
+ * them is the next stage of the pipeline.
  *
  * A batch can contain the same mailbox account more than once (a poll job queued
  * while the previous one was still waiting), so targets are de-duplicated: polling
@@ -65,14 +77,9 @@ export const createMailboxPollHandler = <
   MailboxPollJobData,
   MailboxPollResult
 > => {
-  /** `null` when there is no mailbox to poll, as opposed to no new mail in one. */
-  const pollOne = async (
-    target: MailboxPollTarget,
-  ): Promise<MailboxMessageSummary[] | null> => {
-    const account = await loadPollableMailboxAccount(db, target);
-    // Disconnected between queueing and working: nothing to poll, nothing wrong.
-    if (!account) return null;
-
+  const pollProvider = (
+    account: PollableMailboxAccount,
+  ): Promise<ProviderMessage[]> => {
     switch (account.provider) {
       case "google":
         return pollGmailMailbox(db, account, google);
@@ -83,6 +90,23 @@ export const createMailboxPollHandler = <
           `No poller for a ${account.provider} mailbox (${account.emailAddress}).`,
         );
     }
+  };
+
+  /** `null` when there is no mailbox to poll, as opposed to no new mail in one. */
+  const pollOne = async (
+    target: MailboxPollTarget,
+  ): Promise<PersistedThread[] | null> => {
+    const account = await loadPollableMailboxAccount(db, target);
+    // Disconnected between queueing and working: nothing to poll, nothing wrong.
+    if (!account) return null;
+
+    // Persisted in the same job as the poll: the cursor has already moved on,
+    // so mail left unwritten here would never be offered again.
+    return persistPolledMessages(db, {
+      tenantId: target.tenantId,
+      mailboxAccountId: target.mailboxAccountId,
+      messages: await pollProvider(account),
+    });
   };
 
   return async (jobs) => {
@@ -96,7 +120,7 @@ export const createMailboxPollHandler = <
     }
 
     const polled: MailboxPollTarget[] = [];
-    const messages: PolledMailboxMessage[] = [];
+    const threads: PolledMailboxThread[] = [];
     const failed: FailedMailboxPoll[] = [];
 
     // One mailbox at a time: a batch is small, and a failing mailbox must not
@@ -106,7 +130,15 @@ export const createMailboxPollHandler = <
         const found = await pollOne(target);
         if (!found) continue;
         polled.push(target);
-        messages.push(...found.map((message) => ({ ...target, message })));
+        threads.push(
+          ...found.map((thread) => ({
+            ...target,
+            threadId: thread.threadId,
+            providerThreadId: thread.providerThreadId,
+            needsTriage: thread.triagedAt === null,
+            newMessages: thread.newProviderMessageIds.length,
+          })),
+        );
       } catch (error) {
         // One mailbox with a revoked grant or an exhausted quota must not hide
         // the rest of the batch, but it must not disappear either: pg-boss keeps
@@ -126,6 +158,6 @@ export const createMailboxPollHandler = <
       );
     }
 
-    return { polled, messages, failed };
+    return { polled, threads, failed };
   };
 };

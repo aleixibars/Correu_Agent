@@ -20,6 +20,14 @@ const USER = { type: "user", userId: USER_ID } as const;
  * without the whole suite below covering it too.
  */
 const EVENTS: { [A in AuditAction]: Extract<AuditEvent, { action: A }> } = {
+  mail_received: {
+    action: "mail_received",
+    tenantId: TENANT_ID,
+    actor: SYSTEM,
+    threadId: THREAD_ID,
+    providerMessageIds: ["gmail-message-1"],
+    threadCreated: true,
+  },
   thread_classified: {
     action: "thread_classified",
     tenantId: TENANT_ID,
@@ -85,6 +93,10 @@ const TRANSITIONS: Record<
   AuditAction,
   { before: unknown; after: unknown }
 > = {
+  mail_received: {
+    before: undefined,
+    after: { providerMessageIds: ["gmail-message-1"] },
+  },
   thread_classified: {
     before: { category: null },
     after: { category: "urgent" },

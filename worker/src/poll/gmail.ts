@@ -12,7 +12,6 @@ import {
   type GoogleOAuthCredentials,
   type ProviderMessage,
 } from "@correu-agent/shared/mail";
-import type { MailboxMessageSummary } from "@correu-agent/shared/mailbox";
 import {
   decryptToken,
   encryptToken,
@@ -44,22 +43,6 @@ export const loadGmailPollConfig = (
 });
 
 /**
- * Gmail dates a message with `internalDate`, but it is optional in the API:
- * without one the poll time is the closest honest answer, and it keeps the
- * message from being dropped for want of a timestamp.
- */
-const toSummary = (
-  message: ProviderMessage,
-  polledAt: Date,
-): MailboxMessageSummary => ({
-  providerMessageId: message.providerMessageId,
-  providerThreadId: message.providerThreadId,
-  messageIdHeader: message.messageIdHeader,
-  subject: message.subject,
-  receivedAt: message.sentAt ?? polledAt,
-});
-
-/**
  * New mail in one Gmail mailbox since its last poll.
  *
  * The cursor is written after Gmail answered, so a poll that dies mid-flight
@@ -74,7 +57,7 @@ export const pollGmailMailbox = async <
   db: PgDatabase<T, TSchema>,
   account: PollableMailboxAccount,
   { credentials, encryptionKey, now = () => new Date() }: GmailPollConfig,
-): Promise<MailboxMessageSummary[]> => {
+): Promise<ProviderMessage[]> => {
   const polledAt = now();
   const accessToken = await currentAccessToken(db, account, {
     credentials,
@@ -104,7 +87,7 @@ export const pollGmailMailbox = async <
       ),
     );
 
-  return poll.messages.map((message) => toSummary(message, polledAt));
+  return poll.messages;
 };
 
 /**
