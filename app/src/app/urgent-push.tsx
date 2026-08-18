@@ -41,8 +41,14 @@ const isSupported = (): boolean =>
   "PushManager" in window &&
   "Notification" in window;
 
-const registration = (): Promise<ServiceWorkerRegistration> =>
-  navigator.serviceWorker.register(SERVICE_WORKER_PATH);
+// `register` resolves as soon as the registration exists, but `subscribe`
+// needs an *activated* worker and is refused with `InvalidStateError` while one
+// is still installing — which is exactly the state a first visit is in.
+// `ready` is what waits for the activation.
+const registration = async (): Promise<ServiceWorkerRegistration> => {
+  await navigator.serviceWorker.register(SERVICE_WORKER_PATH);
+  return navigator.serviceWorker.ready;
+};
 
 export const UrgentPushToggle = ({
   publicKey,
@@ -84,8 +90,12 @@ export const UrgentPushToggle = ({
   const enable = useCallback(async () => {
     // Asked before subscribing: a browser that refuses the permission would
     // otherwise leave a subscription nothing can ever be shown through.
-    if ((await Notification.requestPermission()) !== "granted") {
-      setState("blocked");
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      // A dismissed prompt is not a block: the browser will ask again, so the
+      // button stays instead of sending the user to the site settings for
+      // something they never turned off.
+      setState(permission === "denied" ? "blocked" : "off");
       return;
     }
 
