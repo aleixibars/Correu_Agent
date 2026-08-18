@@ -151,17 +151,20 @@ const renderMessage = (message: ThreadMessageToAnswer): string =>
 /**
  * The rejection, when there is one. The draft was written from untrusted mail
  * and can carry a fence a correspondent planted in it, so it is defused like
- * the thread is — and so is the feedback, which is one paste away from the same
- * text.
+ * the thread is — and so is the feedback, which the user can paste that same
+ * text into. Both are capped like a mail body: the feedback is typed in the
+ * dashboard with nothing bounding its length, and an instruction that long
+ * stopped being one long before the cap.
  */
-const renderRevision = (revision: DraftRevision): string[] => [
-  "<rejected_draft>",
-  defuseTag(revision.previousBody, "rejected_draft"),
-  "</rejected_draft>",
-  "<feedback>",
-  defuseTag(revision.feedback, "feedback"),
-  "</feedback>",
-];
+const renderRevision = (revision: DraftRevision): string =>
+  [
+    "<rejected_draft>",
+    defuseTag(truncate(revision.previousBody), "rejected_draft"),
+    "</rejected_draft>",
+    "<feedback>",
+    defuseTag(truncate(revision.feedback), "feedback"),
+    "</feedback>",
+  ].join("\n");
 
 const renderThread = (thread: ThreadToAnswer): string =>
   [
@@ -171,7 +174,7 @@ const renderThread = (thread: ThreadToAnswer): string =>
     "",
     ...thread.messages.slice(-MAX_THREAD_MESSAGES).map(renderMessage),
     "</thread>",
-    ...(thread.revision ? renderRevision(thread.revision) : []),
+    ...(thread.revision ? [renderRevision(thread.revision)] : []),
   ].join("\n\n");
 
 const answerText = (message: Anthropic.Message): string =>

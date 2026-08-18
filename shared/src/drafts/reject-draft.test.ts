@@ -33,7 +33,14 @@ const createClient = (text = JSON.stringify(REPLY)) => {
 const draftRow = ({
   category = "comercial" as string | null,
   inReplyToMessageId = MESSAGE_ID as string | null,
-} = {}) => [DRAFT_ID, THREAD_ID, inReplyToMessageId, OLD_BODY, "Pressupost", category];
+} = {}) => [
+  DRAFT_ID,
+  THREAD_ID,
+  inReplyToMessageId,
+  OLD_BODY,
+  "Pressupost",
+  category,
+];
 
 /** In the column order the message select asks for. */
 const messageRow = () => [
@@ -257,5 +264,43 @@ describe("regenerateDraft", () => {
     ).resolves.toBeNull();
     expect(create).not.toHaveBeenCalled();
     expect(shapes()).toEqual(["load draft"]);
+  });
+
+  it("does not rewrite a draft whose thread was re-triaged into newsletter", async () => {
+    // Newsletters and spam are archived, never answered (context.md §2): the
+    // pending draft stays the user's to discard, but it is not written again.
+    const { db, shapes } = createDb({
+      draft: draftRow({ category: "newsletter" }),
+    });
+    const { client, create } = createClient();
+
+    await expect(
+      regenerateDraft(db, client, {
+        tenantId: TENANT_ID,
+        draftId: DRAFT_ID,
+        userId: USER_ID,
+        feedback: FEEDBACK,
+      }),
+    ).resolves.toBeNull();
+    expect(create).not.toHaveBeenCalled();
+    expect(shapes()).toEqual(["load draft"]);
+  });
+
+  it("reads and claims the draft inside the tenant that asked", async () => {
+    // Every read a dashboard action drives is tenant-scoped: a draft id from
+    // another tenant must match nothing (context.md §7).
+    const { db, queries } = createDb();
+    const { client } = createClient();
+
+    await regenerateDraft(db, client, {
+      tenantId: TENANT_ID,
+      draftId: DRAFT_ID,
+      userId: USER_ID,
+      feedback: FEEDBACK,
+    });
+
+    expect(queryOf(queries, "load draft").params).toContain(TENANT_ID);
+    expect(queryOf(queries, "claim draft").params).toContain(TENANT_ID);
+    expect(queryOf(queries, "store draft").params).toContain(TENANT_ID);
   });
 });

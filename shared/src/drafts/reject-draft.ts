@@ -8,6 +8,7 @@ import { and, eq } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { recordAuditLogEntry } from "../audit";
 import { drafts, threads } from "../db/schema";
+import { needsDraft } from "../triage/taxonomy";
 import { generateReply, type DraftMessagesClient } from "./generate";
 import { loadThreadMessages } from "./thread-messages";
 
@@ -67,7 +68,11 @@ const claimPendingDraft = async <
 ): Promise<{ id: string; threadId: string } | undefined> => {
   const [claimed] = await db
     .update(drafts)
-    .set({ status, ...(feedback === undefined ? {} : { feedback }), updatedAt: now })
+    .set({
+      status,
+      ...(feedback === undefined ? {} : { feedback }),
+      updatedAt: now,
+    })
     .where(
       and(
         eq(drafts.id, draftId),
@@ -116,8 +121,8 @@ export const discardDraft = async <
  * Writes the thread another draft, this time with the user's instruction in the
  * prompt, and supersedes the one it replaces (context.md §2). Answers `null`
  * when there is nothing to regenerate: the draft is no longer pending, its
- * thread is gone or untriaged, or the user answered it while the model was
- * writing.
+ * thread is gone, untriaged or in a category that is never answered, or the
+ * user answered the draft while the model was writing.
  *
  * The rejected draft is claimed only after the model answered, so a call that
  * fails leaves the user the draft they still have — a thread holds one pending
@@ -168,6 +173,10 @@ export const regenerateDraft = async <
   // The category sets the register the reply is written in (context.md §4); a
   // draft cannot exist without one, but the column is nullable.
   if (!rejected?.category) return null;
+  // Re-triage can move a thread that already has a draft into a category that
+  // is archived rather than answered (context.md §2): the pending draft is
+  // still the user's to discard, but it is not written again.
+  if (!needsDraft(rejected.category)) return null;
 
   const recent = await loadThreadMessages(db, rejected.threadId);
 

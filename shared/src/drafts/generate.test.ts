@@ -218,4 +218,23 @@ describe("generateReply", () => {
     expect(prompt).toContain("(/rejected_draft)");
     expect(prompt).toContain("(/feedback)");
   });
+
+  it("caps the rejected draft and the feedback like a mail body", async () => {
+    const { client, create } = createClient();
+
+    await generateReply(
+      client,
+      thread({
+        revision: {
+          previousBody: `${"a".repeat(10_000)}FINAL`,
+          // Nothing bounds what the dashboard textarea takes.
+          feedback: `${"b".repeat(10_000)}FINAL`,
+        },
+      }),
+    );
+
+    const prompt = promptOf(create);
+    expect(prompt).not.toContain("FINAL");
+    expect(prompt.length).toBeLessThan(20_000);
+  });
 });
