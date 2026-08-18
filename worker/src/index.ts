@@ -19,6 +19,7 @@ import {
   startMailboxPollSchedule,
   type MailboxPollSchedule,
 } from "./poll/schedule";
+import { createDailyDigestHandler } from "./queue/daily-digest";
 import { createMailboxPollHandler } from "./queue/mailbox-poll";
 import { createQueueClient, startQueue } from "./queue/queue-client";
 import { createRetentionPurgeHandler } from "./queue/retention-purge";
@@ -32,8 +33,8 @@ import {
 // Entry point for the pipeline worker (context.md §10): a 2-minute schedule that
 // queues one job per connected mailbox, one per thread still waiting for a
 // category and one per triaged thread still waiting for a reply draft, the queue
-// workers that poll, classify and answer them, and the daily 90-day retention
-// purge (context.md §7).
+// workers that poll, classify and answer them, the daily 90-day retention purge
+// (context.md §7) and the daily digest (context.md §2).
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -91,6 +92,7 @@ await startQueue(boss, {
   }),
   threadDraft: createThreadDraftHandler({ db, anthropic: anthropic.messages }),
   retentionPurge: createRetentionPurgeHandler({ db }),
+  dailyDigest: createDailyDigestHandler({ db, anthropic: anthropic.messages }),
 });
 pollSchedule = startMailboxPollSchedule({ boss, db });
 triageSchedule = startThreadTriageSchedule({ boss, db });
