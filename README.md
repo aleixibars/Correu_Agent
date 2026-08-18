@@ -48,6 +48,44 @@ no des del barrel `@correu-agent/shared` — el barrel l'importa codi que acaba 
 `shared/node_modules/`, on el binari `drizzle-kit` (que sí que puja a l'arrel) no la pot
 resoldre i les dues comandes de dalt fallen amb «Please install latest version of drizzle-orm».
 
+## Autenticació (Auth.js)
+
+El login del tauler i la connexió de bústies comparteixen els mateixos proveïdors
+OAuth (`context.md` §9): Google i Microsoft Entra ID. La configuració viu a
+`app/src/lib/auth/`, i les sessions es guarden a Postgres (`auth_sessions`), no en
+un JWT, perquè tancar la sessió sigui definitiu.
+
+Variables d'entorn:
+
+- `AUTH_SECRET` — `openssl rand -base64 32`.
+- `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` — credencials de l'app de Google Cloud Console.
+- `AUTH_MICROSOFT_ENTRA_ID_ID` / `AUTH_MICROSOFT_ENTRA_ID_SECRET` — registre d'app a Entra ID.
+- `AUTH_MICROSOFT_ENTRA_ID_ISSUER` — limita el login a un sol directori d'Azure.
+- `AUTH_ALLOWED_EMAILS` — llista d'adreces (separades per comes) que poden entrar.
+
+`AUTH_ALLOWED_EMAILS` és obligatòria a la pràctica: el PoC és single-tenant i sense
+signup, i qualsevol compte de Google podria arribar a la bústia connectada, així que
+una llista buida no deixa entrar ningú.
+
+Amb Microsoft, la llista d'adreces sola no n'hi ha prou: el claim `email` d'Entra ID
+no està verificat i qualsevol directori d'Azure el pot posar a l'adreça que vulgui
+(patró «nOAuth»). Sense `AUTH_MICROSOFT_ENTRA_ID_ISSUER` l'emissor per defecte és
+`/common/`, que accepta tots els directoris. Per tant, o bé es fixa l'emissor a un
+sol directori, o bé s'afegeix `xms_edov` com a claim opcional del registre d'app
+(el login el rebutja quan el claim diu que l'adreça no està verificada). Per al
+compte personal d'Outlook de proves, l'emissor a fixar és el directori de comptes
+personals: `https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0`.
+
+URL de callback a registrar als dos proveïdors:
+`https://<domini>/api/auth/callback/google` i
+`https://<domini>/api/auth/callback/microsoft-entra-id`.
+
+L'adapter d'Auth.js (`app/src/lib/auth/drizzle-adapter.ts`) és propi i no
+`@auth/drizzle-adapter`: aquest últim imposa les seves taules, ignora el `tenantId`
+de l'esquema i desaria els tokens OAuth del proveïdor en clar. Les credencials per
+llegir una bústia van xifrades a `mailbox_accounts` (`context.md` §7); les taules de
+login només guarden l'enllaç d'identitat.
+
 ## Notificacions Web Push (VAPID)
 
 Les notificacions de correu Urgent van per Web Push (`context.md` §5). Cal un parell
