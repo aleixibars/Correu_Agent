@@ -28,6 +28,10 @@ export const DASHBOARD_PATH = "/";
 /** The processed-thread list of the dashboard (context.md §2). */
 export const THREADS_PATH = "/fils";
 
+/** One thread with its draft, where it is reviewed and approved (context.md §2). */
+export const threadPath = (threadId: string): string =>
+  `${THREADS_PATH}/${encodeURIComponent(threadId)}`;
+
 /** The daily digest, read inside the dashboard and never mailed (context.md §5). */
 export const DIGEST_PATH = "/digest";
 
