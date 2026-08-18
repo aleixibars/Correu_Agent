@@ -293,6 +293,39 @@ export const autoReplyRules = pgTable(
   ],
 );
 
+/**
+ * A browser that asked to be told about Urgent mail (context.md §5). Web Push is
+ * the only active notification in the product; everything else waits for the
+ * daily digest.
+ */
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    /** Whose browser this is — a subscription dies with the user who enabled it. */
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Push service URL the notification is sent to. */
+    endpoint: text("endpoint").notNull(),
+    /** Client public key and auth secret used to encrypt the payload. */
+    p256dhKey: text("p256dh_key").notNull(),
+    authKey: text("auth_key").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  // Unique on the endpoint alone, not per tenant: the push service already
+  // issues one endpoint per browser, so the same one arriving again is that
+  // browser re-subscribing, not a second subscription.
+  (table) => [
+    unique().on(table.endpoint),
+    index("push_subscriptions_tenant_idx").on(table.tenantId),
+  ],
+);
+
 /** "Why was this mail sent?" — every non-bookkeeping write lands here (context.md §7). */
 export const auditLogEntries = pgTable(
   "audit_log_entries",
@@ -349,3 +382,5 @@ export type AutoReplyRule = typeof autoReplyRules.$inferSelect;
 export type NewAutoReplyRule = typeof autoReplyRules.$inferInsert;
 export type AuditLogEntry = typeof auditLogEntries.$inferSelect;
 export type NewAuditLogEntry = typeof auditLogEntries.$inferInsert;
+export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
+export type NewPushSubscriptionRow = typeof pushSubscriptions.$inferInsert;

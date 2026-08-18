@@ -1,5 +1,9 @@
 import { APP_NAME } from "@correu-agent/shared";
 import { createAnthropicClient } from "@correu-agent/shared/triage";
+import {
+  createWebPushSender,
+  loadVapidConfig,
+} from "@correu-agent/shared/web-push";
 import { createDatabase } from "./db";
 import { POLL_INTERVAL_MS } from "./poll-interval";
 import { loadGmailPollConfig, type GmailPollConfig } from "./poll/gmail";
@@ -31,12 +35,13 @@ if (!databaseUrl) {
   throw new Error("DATABASE_URL is required to start the worker.");
 }
 
-// Read at boot, not per poll: a missing Google, Entra or Anthropic secret should
-// stop the worker rather than fail one mailbox at a time, two minutes apart,
-// forever.
+// Read at boot, not per poll: a missing Google, Entra, Anthropic or VAPID secret
+// should stop the worker rather than fail one mailbox at a time, two minutes
+// apart, forever.
 const google: GmailPollConfig = loadGmailPollConfig();
 const microsoft: MicrosoftPollConfig = loadMicrosoftPollConfig();
 const anthropic = createAnthropicClient();
+const webPush = createWebPushSender(loadVapidConfig(process.env));
 
 const db = createDatabase(databaseUrl);
 const boss = createQueueClient(databaseUrl);
@@ -71,7 +76,11 @@ process.on("SIGTERM", shutdown);
 
 await startQueue(boss, {
   mailboxPoll: createMailboxPollHandler({ db, google, microsoft }),
-  threadTriage: createThreadTriageHandler({ db, anthropic: anthropic.messages }),
+  threadTriage: createThreadTriageHandler({
+    db,
+    anthropic: anthropic.messages,
+    webPush,
+  }),
   retentionPurge: createRetentionPurgeHandler({ db }),
 });
 pollSchedule = startMailboxPollSchedule({ boss, db });
