@@ -1,14 +1,20 @@
 import { APP_NAME } from "@correu-agent/shared";
-import { loadGoogleOAuthCredentials } from "@correu-agent/shared/mail";
-import { loadTokenEncryptionKey } from "@correu-agent/shared/token-encryption";
 import { createDatabase } from "./db";
-import { POLL_CRON_EXPRESSION } from "./poll-interval";
-import { MAILBOX_POLL_QUEUE } from "./queue/mailbox-poll";
+import { POLL_INTERVAL_MS } from "./poll-interval";
+import { loadGmailPollConfig, type GmailPollConfig } from "./poll/gmail";
+import {
+  loadMicrosoftPollConfig,
+  type MicrosoftPollConfig,
+} from "./poll/microsoft";
+import {
+  startMailboxPollSchedule,
+  type MailboxPollSchedule,
+} from "./poll/schedule";
+import { createMailboxPollHandler } from "./queue/mailbox-poll";
 import { createQueueClient, startQueue } from "./queue/queue-client";
 
-// Entry point for the polling worker (context.md §10). Every 2 minutes it fans
-// out one poll job per connected Gmail mailbox; persisting the mail it finds
-// and triaging it land in the issues that follow.
+// Entry point for the polling worker (context.md §10): a 2-minute schedule that
+// queues one job per connected mailbox, and the queue workers that poll them.
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -16,21 +22,25 @@ if (!databaseUrl) {
   throw new Error("DATABASE_URL is required to start the worker.");
 }
 
-// Checked at boot rather than on the first poll: nobody is watching a background
-// worker, so a missing key would otherwise only show up as every poll job failing
-// silently every two minutes.
-loadTokenEncryptionKey();
-loadGoogleOAuthCredentials();
+// Read at boot, not per poll: a missing Google or Entra secret should stop the
+// worker rather than fail one mailbox at a time, two minutes apart, forever.
+const google: GmailPollConfig = loadGmailPollConfig();
+const microsoft: MicrosoftPollConfig = loadMicrosoftPollConfig();
 
-const boss = createQueueClient(databaseUrl);
 const db = createDatabase(databaseUrl);
+const boss = createQueueClient(databaseUrl);
 
 boss.on("error", (error) => {
   console.error("Queue error:", error);
 });
 
+// Assigned once the queue is up; the shutdown handler is registered before that
+// and has to cope with a signal arriving in between.
+let schedule: MailboxPollSchedule | undefined;
+
 const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
   console.log(`Received ${signal}, stopping worker.`);
+  schedule?.stop();
   try {
     // Lets in-flight jobs finish instead of leaving them stuck in `active`.
     await boss.stop();
@@ -46,8 +56,9 @@ const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
-await startQueue(boss, db);
+await startQueue(boss, createMailboxPollHandler({ db, google, microsoft }));
+schedule = startMailboxPollSchedule({ boss, db });
 
 console.log(
-  `${APP_NAME} worker started. Consuming "${MAILBOX_POLL_QUEUE}", polling on "${POLL_CRON_EXPRESSION}".`,
+  `${APP_NAME} worker started. Polling connected mailboxes every ${POLL_INTERVAL_MS}ms.`,
 );

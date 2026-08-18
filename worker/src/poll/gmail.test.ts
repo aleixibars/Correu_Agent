@@ -5,7 +5,8 @@ import {
   decryptToken,
   encryptToken,
 } from "@correu-agent/shared/token-encryption";
-import { listGmailPollTargets, pollGmailMailbox } from "./gmail-poll";
+import type { PollableMailboxAccount } from "./accounts";
+import { pollGmailMailbox } from "./gmail";
 
 const TENANT_ID = "11111111-1111-1111-1111-111111111111";
 const MAILBOX_ID = "33333333-3333-3333-3333-333333333333";
@@ -60,6 +61,7 @@ const googleResponds = () => {
           { name: "From", value: "client@example.com" },
           { name: "To", value: "bustia@example.com" },
           { name: "Subject", value: "Pressupost" },
+          { name: "Message-ID", value: "<msg-1@example.com>" },
         ],
         body: { data: Buffer.from("Bon dia").toString("base64url") },
       },
@@ -71,42 +73,36 @@ const googleResponds = () => {
 
 const HOUR_MS = 60 * 60 * 1000;
 
+const account = ({
+  expiresAt = new Date(Date.now() + HOUR_MS) as Date | null,
+  refreshToken = "refresh-1" as string | null,
+  syncCursor = "1000" as string | null,
+} = {}): PollableMailboxAccount => ({
+  id: MAILBOX_ID,
+  tenantId: TENANT_ID,
+  provider: "google",
+  emailAddress: "bustia@example.com",
+  accessTokenEncrypted: encryptToken("access-1", encryptionKey),
+  refreshTokenEncrypted: refreshToken
+    ? encryptToken(refreshToken, encryptionKey)
+    : null,
+  tokenExpiresAt: expiresAt,
+  syncCursor,
+  connectedAt: new Date("2026-01-01T00:00:00.000Z"),
+});
+
 /**
  * Drizzle's proxy driver: statements are built for real and captured instead of
  * reaching Postgres, so the test asserts on what would actually be written.
  */
-const recordingDatabase = ({
-  account = true,
-  expiresAt = new Date(Date.now() + HOUR_MS).toISOString() as string | null,
-  refreshToken = "refresh-1" as string | null,
-} = {}) => {
+const recordingDatabase = () => {
   const statements: { sql: string; params: unknown[] }[] = [];
   const db = drizzle(async (sql, params) => {
     statements.push({ sql, params });
-    if (!sql.startsWith("select")) return { rows: [] };
-    if (!account) return { rows: [] };
-    // Positional, in the order `pollGmailMailbox` selects the columns.
-    return {
-      rows: [
-        [
-          MAILBOX_ID,
-          "1000",
-          encryptToken("access-1", encryptionKey),
-          refreshToken ? encryptToken(refreshToken, encryptionKey) : null,
-          expiresAt,
-        ],
-      ],
-    };
+    return { rows: [] };
   });
   return { db, statements };
 };
-
-const poll = (db: ReturnType<typeof recordingDatabase>["db"]) =>
-  pollGmailMailbox(
-    db,
-    { tenantId: TENANT_ID, mailboxAccountId: MAILBOX_ID },
-    { credentials: CREDENTIALS, encryptionKey },
-  );
 
 const updates = (statements: { sql: string; params: unknown[] }[]) =>
   statements.filter(({ sql }) => sql.startsWith("update"));
@@ -120,21 +116,18 @@ describe("pollGmailMailbox", () => {
     const fetchMock = googleResponds();
     const { db } = recordingDatabase();
 
-    const outcome = await poll(db);
-
-    expect(outcome).toMatchObject({
-      tenantId: TENANT_ID,
-      mailboxAccountId: MAILBOX_ID,
-      cursor: "1100",
-      cursorReset: false,
+    const messages = await pollGmailMailbox(db, account(), {
+      credentials: CREDENTIALS,
+      encryptionKey,
     });
-    expect(outcome!.messages).toHaveLength(1);
-    expect(outcome!.messages[0]).toMatchObject({
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toEqual({
       providerMessageId: "msg-1",
       providerThreadId: "thread-1",
-      direction: "inbound",
-      fromAddress: "client@example.com",
+      messageIdHeader: "<msg-1@example.com>",
       subject: "Pressupost",
+      receivedAt: new Date(1700000000000),
     });
 
     // Only new mail is polled (context.md §4): history resumes from the cursor.
@@ -148,7 +141,10 @@ describe("pollGmailMailbox", () => {
     googleResponds();
     const { db, statements } = recordingDatabase();
 
-    await poll(db);
+    await pollGmailMailbox(db, account(), {
+      credentials: CREDENTIALS,
+      encryptionKey,
+    });
 
     const [update] = updates(statements);
     expect(update!.sql).toContain('"mailbox_accounts"');
@@ -156,15 +152,19 @@ describe("pollGmailMailbox", () => {
     expect(update!.sql).toContain('"last_polled_at"');
     expect(update!.params).toContain("1100");
     expect(update!.params).toContain(MAILBOX_ID);
+    // Tenant-scoped like every other write of a mailbox row.
+    expect(update!.params).toContain(TENANT_ID);
   });
 
   it("refreshes an expired access token and stores it encrypted", async () => {
     const fetchMock = googleResponds();
-    const { db, statements } = recordingDatabase({
-      expiresAt: new Date(Date.now() - HOUR_MS).toISOString(),
-    });
+    const { db, statements } = recordingDatabase();
 
-    await poll(db);
+    await pollGmailMailbox(
+      db,
+      account({ expiresAt: new Date(Date.now() - HOUR_MS) }),
+      { credentials: CREDENTIALS, encryptionKey },
+    );
 
     const refresh = fetchMock.mock.calls.find(([url]) =>
       String(url).includes("oauth2.googleapis.com"),
@@ -196,7 +196,10 @@ describe("pollGmailMailbox", () => {
     const fetchMock = googleResponds();
     const { db } = recordingDatabase();
 
-    await poll(db);
+    await pollGmailMailbox(db, account(), {
+      credentials: CREDENTIALS,
+      encryptionKey,
+    });
 
     expect(
       fetchMock.mock.calls.some(([url]) =>
@@ -205,40 +208,67 @@ describe("pollGmailMailbox", () => {
     ).toBe(false);
   });
 
-  it("skips a mailbox that was disconnected after the job was queued", async () => {
-    googleResponds();
-    const { db, statements } = recordingDatabase({ account: false });
-
-    await expect(poll(db)).resolves.toBeNull();
-    expect(updates(statements)).toEqual([]);
-  });
-
   it("refuses to poll a mailbox whose refresh token is gone", async () => {
     googleResponds();
-    const { db } = recordingDatabase({
-      refreshToken: null,
-      expiresAt: new Date(Date.now() - HOUR_MS).toISOString(),
-    });
+    const { db } = recordingDatabase();
 
-    await expect(poll(db)).rejects.toThrow(/refresh token/i);
+    await expect(
+      pollGmailMailbox(
+        db,
+        account({
+          refreshToken: null,
+          expiresAt: new Date(Date.now() - HOUR_MS),
+        }),
+        { credentials: CREDENTIALS, encryptionKey },
+      ),
+    ).rejects.toThrow(/refresh token/i);
   });
-});
 
-describe("listGmailPollTargets", () => {
-  it("lists only Gmail mailboxes the worker can still authenticate as", async () => {
-    const statements: { sql: string; params: unknown[] }[] = [];
-    const db = drizzle(async (sql, params) => {
-      statements.push({ sql, params });
-      return { rows: [[TENANT_ID, MAILBOX_ID]] };
+  it("warns when a mailbox lost its Gmail history window", async () => {
+    // Gmail keeps history for about a week; past that the skipped mail is not
+    // recoverable (context.md §4), so it has to be visible.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) => {
+        const url = new URL(String(input));
+        if (url.pathname.endsWith("/history")) {
+          return jsonResponse({ error: { message: "Not Found" } }, 404);
+        }
+        return jsonResponse({ historyId: "9000" });
+      }),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { db } = recordingDatabase();
+
+    const messages = await pollGmailMailbox(db, account(), {
+      credentials: CREDENTIALS,
+      encryptionKey,
     });
 
-    await expect(listGmailPollTargets(db)).resolves.toEqual([
-      { tenantId: TENANT_ID, mailboxAccountId: MAILBOX_ID },
-    ]);
+    expect(messages).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("bustia@example.com"),
+    );
+    warn.mockRestore();
+  });
 
-    const { sql, params } = statements[0]!;
-    expect(sql).toContain('"mailbox_accounts"');
-    expect(sql).toContain('"refresh_token_encrypted" is not null');
-    expect(params).toContain("google");
+  it("starts a mailbox with no cursor from now, without warning about it", async () => {
+    // Nothing was lost — the backlog is deliberately not imported (context.md §4).
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ historyId: "9000" })),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { db, statements } = recordingDatabase();
+
+    const messages = await pollGmailMailbox(db, account({ syncCursor: null }), {
+      credentials: CREDENTIALS,
+      encryptionKey,
+    });
+
+    expect(messages).toEqual([]);
+    expect(warn).not.toHaveBeenCalled();
+    expect(updates(statements)[0]!.params).toContain("9000");
+    warn.mockRestore();
   });
 });

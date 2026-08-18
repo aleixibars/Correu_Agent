@@ -150,34 +150,73 @@ Detalls del flux:
 
 ## Polling de bústies
 
-El worker consulta cada bústia connectada cada 2 minuts (`context.md` §8). No hi
-ha push ni webhooks al PoC.
+El worker consulta cada bústia connectada **cada 2 minuts**
+(`worker/src/poll-interval.ts`, `context.md` §8; el pas a webhooks queda per més
+endavant). Cada tic (`worker/src/poll/schedule.ts`) encua una feina `mailbox-poll`
+per bústia amb un `singletonKey` propi, així una consulta lenta no deixa una cua
+de consultes duplicades al darrere. Qui ho fa complir és la política `short` de
+la cua (`worker/src/queue/queue-client.ts`): amb la política per defecte el
+`singletonKey` no filtra res. pg-boss fixa la política en crear la cua i no la
+deixa canviar després, així que una cua creada per un worker anterior amb una
+altra política s'esborra i es torna a crear a l'arrencada (avisant-ne): no hi ha
+res a la cua que valgui la pena conservar, un tic perdut només vol dir consultar
+el correu dos minuts més tard.
 
-- `worker/src/poll-interval.ts` és l'única font de la cadència:
-  `POLL_INTERVAL_MS` i l'expressió cron que en deriva.
-- Cada tic entra a la cua `mailbox-poll-dispatch`, que llista les bústies Gmail
-  amb refresh token i encua un `mailbox-poll` per bústia (`singletonKey`, així
-  una bústia lenta no acumula feina pendent).
-- El poll d'una bústia (`worker/src/mailbox/gmail-poll.ts`) refresca l'access
-  token si cal, demana a Gmail què ha canviat des del `sync_cursor` i avança el
-  cursor. Si Gmail ja ha caducat l'historial (una setmana), es reprèn des d'ara:
-  el correu endarrerit no s'importa (`context.md` §4).
-- Les crides a Gmail viuen a `@correu-agent/shared/mail`, no dins del job: així
-  Microsoft Graph entra darrere la mateixa interfície.
-- El worker comprova `TOKEN_ENCRYPTION_KEY` i `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET`
-  en arrencar: sense elles no pot desxifrar ni refrescar cap token, i és millor
-  que falli d'entrada que no pas que cada poll falli en silenci cada 2 minuts.
-- Si una bústia perd la finestra d'historial de Gmail, el poll ho registra amb un
-  avís i ho reporta al resultat de la feina: el correu saltat no es recupera.
-- Un poll agafa com a molt `MAX_MESSAGES_PER_POLL` missatges i deixa la resta per
-  al tic següent, avançant el cursor fins al darrer registre d'historial
+El primer tic és immediat: un worker que acaba de reiniciar no ha d'esperar dos
+minuts per mirar el correu.
+
+La feina es processa a `worker/src/queue/mailbox-poll.ts`: rellegeix la bústia de
+la base de dades (els tokens i el cursor es mouen entre encuar i processar) i la
+consulta pel client del proveïdor. Una bústia que falla no atura la resta del
+lot: l'error es registra amb l'id de la bústia i es reporta al resultat de la
+feina. Si cap no s'ha pogut consultar, la feina falla perquè pg-boss la
+reintenti.
+
+Persistir els fils i missatges que troba el polling és el pas següent del
+pipeline.
+
+### Gmail/Google Workspace
+
+`worker/src/poll/gmail.ts` + `shared/src/mail/gmail.ts`:
+
+- Renova l'access token amb el refresh token desat quan queda menys d'un minut
+  de vida, i el torna a desar xifrat.
+- La primera consulta d'una bústia no descarrega res: només demana el
+  `historyId` actual i el desa com a cursor, així el correu anterior a la
+  connexió no s'importa (`context.md` §4).
+- Les consultes següents demanen l'historial des del cursor desat. Si Gmail ja
+  l'ha caducat (guarda l'historial una setmana), es reprèn des d'ara i es
+  registra un avís: el correu saltat entremig no es recupera.
+- Un poll agafa com a molt `MAX_MESSAGES_PER_POLL` missatges i deixa la resta
+  per al tic següent, avançant el cursor fins al darrer registre d'historial
   processat. Sense aquest límit, una bústia molt endarrerida faria una feina més
   llarga que la caducitat del job de pg-boss i no avançaria mai.
-- Si el poll d'una bústia falla, l'error es registra amb l'id de la bústia i la
-  resta del lot es continua polling; el job acaba fallant perquè pg-boss el
-  reintenti.
-- Persistir els fils i missatges que troba el polling és el pas següent del
-  pipeline.
+- Queden fora els esborranys propis; el correu enviat es marca com a `outbound`.
+- Variables necessàries al worker: `DATABASE_URL`, `AUTH_GOOGLE_ID`,
+  `AUTH_GOOGLE_SECRET` i `TOKEN_ENCRYPTION_KEY`. Es llegeixen en arrencar: sense
+  elles el worker no arrenca, en lloc de fallar cada poll en silenci cada 2
+  minuts.
+
+### Microsoft 365/Outlook
+
+`worker/src/poll/microsoft.ts` + `shared/src/mailbox/microsoft-mail.ts`:
+
+- Renova l'access token amb el refresh token desat quan queda menys d'un minut
+  de vida, i el torna a desar xifrat. Entra rota el refresh token només de
+  vegades; quan no ho fa, es manté el desat.
+- La primera consulta d'una bústia demana `$deltatoken=latest`, que dóna un
+  cursor sense enumerar tota la bústia — l'historial no es processa
+  (`context.md` §4) — i tot seguit recupera el correu arribat entre la connexió
+  i aquesta primera consulta amb un `$filter` per `receivedDateTime`.
+- Les consultes següents parteixen del delta link desat a `sync_cursor` i el
+  desen actualitzat. El cursor s'escriu després que Graph hagi respost: una
+  consulta que mor a mitges es repeteix en lloc de saltar-se correu.
+- Queden fora esborranys propis, entrades de supressió i correu anterior a
+  `connected_at`.
+- Variables necessàries al worker: `DATABASE_URL`, `AUTH_MICROSOFT_ENTRA_ID_ID`,
+  `AUTH_MICROSOFT_ENTRA_ID_SECRET`, `AUTH_MICROSOFT_ENTRA_ID_ISSUER` (opcional) i
+  `TOKEN_ENCRYPTION_KEY`. Es llegeixen en arrencar: si en falta cap, el worker no
+  arrenca, en lloc de fallar una bústia cada dos minuts.
 
 ## Notificacions Web Push (VAPID)
 

@@ -1,49 +1,136 @@
+import { randomBytes } from "node:crypto";
+import { drizzle } from "drizzle-orm/pg-proxy";
+import { encryptToken } from "@correu-agent/shared/token-encryption";
 import type { Job } from "pg-boss";
-import { describe, expect, it, vi, type Mock } from "vitest";
-import type { GmailPollOutcome, GmailPollTarget } from "../mailbox/gmail-poll";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MAILBOX_POLL_QUEUE,
   createMailboxPollHandler,
   type MailboxPollJobData,
 } from "./mailbox-poll";
 
+const TENANT_ID = "11111111-1111-1111-1111-111111111111";
+const OTHER_TENANT_ID = "44444444-4444-4444-4444-444444444444";
+const MAILBOX_ID = "22222222-2222-2222-2222-222222222222";
+const OTHER_MAILBOX_ID = "33333333-3333-3333-3333-333333333333";
+const ENCRYPTION_KEY = randomBytes(32);
+
 const job = (data: MailboxPollJobData, id = "job-1"): Job<MailboxPollJobData> =>
   ({ id, name: MAILBOX_POLL_QUEUE, data }) as Job<MailboxPollJobData>;
 
-const outcome = (
-  target: GmailPollTarget,
-  messages = 0,
-): GmailPollOutcome => ({
-  ...target,
-  messages: Array.from({ length: messages }, (_, index) => ({
-    providerMessageId: `msg-${index}`,
-    providerThreadId: "thread-1",
-    direction: "inbound",
-    messageIdHeader: null,
-    inReplyTo: null,
-    references: null,
-    fromAddress: "client@example.com",
-    toAddresses: ["bustia@example.com"],
-    ccAddresses: [],
-    subject: null,
-    snippet: null,
-    bodyText: null,
-    bodyHtml: null,
-    sentAt: null,
-  })),
-  cursor: "1100",
-  cursorReset: false,
+/** In the column order `loadPollableMailboxAccount` selects. */
+const accountRow = (
+  id: string,
+  tenantId: string,
+  provider = "microsoft",
+): unknown[] => [
+  id,
+  tenantId,
+  provider,
+  "bustia@example.com",
+  encryptToken("stored-access-token", ENCRYPTION_KEY),
+  encryptToken("stored-refresh-token", ENCRYPTION_KEY),
+  "2030-01-01T00:00:00.000Z",
+  // Graph delta link / Gmail historyId — whatever this provider resumes from.
+  provider === "google" ? "1000" : `https://delta/${id}`,
+  "2026-01-01T00:00:00.000Z",
+];
+
+const createDb = (rowsBySelect: unknown[][][]) => {
+  let selects = 0;
+  return drizzle(async (sql) => {
+    if (!sql.startsWith("select")) return { rows: [] };
+    return { rows: rowsBySelect[selects++] ?? [] };
+  });
+};
+
+const graphPage = (messageId: string) => ({
+  value: [
+    {
+      id: messageId,
+      conversationId: `conversation-${messageId}`,
+      internetMessageId: `<${messageId}@example.com>`,
+      subject: "Pressupost",
+      receivedDateTime: "2026-01-01T08:00:00Z",
+      isDraft: false,
+    },
+  ],
+  "@odata.deltaLink": "https://delta/next",
 });
 
-type PollMock = Mock<(target: GmailPollTarget) => Promise<GmailPollOutcome | null>>;
+const stubFetch = (responseFor: (url: string) => unknown) => {
+  const urls: string[] = [];
+  const fetch: typeof globalThis.fetch = async (input) => {
+    const url = new Request(input as RequestInfo).url;
+    urls.push(url);
+    const body = responseFor(url);
+    if (body instanceof Error) throw body;
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  return { fetch, urls };
+};
 
-const handlerPolling = (
-  pollGmailMailbox: PollMock = vi.fn(async (target: GmailPollTarget) =>
-    outcome(target),
-  ),
+const deps = (
+  db: ReturnType<typeof createDb>,
+  fetch: typeof globalThis.fetch,
 ) => ({
-  handle: createMailboxPollHandler({ pollGmailMailbox }),
-  pollGmailMailbox,
+  db,
+  // The Gmail client reads the global fetch, so it is stubbed per test instead.
+  google: {
+    credentials: { clientId: "google-client-id", clientSecret: "google-client-secret" },
+    encryptionKey: ENCRYPTION_KEY,
+  },
+  microsoft: {
+    clientId: "entra-client-id",
+    clientSecret: "entra-client-secret",
+    encryptionKey: ENCRYPTION_KEY,
+    fetch,
+  },
+});
+
+/** Gmail with one new message waiting since the mailbox's stored historyId. */
+const gmailResponds = () =>
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string | URL) => {
+      const url = new URL(String(input));
+      const body = url.pathname.endsWith("/history")
+        ? {
+            history: [
+              {
+                id: "1001",
+                messagesAdded: [
+                  {
+                    message: {
+                      id: "gmail-1",
+                      threadId: "thread-1",
+                      labelIds: ["INBOX"],
+                    },
+                  },
+                ],
+              },
+            ],
+            historyId: "1100",
+          }
+        : {
+            id: "gmail-1",
+            threadId: "thread-1",
+            labelIds: ["INBOX"],
+            internalDate: "1700000000000",
+            payload: { mimeType: "text/plain", headers: [] },
+          };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }),
+  );
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe("mailbox poll queue", () => {
@@ -53,125 +140,141 @@ describe("mailbox poll queue", () => {
 });
 
 describe("createMailboxPollHandler", () => {
-  it("polls every mailbox account in the batch", async () => {
-    const { handle, pollGmailMailbox } = handlerPolling();
-
-    const result = await handle([
-      job({ tenantId: "tenant-1", mailboxAccountId: "mailbox-1" }, "job-1"),
-      job({ tenantId: "tenant-2", mailboxAccountId: "mailbox-2" }, "job-2"),
+  it("returns the new mail of every mailbox in the batch, tagged with its mailbox", async () => {
+    const db = createDb([
+      [accountRow(MAILBOX_ID, TENANT_ID)],
+      [accountRow(OTHER_MAILBOX_ID, OTHER_TENANT_ID)],
     ]);
-
-    expect(pollGmailMailbox).toHaveBeenCalledTimes(2);
-    expect(result.polled).toEqual([
-      { tenantId: "tenant-1", mailboxAccountId: "mailbox-1", newMessages: 0, cursor: "1100", cursorReset: false },
-      { tenantId: "tenant-2", mailboxAccountId: "mailbox-2", newMessages: 0, cursor: "1100", cursorReset: false },
-    ]);
-  });
-
-  it("reports how much new mail a poll found", async () => {
-    const { handle } = handlerPolling(
-      vi.fn(async (target: GmailPollTarget) => outcome(target, 3)),
+    const { fetch } = stubFetch((url) =>
+      graphPage(url.endsWith(MAILBOX_ID) ? "message-1" : "message-2"),
     );
 
-    const result = await handle([
-      job({ tenantId: "tenant-1", mailboxAccountId: "mailbox-1" }),
-    ]);
-
-    // The messages themselves are deliberately not part of the job result:
-    // pg-boss would store the mail bodies alongside the job (context.md §7).
-    expect(result.polled[0]).toEqual({
-      tenantId: "tenant-1",
-      mailboxAccountId: "mailbox-1",
-      newMessages: 3,
-      cursor: "1100",
-      cursorReset: false,
-    });
-  });
-
-  it("polls a mailbox account once per batch even if queued more than once", async () => {
-    const { handle, pollGmailMailbox } = handlerPolling();
-
-    const result = await handle([
-      job({ tenantId: "tenant-1", mailboxAccountId: "mailbox-1" }, "job-1"),
-      job({ tenantId: "tenant-1", mailboxAccountId: "mailbox-1" }, "job-2"),
-    ]);
-
-    expect(pollGmailMailbox).toHaveBeenCalledTimes(1);
-    expect(result.polled).toHaveLength(1);
-  });
-
-  it("keeps the same mailbox account id of two different tenants apart", async () => {
-    const { handle } = handlerPolling();
-
-    const result = await handle([
-      job({ tenantId: "tenant-1", mailboxAccountId: "mailbox-1" }, "job-1"),
-      job({ tenantId: "tenant-2", mailboxAccountId: "mailbox-1" }, "job-2"),
+    const result = await createMailboxPollHandler(deps(db, fetch))([
+      job({ tenantId: TENANT_ID, mailboxAccountId: MAILBOX_ID }, "job-1"),
+      job(
+        { tenantId: OTHER_TENANT_ID, mailboxAccountId: OTHER_MAILBOX_ID },
+        "job-2",
+      ),
     ]);
 
     expect(result.polled).toHaveLength(2);
+    expect(result.failed).toEqual([]);
+    expect(
+      result.messages.map(({ mailboxAccountId, message }) => [
+        mailboxAccountId,
+        message.providerMessageId,
+      ]),
+    ).toEqual([
+      [MAILBOX_ID, "message-1"],
+      [OTHER_MAILBOX_ID, "message-2"],
+    ]);
   });
 
-  it("leaves a disconnected mailbox out of the result", async () => {
-    const { handle } = handlerPolling(vi.fn(async () => null));
+  it("polls a mailbox once per batch even if queued more than once", async () => {
+    const db = createDb([[accountRow(MAILBOX_ID, TENANT_ID)]]);
+    const { fetch, urls } = stubFetch(() => graphPage("message-1"));
 
-    const result = await handle([
-      job({ tenantId: "tenant-1", mailboxAccountId: "mailbox-1" }),
+    const result = await createMailboxPollHandler(deps(db, fetch))([
+      job({ tenantId: TENANT_ID, mailboxAccountId: MAILBOX_ID }, "job-1"),
+      job({ tenantId: TENANT_ID, mailboxAccountId: MAILBOX_ID }, "job-2"),
     ]);
 
-    expect(result.polled).toEqual([]);
+    // Polling the same mailbox twice in one batch only burns Graph quota.
+    expect(urls).toHaveLength(1);
+    expect(result.polled).toEqual([
+      { tenantId: TENANT_ID, mailboxAccountId: MAILBOX_ID },
+    ]);
   });
 
-  it("reports and warns about a mailbox that lost its history window", async () => {
-    const { handle } = handlerPolling(
-      vi.fn(async (target: GmailPollTarget) => ({
-        ...outcome(target),
-        cursorReset: true,
-      })),
-    );
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("skips a mailbox that was disconnected after the job was queued", async () => {
+    const db = createDb([[]]);
+    const { fetch, urls } = stubFetch(() => graphPage("message-1"));
 
-    const result = await handle([
-      job({ tenantId: "tenant-1", mailboxAccountId: "mailbox-1" }),
+    const result = await createMailboxPollHandler(deps(db, fetch))([
+      job({ tenantId: TENANT_ID, mailboxAccountId: MAILBOX_ID }),
     ]);
 
-    // Skipped mail is not recoverable (context.md §4), so it has to be visible
-    // rather than only implied by a cursor that jumped.
-    expect(result.polled[0]!.cursorReset).toBe(true);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("mailbox-1"));
-    warn.mockRestore();
+    expect(urls).toEqual([]);
+    expect(result).toEqual({ polled: [], messages: [], failed: [] });
   });
 
-  it("polls the rest of the batch when one mailbox fails, then fails the job", async () => {
-    const broken = new Error("Google refused the mailbox refresh token (400): invalid_grant");
-    const { handle, pollGmailMailbox } = handlerPolling(
-      vi.fn(async (target: GmailPollTarget) => {
-        if (target.mailboxAccountId === "mailbox-1") throw broken;
-        return outcome(target);
-      }),
+  it("keeps polling the rest of the batch when one mailbox fails", async () => {
+    const db = createDb([
+      [accountRow(MAILBOX_ID, TENANT_ID)],
+      [accountRow(OTHER_MAILBOX_ID, OTHER_TENANT_ID)],
+    ]);
+    const { fetch } = stubFetch((url) =>
+      url.endsWith(MAILBOX_ID)
+        ? new Error("Graph is down")
+        : graphPage("message-2"),
     );
+
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    // Rethrown so pg-boss retries: a swallowed failure would be recorded as a
-    // successful poll and the mailbox would go quiet unnoticed.
-    await expect(
-      handle([
-        job({ tenantId: "tenant-1", mailboxAccountId: "mailbox-1" }, "job-1"),
-        job({ tenantId: "tenant-1", mailboxAccountId: "mailbox-2" }, "job-2"),
-      ]),
-    ).rejects.toBe(broken);
+    const result = await createMailboxPollHandler(deps(db, fetch))([
+      job({ tenantId: TENANT_ID, mailboxAccountId: MAILBOX_ID }, "job-1"),
+      job(
+        { tenantId: OTHER_TENANT_ID, mailboxAccountId: OTHER_MAILBOX_ID },
+        "job-2",
+      ),
+    ]);
 
+    expect(result.failed).toEqual([
+      {
+        tenantId: TENANT_ID,
+        mailboxAccountId: MAILBOX_ID,
+        error: "Graph is down",
+      },
+    ]);
+    expect(result.messages).toHaveLength(1);
+    // A permanently broken mailbox has to be visible in the log too: the job
+    // result of a batch that otherwise succeeded is nobody's alarm.
     expect(error).toHaveBeenCalledWith(
-      expect.stringContaining("mailbox-1"),
-      broken,
+      expect.stringContaining(MAILBOX_ID),
+      expect.anything(),
     );
-    // The healthy mailbox in the same batch still got its turn.
-    expect(pollGmailMailbox).toHaveBeenCalledTimes(2);
     error.mockRestore();
   });
 
-  it("handles an empty batch", async () => {
-    const { handle } = handlerPolling();
+  it("fails the batch when no mailbox in it could be polled", async () => {
+    const db = createDb([[accountRow(MAILBOX_ID, TENANT_ID)]]);
+    const { fetch } = stubFetch(() => new Error("Graph is down"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(handle([])).resolves.toEqual({ polled: [] });
+    // Reporting success here would mean the batch is never retried and the
+    // mail is only seen 2 minutes later, if at all.
+    await expect(
+      createMailboxPollHandler(deps(db, fetch))([
+        job({ tenantId: TENANT_ID, mailboxAccountId: MAILBOX_ID }),
+      ]),
+    ).rejects.toThrow(/Graph is down/);
+
+    error.mockRestore();
+  });
+
+  it("polls a Gmail mailbox with the Gmail poller", async () => {
+    const db = createDb([[accountRow(MAILBOX_ID, TENANT_ID, "google")]]);
+    const { fetch } = stubFetch(() => graphPage("message-1"));
+    gmailResponds();
+
+    const result = await createMailboxPollHandler(deps(db, fetch))([
+      job({ tenantId: TENANT_ID, mailboxAccountId: MAILBOX_ID }),
+    ]);
+
+    // Which provider a mailbox belongs to is read from its row, not from the
+    // job payload: the queue carries one kind of poll job for both providers.
+    expect(result.messages.map(({ message }) => message.providerMessageId)).toEqual([
+      "gmail-1",
+    ]);
+    expect(result.failed).toEqual([]);
+  });
+
+  it("handles an empty batch", async () => {
+    const db = createDb([]);
+    const { fetch } = stubFetch(() => graphPage("message-1"));
+
+    await expect(
+      createMailboxPollHandler(deps(db, fetch))([]),
+    ).resolves.toEqual({ polled: [], messages: [], failed: [] });
   });
 });
