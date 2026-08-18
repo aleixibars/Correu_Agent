@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "next-auth";
 import { TRIAGE_CATEGORIES } from "@correu-agent/shared";
 import { CATEGORY_LABELS } from "../../lib/category-labels";
-import { DASHBOARD_PATH } from "../../lib/auth/config";
+import { DASHBOARD_PATH, threadPath } from "../../lib/auth/config";
 import { TEST_TENANT_ID } from "../../lib/auth/test-fixtures";
 import type { ThreadListItem } from "../../lib/threads/list-threads";
 
@@ -142,6 +142,17 @@ describe("ThreadsPage", () => {
     ]);
 
     expect(await render()).toContain("(Sense assumpte)");
+  });
+
+  // The list is where the reviewer picks the thread to work on, and the review
+  // screen is the only place a draft can be approved (context.md §2).
+  it("leads to the review screen of each thread", async () => {
+    signedIn();
+    listThreads.mockResolvedValue(threadPerCategory());
+
+    const markup = await render();
+
+    expect(markup).toContain(`href="${threadPath("thread-0")}"`);
   });
 
   it("leads back to the dashboard", async () => {

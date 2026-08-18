@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { APP_NAME } from "@correu-agent/shared";
 import { auth } from "../../auth";
-import { DASHBOARD_PATH, LOGIN_PATH } from "../../lib/auth/config";
+import { DASHBOARD_PATH, LOGIN_PATH, threadPath } from "../../lib/auth/config";
 import { categoryLabel } from "../../lib/category-labels";
 import { db } from "../../lib/db";
 import { subjectLabel } from "../../lib/subject-label";
@@ -45,7 +45,11 @@ export default async function ThreadsPage() {
           <tbody>
             {threads.map(({ id, subject, category, status, lastMessageAt }) => (
               <tr key={id}>
-                <td>{subjectLabel(subject)}</td>
+                <td>
+                  {/* L'assumpte porta a la pantalla on es revisa l'esborrany
+                      del fil (context.md §2). */}
+                  <Link href={threadPath(id)}>{subjectLabel(subject)}</Link>
+                </td>
                 {/* Un fil sense categoria és un fil que el triatge encara no ha
                     tocat; l'estat ja ho diu, així que la cel·la no repeteix el
                     motiu. */}
