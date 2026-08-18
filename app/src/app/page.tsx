@@ -1,7 +1,12 @@
 import Link from "next/link";
 import { APP_NAME } from "@correu-agent/shared";
 import { auth, signOut } from "../auth";
-import { DIGEST_PATH, LOGIN_PATH, THREADS_PATH } from "../lib/auth/config";
+import {
+  AUTO_REPLY_PATH,
+  DIGEST_PATH,
+  LOGIN_PATH,
+  THREADS_PATH,
+} from "../lib/auth/config";
 import {
   MAILBOX_REASON_PARAM,
   MAILBOX_STATUS_PARAM,
@@ -45,6 +50,9 @@ export default async function HomePage({
       </p>
       <p>
         <Link href={DIGEST_PATH}>Digest diari</Link>
+      </p>
+      <p>
+        <Link href={AUTO_REPLY_PATH}>Resposta automàtica</Link>
       </p>
       {notice !== null && (
         <p role={notice.ok ? "status" : "alert"}>{notice.text}</p>
