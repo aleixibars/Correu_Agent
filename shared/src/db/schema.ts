@@ -6,7 +6,9 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  date,
   index,
+  integer,
   jsonb,
   pgEnum,
   pgTable,
@@ -293,6 +295,34 @@ export const autoReplyRules = pgTable(
   ],
 );
 
+/**
+ * The daily digest of a day's triaged mail (context.md §2, §5). One row per
+ * tenant per day, holding the prose the model wrote; the threads it summarises
+ * are not copied into it, so the dashboard groups them straight from `threads`
+ * and a later read never disagrees with the table it came from.
+ */
+export const dailyDigests = pgTable(
+  "daily_digests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    /** The UTC calendar day covered, as `YYYY-MM-DD`. */
+    digestDate: date("digest_date").notNull(),
+    summary: text("summary").notNull(),
+    /** How many threads the day's digest covers, for the dashboard's heading. */
+    threadCount: integer("thread_count").notNull(),
+    /** The model that wrote it, which is not always the one that was asked for. */
+    model: text("model").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  // One digest per day: a re-run overwrites the day it covers rather than
+  // stacking a second summary of the same mail behind the first.
+  (table) => [unique().on(table.tenantId, table.digestDate)],
+);
+
 /** "Why was this mail sent?" — every non-bookkeeping write lands here (context.md §7). */
 export const auditLogEntries = pgTable(
   "audit_log_entries",
@@ -349,3 +379,5 @@ export type AutoReplyRule = typeof autoReplyRules.$inferSelect;
 export type NewAutoReplyRule = typeof autoReplyRules.$inferInsert;
 export type AuditLogEntry = typeof auditLogEntries.$inferSelect;
 export type NewAuditLogEntry = typeof auditLogEntries.$inferInsert;
+export type DailyDigest = typeof dailyDigests.$inferSelect;
+export type NewDailyDigest = typeof dailyDigests.$inferInsert;

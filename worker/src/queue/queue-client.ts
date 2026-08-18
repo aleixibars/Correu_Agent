@@ -1,5 +1,11 @@
 import { PgBoss, type WorkHandler } from "pg-boss";
 import {
+  DAILY_DIGEST_CRON,
+  DAILY_DIGEST_QUEUE,
+  type DailyDigestJobData,
+  type DailyDigestResult,
+} from "./daily-digest";
+import {
   MAILBOX_POLL_QUEUE,
   type MailboxPollJobData,
   type MailboxPollResult,
@@ -62,6 +68,7 @@ export interface QueueHandlers {
   mailboxPoll: WorkHandler<MailboxPollJobData, MailboxPollResult>;
   threadTriage: WorkHandler<ThreadTriageJobData, ThreadTriageResult>;
   retentionPurge: WorkHandler<RetentionPurgeJobData, RetentionPurgeResult>;
+  dailyDigest: WorkHandler<DailyDigestJobData, DailyDigestResult>;
 }
 
 /**
@@ -69,13 +76,13 @@ export interface QueueHandlers {
  * consuming them. pg-boss creates/migrates its own schema on `start()`.
  *
  * The mailbox poll and the thread triage are driven from the worker's own
- * 2-minute tick, while the retention purge rides pg-boss's cron: a daily job
- * must not restart its clock every time the worker is redeployed, and must fire
- * once for the cluster rather than once per instance.
+ * 2-minute tick, while the retention purge and the daily digest ride pg-boss's
+ * cron: a daily job must not restart its clock every time the worker is
+ * redeployed, and must fire once for the cluster rather than once per instance.
  */
 export const startQueue = async (
   boss: PgBoss,
-  { mailboxPoll, threadTriage, retentionPurge }: QueueHandlers,
+  { mailboxPoll, threadTriage, retentionPurge, dailyDigest }: QueueHandlers,
 ): Promise<void> => {
   await boss.start();
 
@@ -102,5 +109,17 @@ export const startQueue = async (
   await boss.work<RetentionPurgeJobData, RetentionPurgeResult>(
     RETENTION_PURGE_QUEUE,
     retentionPurge,
+  );
+
+  await ensureQueue(boss, DAILY_DIGEST_QUEUE);
+  await boss.schedule(
+    DAILY_DIGEST_QUEUE,
+    DAILY_DIGEST_CRON,
+    {},
+    { singletonKey: DAILY_DIGEST_QUEUE },
+  );
+  await boss.work<DailyDigestJobData, DailyDigestResult>(
+    DAILY_DIGEST_QUEUE,
+    dailyDigest,
   );
 };

@@ -1,5 +1,6 @@
 import type { PgBoss } from "pg-boss";
 import { describe, expect, it, vi } from "vitest";
+import { DAILY_DIGEST_CRON, DAILY_DIGEST_QUEUE } from "./daily-digest";
 import { MAILBOX_POLL_QUEUE } from "./mailbox-poll";
 import {
   SINGLE_FLIGHT_QUEUE_POLICY,
@@ -47,6 +48,12 @@ const handlers: QueueHandlers = {
   mailboxPoll: vi.fn(async () => ({ polled: [], threads: [], failed: [] })),
   threadTriage: vi.fn(async () => ({ triaged: [], skipped: [], failed: [] })),
   retentionPurge: vi.fn(async () => ({ purged: 0 })),
+  dailyDigest: vi.fn(async () => ({
+    day: "2026-06-01",
+    generated: [],
+    skipped: [],
+    failed: [],
+  })),
 };
 
 describe("startQueue", () => {
@@ -65,6 +72,9 @@ describe("startQueue", () => {
     );
     expect(calls.indexOf(`createQueue:${RETENTION_PURGE_QUEUE}`)).toBeLessThan(
       calls.indexOf(`work:${RETENTION_PURGE_QUEUE}`),
+    );
+    expect(calls.indexOf(`createQueue:${DAILY_DIGEST_QUEUE}`)).toBeLessThan(
+      calls.indexOf(`work:${DAILY_DIGEST_QUEUE}`),
     );
     // Without a singleton policy the singletonKey on each job is inert and a
     // slow job leaves a queue of duplicates behind it.
@@ -86,6 +96,10 @@ describe("startQueue", () => {
       RETENTION_PURGE_QUEUE,
       handlers.retentionPurge,
     );
+    expect(boss.work).toHaveBeenCalledWith(
+      DAILY_DIGEST_QUEUE,
+      handlers.dailyDigest,
+    );
   });
 
   it("puts the retention purge on pg-boss's daily cron", async () => {
@@ -103,6 +117,24 @@ describe("startQueue", () => {
     );
     expect(calls.indexOf(`createQueue:${RETENTION_PURGE_QUEUE}`)).toBeLessThan(
       calls.indexOf(`schedule:${RETENTION_PURGE_QUEUE}`),
+    );
+  });
+
+  it("puts the daily digest on pg-boss's daily cron too", async () => {
+    const { boss, calls } = createBoss();
+
+    await startQueue(boss, handlers);
+
+    // Same reason as the purge: a daily job must not restart its clock on every
+    // redeploy, nor fire once per worker instance.
+    expect(boss.schedule).toHaveBeenCalledWith(
+      DAILY_DIGEST_QUEUE,
+      DAILY_DIGEST_CRON,
+      {},
+      expect.objectContaining({ singletonKey: DAILY_DIGEST_QUEUE }),
+    );
+    expect(calls.indexOf(`createQueue:${DAILY_DIGEST_QUEUE}`)).toBeLessThan(
+      calls.indexOf(`schedule:${DAILY_DIGEST_QUEUE}`),
     );
   });
 
@@ -127,11 +159,12 @@ describe("startQueue", () => {
       [MAILBOX_POLL_QUEUE]: SINGLE_FLIGHT_QUEUE_POLICY,
       [THREAD_TRIAGE_QUEUE]: SINGLE_FLIGHT_QUEUE_POLICY,
       [RETENTION_PURGE_QUEUE]: SINGLE_FLIGHT_QUEUE_POLICY,
+      [DAILY_DIGEST_QUEUE]: SINGLE_FLIGHT_QUEUE_POLICY,
     });
 
     await startQueue(boss, handlers);
 
     expect(calls.some((call) => call.startsWith("deleteQueue"))).toBe(false);
-    expect(boss.work).toHaveBeenCalledTimes(3);
+    expect(boss.work).toHaveBeenCalledTimes(4);
   });
 });

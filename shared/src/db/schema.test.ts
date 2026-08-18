@@ -9,6 +9,7 @@ import {
   authAccounts,
   authSessions,
   autoReplyRules,
+  dailyDigests,
   drafts,
   mailboxAccounts,
   messages,
@@ -29,6 +30,7 @@ const TENANT_SCOPED_TABLES: Record<string, PgTable> = {
   drafts,
   autoReplyRules,
   auditLogEntries,
+  dailyDigests,
 };
 
 const columnNames = (table: PgTable): string[] =>
@@ -42,6 +44,7 @@ const TABLES_WITH_UPDATED_AT: Record<string, PgTable> = {
   threads,
   drafts,
   autoReplyRules,
+  dailyDigests,
 };
 
 describe("schema", () => {
@@ -211,6 +214,24 @@ describe("schema", () => {
     );
     const expires = config.columns.find((column) => column.name === "expires");
     expect(expires?.notNull).toBe(true);
+  });
+
+  it("allows at most one digest per tenant per day", () => {
+    // A day is digested again when it is corrected, never digested twice
+    // (context.md §2).
+    const unique = getTableConfig(dailyDigests).uniqueConstraints[0];
+    expect(unique?.columns.map((column) => column.name)).toEqual([
+      "tenant_id",
+      "digest_date",
+    ]);
+  });
+
+  it("dates a digest by calendar day, not by the moment it was written", () => {
+    const digestDate = getTableConfig(dailyDigests).columns.find(
+      (column) => column.name === "digest_date",
+    );
+    expect(digestDate?.getSQLType()).toBe("date");
+    expect(digestDate?.notNull).toBe(true);
   });
 
   it("records what an audit entry is about", () => {
