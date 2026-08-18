@@ -5,6 +5,7 @@ import { auth } from "../../auth";
 import { DASHBOARD_PATH, LOGIN_PATH } from "../../lib/auth/config";
 import { categoryLabel } from "../../lib/category-labels";
 import { db } from "../../lib/db";
+import { subjectLabel } from "../../lib/subject-label";
 import { listThreads } from "../../lib/threads/list-threads";
 import { threadStatusLabel } from "../../lib/threads/thread-status";
 
@@ -19,12 +20,6 @@ const dateFormat = new Intl.DateTimeFormat("ca-ES", {
   timeStyle: "short",
   timeZone: "Europe/Madrid",
 });
-
-// Un correu sense assumpte arriba com a cadena buida, no com a null: Gmail
-// envia la capçalera `Subject:` buida i Graph un `subject` buit. Sense això la
-// cel·la quedaria en blanc i la fila semblaria trencada.
-const subjectLabel = (subject: string | null): string =>
-  subject !== null && subject.trim() !== "" ? subject : "(Sense assumpte)";
 
 export default async function ThreadsPage() {
   const session = await auth();

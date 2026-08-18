@@ -28,6 +28,9 @@ export const DASHBOARD_PATH = "/";
 /** The processed-thread list of the dashboard (context.md §2). */
 export const THREADS_PATH = "/fils";
 
+/** The daily digest, read inside the dashboard and never mailed (context.md §5). */
+export const DIGEST_PATH = "/digest";
+
 export interface AuthConfigOptions {
   adapter: Adapter;
   /** Addresses allowed to sign in; anything else is turned away. */

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { APP_NAME } from "@correu-agent/shared";
 import { auth, signOut } from "../auth";
-import { LOGIN_PATH, THREADS_PATH } from "../lib/auth/config";
+import { DIGEST_PATH, LOGIN_PATH, THREADS_PATH } from "../lib/auth/config";
 import {
   MAILBOX_REASON_PARAM,
   MAILBOX_STATUS_PARAM,
@@ -41,6 +41,9 @@ export default async function HomePage({
       <p>Sessió iniciada com a {session.user.email}. Tauler en construcció.</p>
       <p>
         <Link href={THREADS_PATH}>Fils processats</Link>
+      </p>
+      <p>
+        <Link href={DIGEST_PATH}>Digest diari</Link>
       </p>
       {notice !== null && (
         <p role={notice.ok ? "status" : "alert"}>{notice.text}</p>
