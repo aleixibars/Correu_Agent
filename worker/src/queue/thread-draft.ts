@@ -4,6 +4,7 @@ import {
   generateThreadDraft,
   type DraftMessagesClient,
 } from "@correu-agent/shared/drafts";
+import type { ThreadAutoReplySender } from "../drafts/auto-reply";
 
 /** Queue that writes the reply drafts of triaged threads (context.md §2). */
 export const THREAD_DRAFT_QUEUE = "thread-draft";
@@ -19,6 +20,16 @@ export type DraftedThreadResult = ThreadDraftJobData & {
   /** The language the reply was written in (context.md §6); null when unreported. */
   language: string | null;
   model: string;
+  /** True when a category's auto-reply rule asked for this draft (context.md §2). */
+  autoReply: boolean;
+  /**
+   * The outbound message the auto-reply was stored as. Null when the draft waits
+   * for the dashboard, when the rule was switched off while the model was
+   * writing, or when the send failed. A send that failed before claiming the
+   * draft leaves it pending for the dashboard; one that failed after it left the
+   * draft `approved`, because the mail may already have gone out.
+   */
+  sentMessageId: string | null;
 };
 
 export type FailedThreadDraft = ThreadDraftJobData & { error: string };
@@ -39,6 +50,8 @@ export interface ThreadDraftDeps<
 > {
   db: PgDatabase<T, TSchema>;
   anthropic: DraftMessagesClient;
+  /** Sends the drafts an auto-reply rule asked for, with nobody approving them. */
+  autoReply: ThreadAutoReplySender;
 }
 
 const targetKey = ({ tenantId, threadId }: ThreadDraftJobData): string =>
@@ -62,6 +75,7 @@ export const createThreadDraftHandler = <
 >({
   db,
   anthropic,
+  autoReply,
 }: ThreadDraftDeps<T, TSchema>): WorkHandler<
   ThreadDraftJobData,
   ThreadDraftResult
@@ -85,16 +99,40 @@ export const createThreadDraftHandler = <
     for (const target of targets.values()) {
       try {
         const result = await generateThreadDraft(db, anthropic, target);
-        if (result) {
-          drafted.push({
-            ...target,
-            draftId: result.draftId,
-            language: result.language,
-            model: result.model,
-          });
-        } else {
+        if (!result) {
           skipped.push(target);
+          continue;
         }
+
+        let sentMessageId: string | null = null;
+        if (result.autoReply) {
+          try {
+            // The rule is read again inside the send, so a switch turned off
+            // while the model was writing still stops the mail (context.md §2).
+            const sent = await autoReply({ ...target, draftId: result.draftId });
+            sentMessageId = sent?.sentMessageId ?? null;
+          } catch (error) {
+            // The draft itself is written, so this is reported rather than
+            // thrown: retrying the job would only draft the thread again. What
+            // the dashboard can still do with it depends on how far the send
+            // got — pending if it failed before claiming the draft, `approved`
+            // if after, since the mail may already have left (context.md §2).
+            console.error(
+              `Auto-replying to thread ${target.threadId} failed:`,
+              error,
+            );
+            failed.push({ ...target, error: errorMessage(error) });
+          }
+        }
+
+        drafted.push({
+          ...target,
+          draftId: result.draftId,
+          language: result.language,
+          model: result.model,
+          autoReply: result.autoReply,
+          sentMessageId,
+        });
       } catch (error) {
         console.error(
           `Drafting a reply to thread ${target.threadId} failed:`,

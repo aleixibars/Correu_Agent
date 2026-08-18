@@ -1,7 +1,7 @@
 import { drizzle } from "drizzle-orm/pg-proxy";
 import { describe, expect, it, vi } from "vitest";
 import type { MailSenderClient } from "../mail/types";
-import { approveAndSendDraft } from "./send";
+import { approveAndSendDraft, sendAutoReplyDraft } from "./send";
 
 const TENANT_ID = "11111111-1111-1111-1111-111111111111";
 const THREAD_ID = "22222222-2222-2222-2222-222222222222";
@@ -22,6 +22,7 @@ const draftRow = ({
   references = null as string | null,
   threadSubject = "Pressupost" as string | null,
   parentSubject = "Pressupost" as string | null,
+  threadCategory = "comercial" as string | null,
 } = {}) => [
   status,
   body,
@@ -35,6 +36,7 @@ const draftRow = ({
   references,
   parentFromAddress,
   parentSubject,
+  threadCategory,
 ];
 
 const createSender = (): { sender: MailSenderClient; sendReply: ReturnType<typeof vi.fn> } => {
@@ -54,15 +56,20 @@ const createDb = ({
   claimed = [[DRAFT_ID]] as unknown[][],
   insertedMessages = [[SENT_MESSAGE_ID]] as unknown[][],
   existingMessages = [] as unknown[][],
+  rule = [["comercial", true, null]] as unknown[][],
 }: {
   draft?: unknown[] | null;
   claimed?: unknown[][];
   insertedMessages?: unknown[][];
   existingMessages?: unknown[][];
+  rule?: unknown[][];
 } = {}) => {
   const queries: { sql: string; params: unknown[] }[] = [];
   const db = drizzle(async (sql, params) => {
     queries.push({ sql, params });
+    if (sql.startsWith("select") && sql.includes('from "auto_reply_rules"')) {
+      return { rows: rule };
+    }
     if (sql.startsWith("select") && sql.includes('from "drafts"')) {
       return { rows: draft ? [draft] : [] };
     }
@@ -293,5 +300,129 @@ describe("approveAndSendDraft", () => {
     expect(
       queries.filter(({ sql }) => sql.startsWith('update "drafts"'))[1]!.params,
     ).toContain(SENT_MESSAGE_ID);
+  });
+});
+
+describe("sendAutoReplyDraft", () => {
+  it("sends the draft with nobody approving it and audits the auto-reply", async () => {
+    const { db, queries } = createDb();
+    const { sender, sendReply } = createSender();
+
+    const result = await sendAutoReplyDraft(db, sender, {
+      tenantId: TENANT_ID,
+      draftId: DRAFT_ID,
+      now: NOW,
+    });
+
+    expect(result).toEqual({
+      draftId: DRAFT_ID,
+      threadId: THREAD_ID,
+      sentMessageId: SENT_MESSAGE_ID,
+      providerMessageId: "provider-sent-1",
+    });
+    // The same send path as an approval: reply inside the thread, from the
+    // mailbox, to whoever wrote (context.md §2).
+    expect(sendReply.mock.calls[0]![0]).toMatchObject({
+      fromAddress: "bustia@example.com",
+      toAddresses: ["client@example.com"],
+      subject: "Re: Pressupost",
+      bodyText: BODY,
+      providerThreadId: "provider-thread-1",
+    });
+
+    const audits = auditEntries(queries);
+    // No approval entry: nobody approved it, and the trail must not read as if
+    // somebody had (context.md §7).
+    expect(audits.map((params) => params[3])).toEqual(["auto_reply_sent"]);
+    expect(audits[0]).toContain("system");
+    expect(audits[0]!.join(" ")).toContain("comercial");
+    expect(audits[0]!.join(" ")).toContain(SENT_MESSAGE_ID);
+
+    const updates = queries.filter(({ sql }) => sql.startsWith('update "drafts"'));
+    expect(updates[1]!.params).toContain("sent");
+    expect(updates[1]!.params).toContain(SENT_MESSAGE_ID);
+  });
+
+  it("does not send a thread whose category can never be auto-replied to", async () => {
+    const { db, queries } = createDb({
+      draft: draftRow({ threadCategory: "urgent" }),
+    });
+    const { sender, sendReply } = createSender();
+
+    const result = await sendAutoReplyDraft(db, sender, {
+      tenantId: TENANT_ID,
+      draftId: DRAFT_ID,
+      now: NOW,
+    });
+
+    expect(result).toBeNull();
+    expect(sendReply).not.toHaveBeenCalled();
+    // Refused without even reading the rules table: a row planted there must
+    // not be able to answer urgent mail (context.md §2).
+    expect(
+      queries.some(({ sql }) => sql.includes('from "auto_reply_rules"')),
+    ).toBe(false);
+  });
+
+  it("does not send a thread triage has not reached yet", async () => {
+    const { db, queries } = createDb({ draft: draftRow({ threadCategory: null }) });
+    const { sender, sendReply } = createSender();
+
+    const result = await sendAutoReplyDraft(db, sender, {
+      tenantId: TENANT_ID,
+      draftId: DRAFT_ID,
+      now: NOW,
+    });
+
+    expect(result).toBeNull();
+    expect(sendReply).not.toHaveBeenCalled();
+    // No category means no rule could have asked for this one (context.md §4).
+    expect(
+      queries.some(({ sql }) => sql.includes('from "auto_reply_rules"')),
+    ).toBe(false);
+  });
+
+  it("does not send when the rule was switched off after the draft was written", async () => {
+    const { db } = createDb({ rule: [] });
+    const { sender, sendReply } = createSender();
+
+    const result = await sendAutoReplyDraft(db, sender, {
+      tenantId: TENANT_ID,
+      draftId: DRAFT_ID,
+      now: NOW,
+    });
+
+    expect(result).toBeNull();
+    // The draft stays pending, so the dashboard can still approve it by hand.
+    expect(sendReply).not.toHaveBeenCalled();
+  });
+
+  it("does not send a draft that is no longer pending", async () => {
+    const { db } = createDb({ draft: draftRow({ status: "discarded" }) });
+    const { sender, sendReply } = createSender();
+
+    const result = await sendAutoReplyDraft(db, sender, {
+      tenantId: TENANT_ID,
+      draftId: DRAFT_ID,
+      now: NOW,
+    });
+
+    expect(result).toBeNull();
+    expect(sendReply).not.toHaveBeenCalled();
+  });
+
+  it("does not send when an approval claimed the draft first", async () => {
+    const { db, queries } = createDb({ claimed: [] });
+    const { sender, sendReply } = createSender();
+
+    const result = await sendAutoReplyDraft(db, sender, {
+      tenantId: TENANT_ID,
+      draftId: DRAFT_ID,
+      now: NOW,
+    });
+
+    expect(result).toBeNull();
+    expect(sendReply).not.toHaveBeenCalled();
+    expect(auditEntries(queries)).toHaveLength(0);
   });
 });

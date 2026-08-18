@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/pg-proxy";
 import type { Job } from "pg-boss";
 import { describe, expect, it, vi } from "vitest";
 import { DRAFT_MODEL, type DraftMessagesClient } from "@correu-agent/shared/drafts";
+import type { ThreadAutoReplySender } from "../drafts/auto-reply";
 import {
   THREAD_DRAFT_QUEUE,
   createThreadDraftHandler,
@@ -35,10 +36,14 @@ const messageRow = () => [
   null,
 ];
 
-const createDb = (threads: unknown[][] = [threadRow()]) => {
+const createDb = (
+  threads: unknown[][] = [threadRow()],
+  { rule = [] as unknown[][] } = {},
+) => {
   let loads = 0;
   let inserts = 0;
   return drizzle(async (sql) => {
+    if (sql.includes('from "auto_reply_rules"')) return { rows: rule };
     if (sql.includes('from "threads"')) {
       const thread = threads[loads++];
       return { rows: thread ? [thread] : [] };
@@ -63,6 +68,20 @@ const createClient = (answers: string[] = ['{"language":"ca","body":"Bon dia."}'
   return { client: { create } as unknown as DraftMessagesClient, create };
 };
 
+/** Stands in for the send an auto-reply rule triggers; no rule is on by default. */
+const autoReplies = () =>
+  vi.fn(async ({ threadId, draftId }) => ({
+    draftId,
+    threadId,
+    sentMessageId: "sent-message-1",
+    providerMessageId: "provider-sent-1",
+  })) as unknown as ThreadAutoReplySender & ReturnType<typeof vi.fn>;
+
+const neverAutoReplies = () =>
+  vi.fn(async () => {
+    throw new Error("No auto-reply rule is on for this thread.");
+  }) as unknown as ThreadAutoReplySender & ReturnType<typeof vi.fn>;
+
 describe("createThreadDraftHandler", () => {
   it("drafts a reply for every thread in the batch", async () => {
     const { client } = createClient();
@@ -70,6 +89,7 @@ describe("createThreadDraftHandler", () => {
     const result = await createThreadDraftHandler({
       db: createDb([threadRow(), threadRow()]),
       anthropic: client,
+      autoReply: neverAutoReplies(),
     })([
       job({ tenantId: TENANT_ID, threadId: THREAD_ID }),
       job({ tenantId: TENANT_ID, threadId: OTHER_THREAD_ID }, "job-2"),
@@ -82,6 +102,8 @@ describe("createThreadDraftHandler", () => {
         draftId: "draft-0",
         language: "ca",
         model: DRAFT_MODEL,
+        autoReply: false,
+        sentMessageId: null,
       },
       {
         tenantId: TENANT_ID,
@@ -89,6 +111,8 @@ describe("createThreadDraftHandler", () => {
         draftId: "draft-1",
         language: "ca",
         model: DRAFT_MODEL,
+        autoReply: false,
+        sentMessageId: null,
       },
     ]);
     expect(result.failed).toEqual([]);
@@ -100,6 +124,7 @@ describe("createThreadDraftHandler", () => {
     const result = await createThreadDraftHandler({
       db: createDb(),
       anthropic: client,
+      autoReply: neverAutoReplies(),
     })([
       job({ tenantId: TENANT_ID, threadId: THREAD_ID }),
       job({ tenantId: TENANT_ID, threadId: THREAD_ID }, "job-2"),
@@ -116,6 +141,7 @@ describe("createThreadDraftHandler", () => {
     const result = await createThreadDraftHandler({
       db: createDb([threadRow("newsletter")]),
       anthropic: client,
+      autoReply: neverAutoReplies(),
     })([job({ tenantId: TENANT_ID, threadId: THREAD_ID })]);
 
     expect(result.skipped).toEqual([{ tenantId: TENANT_ID, threadId: THREAD_ID }]);
@@ -133,6 +159,7 @@ describe("createThreadDraftHandler", () => {
     const result = await createThreadDraftHandler({
       db: createDb([threadRow(), threadRow()]),
       anthropic: client,
+      autoReply: neverAutoReplies(),
     })([
       job({ tenantId: TENANT_ID, threadId: THREAD_ID }),
       job({ tenantId: TENANT_ID, threadId: OTHER_THREAD_ID }, "job-2"),
@@ -152,10 +179,75 @@ describe("createThreadDraftHandler", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
 
     await expect(
-      createThreadDraftHandler({ db: createDb(), anthropic: client })([
+      createThreadDraftHandler({
+        db: createDb(),
+        anthropic: client,
+        autoReply: neverAutoReplies(),
+      })([
         job({ tenantId: TENANT_ID, threadId: THREAD_ID }),
       ]),
     ).rejects.toThrow("Anthropic is down");
+    error.mockRestore();
+  });
+
+  it("sends the draft of a thread whose category has auto-reply on", async () => {
+    const { client } = createClient();
+    const autoReply = autoReplies();
+
+    const result = await createThreadDraftHandler({
+      db: createDb([threadRow()], { rule: [["comercial", true, null]] }),
+      anthropic: client,
+      autoReply,
+    })([job({ tenantId: TENANT_ID, threadId: THREAD_ID })]);
+
+    expect(autoReply).toHaveBeenCalledWith({
+      tenantId: TENANT_ID,
+      threadId: THREAD_ID,
+      draftId: "draft-0",
+    });
+    expect(result.drafted[0]).toMatchObject({
+      draftId: "draft-0",
+      autoReply: true,
+      sentMessageId: "sent-message-1",
+    });
+  });
+
+  it("leaves a draft nobody asked to auto-send waiting for the dashboard", async () => {
+    const { client } = createClient();
+    const autoReply = neverAutoReplies();
+
+    const result = await createThreadDraftHandler({
+      db: createDb(),
+      anthropic: client,
+      autoReply,
+    })([job({ tenantId: TENANT_ID, threadId: THREAD_ID })]);
+
+    expect(autoReply).not.toHaveBeenCalled();
+    expect(result.drafted[0]).toMatchObject({
+      autoReply: false,
+      sentMessageId: null,
+    });
+  });
+
+  it("keeps the draft of an auto-reply the provider refused to send", async () => {
+    const { client } = createClient();
+    const autoReply = vi.fn(async () => {
+      throw new Error("Gmail is down");
+    }) as unknown as ThreadAutoReplySender;
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await createThreadDraftHandler({
+      db: createDb([threadRow()], { rule: [["comercial", true, null]] }),
+      anthropic: client,
+      autoReply,
+    })([job({ tenantId: TENANT_ID, threadId: THREAD_ID })]);
+
+    // The reply was written and is stored: the dashboard can still send it, and
+    // the failure is reported rather than swallowed.
+    expect(result.drafted[0]).toMatchObject({ sentMessageId: null });
+    expect(result.failed).toEqual([
+      { tenantId: TENANT_ID, threadId: THREAD_ID, error: "Gmail is down" },
+    ]);
     error.mockRestore();
   });
 });

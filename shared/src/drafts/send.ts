@@ -1,13 +1,22 @@
-// Approving a draft really sends the mail (context.md §2): the text the user
-// approved leaves through the provider the thread's mailbox is connected to, the
-// reply is stored as an outbound message of the thread, and both the approval
-// and the send land in the audit trail (context.md §7).
+// Sending a draft for real (context.md §2). Two ways in, one way out: the user
+// approves it in the dashboard, or a category's auto-reply rule sends it with
+// nobody approving anything. Either way the mail leaves through the provider the
+// thread's mailbox is connected to, is stored as an outbound message of the
+// thread, and lands in the audit trail (context.md §7).
 
 import { and, eq, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { recordAuditLogEntry } from "../audit";
-import { drafts, mailboxAccounts, messages, threads } from "../db/schema";
+import { findEnabledAutoReplyRule } from "../auto-reply/rules";
+import {
+  drafts,
+  mailboxAccounts,
+  messages,
+  threads,
+  type DraftStatus,
+} from "../db/schema";
 import type { MailSenderClient } from "../mail/types";
+import type { TriageCategory } from "../triage/taxonomy";
 import { buildReplyHeaders, replySubject } from "./reply-headers";
 
 export interface ApproveAndSendDraftInput {
@@ -21,6 +30,13 @@ export interface ApproveAndSendDraftInput {
   now?: Date;
 }
 
+export interface SendAutoReplyDraftInput {
+  tenantId: string;
+  draftId: string;
+  /** Stamp for the send; defaults to the wall clock. */
+  now?: Date;
+}
+
 export interface SentDraft {
   draftId: string;
   threadId: string;
@@ -30,40 +46,51 @@ export interface SentDraft {
   providerMessageId: string;
 }
 
-/**
- * Sends an approved draft and marks it sent, or answers `null` when there was
- * nothing to send — the draft is gone, or it was already sent, discarded or
- * superseded, possibly by whoever clicked a moment earlier.
- *
- * The order is approve, then send, then record: the approval is claimed with a
- * conditional update, so two clicks on the same draft cannot both reach the
- * provider. A send that fails afterwards leaves the draft `approved` rather than
- * `pending` — the mail may or may not have left, and silently offering it for
- * approval again is the one outcome that could send it twice.
- */
-export const approveAndSendDraft = async <
+const sendableColumns = {
+  status: drafts.status,
+  body: drafts.body,
+  threadId: drafts.threadId,
+  threadSubject: threads.subject,
+  providerThreadId: threads.providerThreadId,
+  mailboxAddress: mailboxAccounts.emailAddress,
+  parentProviderMessageId: messages.providerMessageId,
+  parentMessageIdHeader: messages.messageIdHeader,
+  parentInReplyTo: messages.inReplyTo,
+  parentReferences: messages.references,
+  parentFromAddress: messages.fromAddress,
+  parentSubject: messages.subject,
+  threadCategory: threads.category,
+};
+
+/** Everything a send needs about the draft, its thread and the mail it answers. */
+interface SendableDraft {
+  status: DraftStatus;
+  body: string;
+  threadId: string;
+  threadSubject: string | null;
+  providerThreadId: string;
+  mailboxAddress: string;
+  /** Null when the message the draft answers was deleted — the send then fails with a reason. */
+  parentProviderMessageId: string | null;
+  parentMessageIdHeader: string | null;
+  parentInReplyTo: string | null;
+  parentReferences: string | null;
+  parentFromAddress: string | null;
+  parentSubject: string | null;
+  /** Null while the thread is still waiting for triage (context.md §4). */
+  threadCategory: TriageCategory | null;
+}
+
+/** The draft with its thread, its mailbox and the message it replies to. */
+const loadSendableDraft = async <
   T extends PgQueryResultHKT,
   TSchema extends Record<string, unknown> = Record<string, never>,
 >(
   db: PgDatabase<T, TSchema>,
-  sender: MailSenderClient,
-  { tenantId, draftId, actorUserId, body, now = new Date() }: ApproveAndSendDraftInput,
-): Promise<SentDraft | null> => {
+  { tenantId, draftId }: { tenantId: string; draftId: string },
+): Promise<SendableDraft | undefined> => {
   const [draft] = await db
-    .select({
-      status: drafts.status,
-      body: drafts.body,
-      threadId: drafts.threadId,
-      threadSubject: threads.subject,
-      providerThreadId: threads.providerThreadId,
-      mailboxAddress: mailboxAccounts.emailAddress,
-      parentProviderMessageId: messages.providerMessageId,
-      parentMessageIdHeader: messages.messageIdHeader,
-      parentInReplyTo: messages.inReplyTo,
-      parentReferences: messages.references,
-      parentFromAddress: messages.fromAddress,
-      parentSubject: messages.subject,
-    })
+    .select(sendableColumns)
     .from(drafts)
     .innerJoin(threads, eq(threads.id, drafts.threadId))
     .innerJoin(mailboxAccounts, eq(mailboxAccounts.id, threads.mailboxAccountId))
@@ -74,8 +101,19 @@ export const approveAndSendDraft = async <
     .where(and(eq(drafts.id, draftId), eq(drafts.tenantId, tenantId)))
     .limit(1);
 
-  if (!draft || draft.status !== "pending") return null;
+  return draft;
+};
 
+/**
+ * The parts of the draft a mail cannot be built without, or a throw naming what
+ * is missing. Both ways in go through it, so an auto-reply is held to exactly
+ * the same conditions as an approval.
+ */
+const requireSendable = (
+  draft: SendableDraft,
+  draftId: string,
+  text: string,
+): { parentProviderMessageId: string; parentFromAddress: string } => {
   // The parent message is left-joined, so every column of it is nullable here;
   // an address is the one part a reply cannot be sent without.
   if (!draft.parentProviderMessageId || !draft.parentFromAddress) {
@@ -84,39 +122,77 @@ export const approveAndSendDraft = async <
     );
   }
 
-  const text = body ?? draft.body;
   if (text.trim() === "") {
     throw new Error(`Draft ${draftId} cannot be sent with an empty body.`);
   }
 
+  return {
+    parentProviderMessageId: draft.parentProviderMessageId,
+    parentFromAddress: draft.parentFromAddress,
+  };
+};
+
+/**
+ * Moves the draft off `pending` and answers whether this caller is the one that
+ * got it. Whoever wins sends the mail; a second approval — or an auto-reply
+ * racing the user's click — matches nothing and sends nothing.
+ */
+const claimDraft = async <
+  T extends PgQueryResultHKT,
+  TSchema extends Record<string, unknown> = Record<string, never>,
+>(
+  db: PgDatabase<T, TSchema>,
+  {
+    tenantId,
+    draftId,
+    body,
+    now,
+  }: { tenantId: string; draftId: string; body: string; now: Date },
+): Promise<boolean> => {
   const [claimed] = await db
     .update(drafts)
-    .set({ status: "approved", body: text, updatedAt: now })
+    .set({ status: "approved", body, updatedAt: now })
     .where(
       and(
         eq(drafts.id, draftId),
         eq(drafts.tenantId, tenantId),
-        // The claim: whoever moves the draft off `pending` is the one that sends
-        // it, and a second approval of the same draft matches nothing.
         eq(drafts.status, "pending"),
       ),
     )
     .returning({ id: drafts.id });
 
-  if (!claimed) return null;
+  return Boolean(claimed);
+};
 
-  await recordAuditLogEntry(db, {
-    action: "draft_approved",
+/**
+ * Puts the mail on its way and records what came of it: the reply leaves through
+ * the provider, is stored as outbound mail of the thread, and the draft is
+ * marked sent. Shared by both ways in, so an auto-reply and an approval put the
+ * same mail in the same place — only the audit entry that follows differs.
+ */
+const dispatchDraft = async <
+  T extends PgQueryResultHKT,
+  TSchema extends Record<string, unknown> = Record<string, never>,
+>(
+  db: PgDatabase<T, TSchema>,
+  sender: MailSenderClient,
+  {
     tenantId,
-    actor: { type: "user", userId: actorUserId },
-    threadId: draft.threadId,
     draftId,
-    // Only when the user rewrote the model's text (context.md §2); an untouched
-    // draft has no edit to record.
-    ...(text !== draft.body ? { edit: { from: draft.body, to: text } } : {}),
-    occurredAt: now,
-  });
-
+    draft,
+    text,
+    now,
+  }: {
+    tenantId: string;
+    draftId: string;
+    draft: SendableDraft & {
+      parentProviderMessageId: string;
+      parentFromAddress: string;
+    };
+    text: string;
+    now: Date;
+  },
+): Promise<SentDraft> => {
   const replyHeaders = buildReplyHeaders({
     messageIdHeader: draft.parentMessageIdHeader,
     inReplyTo: draft.parentInReplyTo,
@@ -170,22 +246,133 @@ export const approveAndSendDraft = async <
     })
     .where(and(eq(threads.id, draft.threadId), eq(threads.tenantId, tenantId)));
 
-  await recordAuditLogEntry(db, {
-    action: "draft_sent",
-    tenantId,
-    actor: { type: "user", userId: actorUserId },
-    threadId: draft.threadId,
-    draftId,
-    sentMessageId,
-    occurredAt: now,
-  });
-
   return {
     draftId,
     threadId: draft.threadId,
     sentMessageId,
     providerMessageId: sent.providerMessageId,
   };
+};
+
+/**
+ * Sends an approved draft and marks it sent, or answers `null` when there was
+ * nothing to send — the draft is gone, or it was already sent, discarded or
+ * superseded, possibly by whoever clicked a moment earlier.
+ *
+ * The order is approve, then send, then record: the approval is claimed with a
+ * conditional update, so two clicks on the same draft cannot both reach the
+ * provider. A send that fails afterwards leaves the draft `approved` rather than
+ * `pending` — the mail may or may not have left, and silently offering it for
+ * approval again is the one outcome that could send it twice.
+ */
+export const approveAndSendDraft = async <
+  T extends PgQueryResultHKT,
+  TSchema extends Record<string, unknown> = Record<string, never>,
+>(
+  db: PgDatabase<T, TSchema>,
+  sender: MailSenderClient,
+  { tenantId, draftId, actorUserId, body, now = new Date() }: ApproveAndSendDraftInput,
+): Promise<SentDraft | null> => {
+  const draft = await loadSendableDraft(db, { tenantId, draftId });
+  if (!draft || draft.status !== "pending") return null;
+
+  const text = body ?? draft.body;
+  const parent = requireSendable(draft, draftId, text);
+
+  if (!(await claimDraft(db, { tenantId, draftId, body: text, now }))) return null;
+
+  await recordAuditLogEntry(db, {
+    action: "draft_approved",
+    tenantId,
+    actor: { type: "user", userId: actorUserId },
+    threadId: draft.threadId,
+    draftId,
+    // Only when the user rewrote the model's text (context.md §2); an untouched
+    // draft has no edit to record.
+    ...(text !== draft.body ? { edit: { from: draft.body, to: text } } : {}),
+    occurredAt: now,
+  });
+
+  const result = await dispatchDraft(db, sender, {
+    tenantId,
+    draftId,
+    draft: { ...draft, ...parent },
+    text,
+    now,
+  });
+
+  await recordAuditLogEntry(db, {
+    action: "draft_sent",
+    tenantId,
+    actor: { type: "user", userId: actorUserId },
+    threadId: draft.threadId,
+    draftId,
+    sentMessageId: result.sentMessageId,
+    occurredAt: now,
+  });
+
+  return result;
+};
+
+/**
+ * Sends a draft because the thread's category has auto-reply switched on
+ * (context.md §2), with nobody approving it, or answers `null` when it must not
+ * be sent that way — the draft is no longer pending, the thread is untriaged, or
+ * the rule that would have sent it is off.
+ *
+ * The rule is re-read here rather than trusted from whatever asked for the send:
+ * a switch turned off while the model was writing has to stop the mail, and a
+ * category that can never be auto-replied to (Urgent, Personal/Altres) is
+ * refused without reading the table at all. The draft is left `pending` in every
+ * refused case, so the dashboard can still approve it by hand.
+ *
+ * The mail is sent exactly as an approval sends it; the trail differs, and says
+ * so: one `auto_reply_sent` entry by the system, never a `draft_approved` one
+ * that would read as if a person had signed it off (context.md §7).
+ */
+export const sendAutoReplyDraft = async <
+  T extends PgQueryResultHKT,
+  TSchema extends Record<string, unknown> = Record<string, never>,
+>(
+  db: PgDatabase<T, TSchema>,
+  sender: MailSenderClient,
+  { tenantId, draftId, now = new Date() }: SendAutoReplyDraftInput,
+): Promise<SentDraft | null> => {
+  const draft = await loadSendableDraft(db, { tenantId, draftId });
+  if (!draft || draft.status !== "pending") return null;
+
+  // An untriaged thread has no category whose rule could have asked for this.
+  const category = draft.threadCategory;
+  if (!category) return null;
+
+  const rule = await findEnabledAutoReplyRule(db, { tenantId, category });
+  if (!rule) return null;
+
+  const text = draft.body;
+  const parent = requireSendable(draft, draftId, text);
+
+  if (!(await claimDraft(db, { tenantId, draftId, body: text, now }))) return null;
+
+  const result = await dispatchDraft(db, sender, {
+    tenantId,
+    draftId,
+    draft: { ...draft, ...parent },
+    text,
+    now,
+  });
+
+  await recordAuditLogEntry(db, {
+    action: "auto_reply_sent",
+    tenantId,
+    actor: { type: "system" },
+    threadId: draft.threadId,
+    draftId,
+    category,
+    sentMessageId: result.sentMessageId,
+    occurredAt: now,
+  });
+
+  return result;
 };
 
 interface SentMessageRow {

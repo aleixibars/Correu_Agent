@@ -5,6 +5,7 @@ import {
   loadVapidConfig,
 } from "@correu-agent/shared/web-push";
 import { createDatabase } from "./db";
+import { createThreadAutoReplySender } from "./drafts/auto-reply";
 import {
   startThreadDraftSchedule,
   type ThreadDraftSchedule,
@@ -90,7 +91,13 @@ await startQueue(boss, {
     anthropic: anthropic.messages,
     webPush,
   }),
-  threadDraft: createThreadDraftHandler({ db, anthropic: anthropic.messages }),
+  threadDraft: createThreadDraftHandler({
+    db,
+    anthropic: anthropic.messages,
+    // Mail that leaves without anyone approving it, for the categories whose
+    // rule is on (context.md §2).
+    autoReply: createThreadAutoReplySender({ db, google, microsoft }),
+  }),
   retentionPurge: createRetentionPurgeHandler({ db }),
   dailyDigest: createDailyDigestHandler({ db, anthropic: anthropic.messages }),
 });

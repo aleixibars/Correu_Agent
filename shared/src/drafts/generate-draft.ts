@@ -5,6 +5,7 @@
 import { and, eq, or } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { recordAuditLogEntry } from "../audit";
+import { findEnabledAutoReplyRule } from "../auto-reply/rules";
 import { drafts, threads } from "../db/schema";
 import { needsDraft } from "../triage/taxonomy";
 import { generateReply, type DraftMessagesClient } from "./generate";
@@ -27,6 +28,13 @@ export interface GeneratedThreadDraft {
   replyHeaders: ReplyHeaders;
   language: string | null;
   model: string;
+  /**
+   * True when an auto-reply rule of the thread's category is on, i.e. the draft
+   * is to be sent without anyone approving it (context.md §2). The send itself
+   * is the caller's — `sendAutoReplyDraft` re-reads the rule before the mail
+   * leaves.
+   */
+  autoReply: boolean;
 }
 
 /**
@@ -97,10 +105,19 @@ export const generateThreadDraft = async <
 
   if (existing) return null;
 
+  // Read before the model is asked, so the reply is written under whatever
+  // standing guidance the rule that will send it carries (context.md §2). An
+  // ineligible category answers null without reading the table at all.
+  const autoReplyRule = await findEnabledAutoReplyRule(db, {
+    tenantId,
+    category: thread.category,
+  });
+
   const { body, language, model } = await generateReply(client, {
     subject: thread.subject,
     category: thread.category,
     messages: [...recent].reverse(),
+    guidance: autoReplyRule?.instructions,
   });
 
   const [stored] = await db
@@ -110,6 +127,7 @@ export const generateThreadDraft = async <
       threadId,
       inReplyToMessageId: answering.id,
       body,
+      autoReply: autoReplyRule !== null,
       model,
       createdAt: now,
       updatedAt: now,
@@ -130,9 +148,9 @@ export const generateThreadDraft = async <
     draftId: stored.id,
     model,
     language,
-    // Auto-reply rules are opt-in per category and are not what asked for this
-    // one (context.md §2).
-    autoReply: false,
+    // Whether a rule asked for this draft or the dashboard will review it
+    // (context.md §2) — the first link of "why was this mail sent".
+    autoReply: autoReplyRule !== null,
     occurredAt: now,
   });
 
@@ -143,5 +161,6 @@ export const generateThreadDraft = async <
     replyHeaders: buildReplyHeaders(answering),
     language,
     model,
+    autoReply: autoReplyRule !== null,
   };
 };
