@@ -50,12 +50,12 @@ export const createRetentionPurgeHandler = <
   return async () => {
     const purged = await purgeExpiredMessageBodies(db);
 
-    if (purged.length > 0) {
+    if (purged > 0) {
       console.log(
-        `Purged the body of ${purged.length} message(s) older than ${RETENTION_DAYS} days.`,
+        `Purged the body of ${purged} message(s) older than ${RETENTION_DAYS} days.`,
       );
     }
 
-    return { purged: purged.length };
+    return { purged };
   };
 };

@@ -6,10 +6,7 @@ import {
   type RetentionPurgeJobData,
 } from "./retention-purge";
 
-const TENANT_ID = "11111111-1111-1111-1111-111111111111";
-const THREAD_ID = "33333333-3333-3333-3333-333333333333";
-
-/** `purgeExpiredMessageBodies` returns the id, tenant and thread, in that order. */
+/** `purgeExpiredMessageBodies` counts the ids the UPDATE returned. */
 const createDb = (rows: unknown[][]) => {
   const queries: { sql: string; params: unknown[] }[] = [];
   const db = drizzle(async (sql, params) => {
@@ -25,8 +22,8 @@ const job = (id: string): Job<RetentionPurgeJobData> =>
 describe("createRetentionPurgeHandler", () => {
   it("purges expired bodies and reports how many it emptied", async () => {
     const { db, queries } = createDb([
-      ["55555555-5555-5555-5555-555555555555", TENANT_ID, THREAD_ID],
-      ["66666666-6666-6666-6666-666666666666", TENANT_ID, THREAD_ID],
+      ["55555555-5555-5555-5555-555555555555"],
+      ["66666666-6666-6666-6666-666666666666"],
     ]);
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 

@@ -235,8 +235,10 @@ de sobreviure perquè l'audit log i el digest hi apunten.
   (`@correu-agent/shared/retention`): buida `body_text` i `body_html`, marca
   `body_purged_at` i deixa la resta de columnes intactes.
 - El resum que queda és el `snippet` del proveïdor; per al correu que no en va
-  portar cap, la purga n'omple un amb l'inici del cos abans de buidar-lo, així
-  cap missatge purgat queda sense resum consultable.
+  portar cap, la purga n'omple un amb l'inici del cos abans de buidar-lo — del
+  text pla si n'hi ha i, si el missatge només porta HTML (el cas normal de
+  Graph), del mateix HTML sense etiquetes. Així cap missatge purgat queda sense
+  resum consultable.
 - L'edat es mesura per la data del proveïdor (`sent_at`) i, si no n'hi ha, per
   quan es va desar la fila (`created_at`): cap missatge pot quedar-se fora de la
   finestra per sempre.

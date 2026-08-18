@@ -6,8 +6,6 @@ import {
   retentionCutoff,
 } from "./purge";
 
-const TENANT_ID = "11111111-1111-1111-1111-111111111111";
-const THREAD_ID = "33333333-3333-3333-3333-333333333333";
 const MESSAGE_ID = "55555555-5555-5555-5555-555555555555";
 
 const NOW = new Date("2026-06-01T03:00:00.000Z");
@@ -16,7 +14,7 @@ const NOW = new Date("2026-06-01T03:00:00.000Z");
  * Drizzle's proxy driver builds the statement for real and hands it back
  * instead of reaching Neon, so the test asserts on what would be written.
  */
-const createDb = (rows: unknown[][] = [[MESSAGE_ID, TENANT_ID, THREAD_ID]]) => {
+const createDb = (rows: unknown[][] = [[MESSAGE_ID]]) => {
   const queries: { sql: string; params: unknown[] }[] = [];
   const db = drizzle(async (sql, params) => {
     queries.push({ sql, params });
@@ -38,9 +36,7 @@ describe("purgeExpiredMessageBodies", () => {
 
     const purged = await purgeExpiredMessageBodies(db, { now: NOW });
 
-    expect(purged).toEqual([
-      { id: MESSAGE_ID, tenantId: TENANT_ID, threadId: THREAD_ID },
-    ]);
+    expect(purged).toBe(1);
 
     const { sql, params } = queries[0]!;
     expect(sql).toContain('update "messages" set');
@@ -75,6 +71,10 @@ describe("purgeExpiredMessageBodies", () => {
     }
     expect(set).toContain('coalesce("messages"."snippet"');
     expect(set).toContain('"messages"."body_text"');
+    // HTML-only mail (every Graph message with an HTML body) has no body_text,
+    // so its markup is stripped rather than leaving it with no summary at all.
+    expect(set).toContain('"messages"."body_html"');
+    expect(set).toContain("regexp_replace");
 
     // The category lives on the thread, which the purge never writes to.
     expect(sql).not.toContain('"threads"');
@@ -96,8 +96,6 @@ describe("purgeExpiredMessageBodies", () => {
   it("reports nothing when no mail has expired", async () => {
     const { db } = createDb([]);
 
-    await expect(purgeExpiredMessageBodies(db, { now: NOW })).resolves.toEqual(
-      [],
-    );
+    await expect(purgeExpiredMessageBodies(db, { now: NOW })).resolves.toBe(0);
   });
 });

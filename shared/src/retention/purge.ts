@@ -3,7 +3,7 @@
 // summary. The row itself stays: the audit trail and the digest still point at
 // it, so deleting it would leave both with a dangling reference.
 
-import { and, isNull, sql } from "drizzle-orm";
+import { and, isNull, sql, type SQLWrapper } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { messages } from "../db/schema";
 
@@ -23,12 +23,19 @@ export const PURGED_SUMMARY_LENGTH = 200;
 export const retentionCutoff = (now: Date): Date =>
   new Date(now.getTime() - RETENTION_DAYS * DAY_MS);
 
-/** A message whose body this purge dropped. */
-export interface PurgedMessageBody {
-  id: string;
-  tenantId: string;
-  threadId: string;
-}
+/**
+ * The head of a body as a summary — null when there is nothing left to read, so
+ * a body of pure whitespace or pure markup falls through to the next candidate.
+ */
+const summaryOf = (body: SQLWrapper) =>
+  sql`nullif(btrim(left(${body}, ${PURGED_SUMMARY_LENGTH})), '')`;
+
+/**
+ * An HTML body as plain text: tags out, runs of whitespace collapsed. Without
+ * this, mail that only ever had an HTML part — every Graph message with an HTML
+ * body has a null `bodyText` — would be purged with no summary at all.
+ */
+const bodyHtmlAsText = sql`regexp_replace(regexp_replace(${messages.bodyHtml}, '<[^>]*>', ' ', 'g'), '[[:space:]]+', ' ', 'g')`;
 
 export interface PurgeExpiredMessageBodiesOptions {
   /** The moment the window is measured back from; defaults to the wall clock. */
@@ -36,8 +43,8 @@ export interface PurgeExpiredMessageBodiesOptions {
 }
 
 /**
- * Purges the body of every message past the retention window and reports the
- * ones it emptied.
+ * Purges the body of every message past the retention window and reports how
+ * many it emptied.
  *
  * Idempotent: `bodyPurgedAt` is both the stamp and the guard, so a purge that
  * ran yesterday costs nothing today and a job retried after a crash cannot
@@ -49,8 +56,8 @@ export const purgeExpiredMessageBodies = async <
 >(
   db: PgDatabase<T, TSchema>,
   { now = new Date() }: PurgeExpiredMessageBodiesOptions = {},
-): Promise<PurgedMessageBody[]> =>
-  db
+): Promise<number> => {
+  const purged = await db
     .update(messages)
     .set({
       bodyText: null,
@@ -58,7 +65,7 @@ export const purgeExpiredMessageBodies = async <
       // Postgres evaluates a SET expression against the *old* row, so the body
       // is still readable here: mail the provider gave no snippet for keeps the
       // head of its body as the summary that survives the purge.
-      snippet: sql`coalesce(${messages.snippet}, left(${messages.bodyText}, ${PURGED_SUMMARY_LENGTH}))`,
+      snippet: sql`coalesce(${messages.snippet}, ${summaryOf(messages.bodyText)}, ${summaryOf(bodyHtmlAsText)})`,
       bodyPurgedAt: now,
     })
     .where(
@@ -72,8 +79,9 @@ export const purgeExpiredMessageBodies = async <
         isNull(messages.bodyPurgedAt),
       ),
     )
-    .returning({
-      id: messages.id,
-      tenantId: messages.tenantId,
-      threadId: messages.threadId,
-    });
+    // Only the count is used, but a set-based UPDATE has no other way to report
+    // one through drizzle's proxy driver.
+    .returning({ id: messages.id });
+
+  return purged.length;
+};

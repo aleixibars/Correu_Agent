@@ -8,7 +8,4 @@ export {
   purgeExpiredMessageBodies,
   retentionCutoff,
 } from "./purge";
-export type {
-  PurgeExpiredMessageBodiesOptions,
-  PurgedMessageBody,
-} from "./purge";
+export type { PurgeExpiredMessageBodiesOptions } from "./purge";
