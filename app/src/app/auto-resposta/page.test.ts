@@ -10,7 +10,7 @@ import {
   TRIAGE_CATEGORIES,
 } from "@correu-agent/shared";
 import type { AutoReplyRuleState } from "@correu-agent/shared/auto-reply";
-import { DASHBOARD_PATH } from "../../lib/auth/config";
+import { DASHBOARD_PATH } from "../../lib/routes";
 import { CATEGORY_LABELS } from "../../lib/category-labels";
 import { TEST_TENANT_ID } from "../../lib/auth/test-fixtures";
 

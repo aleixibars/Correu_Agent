@@ -9,7 +9,7 @@ import {
 } from "@correu-agent/shared";
 import { setAutoReplyRule } from "@correu-agent/shared/auto-reply";
 import { auth } from "../../auth";
-import { AUTO_REPLY_PATH, LOGIN_PATH } from "../../lib/auth/config";
+import { AUTO_REPLY_PATH, LOGIN_PATH } from "../../lib/routes";
 import { db } from "../../lib/db";
 
 /**

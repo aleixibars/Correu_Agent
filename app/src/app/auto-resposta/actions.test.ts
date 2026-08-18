@@ -4,7 +4,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "next-auth";
-import { AUTO_REPLY_PATH } from "../../lib/auth/config";
+import { AUTO_REPLY_PATH } from "../../lib/routes";
 import { TEST_TENANT_ID } from "../../lib/auth/test-fixtures";
 
 const auth = vi.fn<() => Promise<Session | null>>(async () => null);

@@ -5,7 +5,8 @@
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { DASHBOARD_PATH } from "../lib/auth/config";
+import { APP_NAME } from "@correu-agent/shared";
+import { DASHBOARD_PATH } from "../lib/routes";
 import ErrorPage from "./error";
 
 const reset = vi.fn();
@@ -29,8 +30,9 @@ const findButton = (node: ReactNode): ReactElement | null => {
 };
 
 describe("ErrorPage", () => {
+  // As the heading of the page, for the same reason as the 404.
   it("apologises in Catalan and invites a retry", () => {
-    expect(render()).toContain("Alguna cosa ha fallat");
+    expect(render()).toContain("<h1>Alguna cosa ha fallat</h1>");
   });
 
   it("wears the dashboard's visual identity", () => {
@@ -38,6 +40,7 @@ describe("ErrorPage", () => {
 
     expect(markup).toContain("app-shell");
     expect(markup).toContain("airmail-stripe");
+    expect(markup).toContain(APP_NAME);
   });
 
   it("offers a way back to the dashboard", () => {

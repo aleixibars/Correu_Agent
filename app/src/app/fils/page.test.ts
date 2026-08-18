@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "next-auth";
 import { TRIAGE_CATEGORIES } from "@correu-agent/shared";
 import { CATEGORY_LABELS } from "../../lib/category-labels";
-import { DASHBOARD_PATH, threadPath } from "../../lib/auth/config";
+import { DASHBOARD_PATH, threadPath } from "../../lib/routes";
 import { TEST_TENANT_ID } from "../../lib/auth/test-fixtures";
 import type { ThreadListItem } from "../../lib/threads/list-threads";
 

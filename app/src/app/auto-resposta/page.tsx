@@ -6,7 +6,7 @@ import {
 } from "@correu-agent/shared";
 import { listAutoReplyRules } from "@correu-agent/shared/auto-reply";
 import { auth } from "../../auth";
-import { AUTO_REPLY_PATH, LOGIN_PATH } from "../../lib/auth/config";
+import { AUTO_REPLY_PATH, LOGIN_PATH } from "../../lib/routes";
 import { db } from "../../lib/db";
 import { AppHeader } from "../../components/AppHeader";
 import { CategoryStamp } from "../../components/CategoryStamp";

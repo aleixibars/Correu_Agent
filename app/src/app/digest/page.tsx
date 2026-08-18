@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { APP_NAME } from "@correu-agent/shared";
 import { collectDailyDigest } from "@correu-agent/shared/digest";
 import { auth } from "../../auth";
-import { DIGEST_PATH, LOGIN_PATH } from "../../lib/auth/config";
+import { DIGEST_PATH, LOGIN_PATH } from "../../lib/routes";
 import { categoryLabel } from "../../lib/category-labels";
 import { CATEGORY_COLOR_VARS } from "../../lib/category-colors";
 import { db } from "../../lib/db";

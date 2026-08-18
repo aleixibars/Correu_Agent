@@ -4,7 +4,7 @@ import { NextRequest } from "next/server";
 import type { Session } from "next-auth";
 import { describe, expect, it } from "vitest";
 import { decryptToken } from "@correu-agent/shared/token-encryption";
-import { LOGIN_PATH } from "../auth/config";
+import { LOGIN_PATH } from "../routes";
 import {
   MICROSOFT_MAILBOX_CALLBACK_PATH,
   MICROSOFT_MAILBOX_CONNECT_PATH,

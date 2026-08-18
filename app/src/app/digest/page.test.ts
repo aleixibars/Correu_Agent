@@ -8,7 +8,7 @@ import type { Session } from "next-auth";
 import { TRIAGE_CATEGORIES } from "@correu-agent/shared";
 import type { DailyDigestContent } from "@correu-agent/shared/digest";
 import { CATEGORY_LABELS } from "../../lib/category-labels";
-import { DASHBOARD_PATH } from "../../lib/auth/config";
+import { DASHBOARD_PATH } from "../../lib/routes";
 import { TEST_TENANT_ID } from "../../lib/auth/test-fixtures";
 import type { LatestDailyDigest } from "../../lib/digest/latest-digest";
 

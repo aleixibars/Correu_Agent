@@ -7,7 +7,7 @@ import {
   DIGEST_PATH,
   LOGIN_PATH,
   THREADS_PATH,
-} from "../lib/auth/config";
+} from "../lib/routes";
 
 const NAV_ITEMS = [
   { href: THREADS_PATH, label: "Fils" },

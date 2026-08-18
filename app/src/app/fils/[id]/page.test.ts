@@ -6,7 +6,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "next-auth";
-import { THREADS_PATH } from "../../../lib/auth/config";
+import { THREADS_PATH } from "../../../lib/routes";
 import { CATEGORY_LABELS } from "../../../lib/category-labels";
 import { TEST_TENANT_ID } from "../../../lib/auth/test-fixtures";
 import type { ThreadDetail } from "../../../lib/threads/thread-detail";
