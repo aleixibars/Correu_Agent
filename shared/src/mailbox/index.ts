@@ -3,4 +3,6 @@
 // browser-bound code imports.
 
 export * from "./connect";
+export * from "./messages";
+export * from "./microsoft-mail";
 export * from "./microsoft";

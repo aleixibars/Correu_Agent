@@ -148,6 +148,46 @@ Detalls del flux:
   `connected_at` ni esborra `sync_cursor`, perquè el correu arribat mentrestant
   segueix sent seu (`context.md` §4).
 
+## Polling de bústies
+
+El worker consulta cada bústia connectada **cada 2 minuts**
+(`worker/src/poll-interval.ts`, `context.md` §8; el pas a webhooks queda per més
+endavant). Cada tic (`worker/src/poll/schedule.ts`) encua una feina `mailbox-poll`
+per bústia amb un `singletonKey` propi, així una consulta lenta no deixa una cua
+de consultes duplicades al darrere. Qui ho fa complir és la política `short` de
+la cua (`worker/src/queue/queue-client.ts`): amb la política per defecte el
+`singletonKey` no filtra res. pg-boss fixa la política en crear la cua i no la
+deixa canviar després, així que una cua creada per un worker anterior s'ha
+d'esborrar un cop perquè es torni a crear — el worker ho avisa a l'arrencada.
+El primer tic és immediat: un worker que acaba de reiniciar no ha d'esperar dos
+minuts per mirar el correu.
+
+La feina es processa a `worker/src/queue/mailbox-poll.ts`: rellegeix la bústia de
+la base de dades (els tokens i el cursor es mouen entre encuar i processar) i la
+consulta pel client del proveïdor. Una bústia que falla no atura la resta del
+lot; si cap no s'ha pogut consultar, la feina falla perquè pg-boss la reintenti.
+
+### Microsoft 365/Outlook
+
+`worker/src/poll/microsoft.ts` + `shared/src/mailbox/microsoft-mail.ts`:
+
+- Renova l'access token amb el refresh token desat quan queda menys d'un minut
+  de vida, i el torna a desar xifrat. Entra rota el refresh token només de
+  vegades; quan no ho fa, es manté el desat.
+- La primera consulta d'una bústia demana `$deltatoken=latest`, que dóna un
+  cursor sense enumerar tota la bústia — l'historial no es processa
+  (`context.md` §4) — i tot seguit recupera el correu arribat entre la connexió
+  i aquesta primera consulta amb un `$filter` per `receivedDateTime`.
+- Les consultes següents parteixen del delta link desat a `sync_cursor` i el
+  desen actualitzat. El cursor s'escriu després que Graph hagi respost: una
+  consulta que mor a mitges es repeteix en lloc de saltar-se correu.
+- Queden fora esborranys propis, entrades de supressió i correu anterior a
+  `connected_at`.
+- Variables necessàries al worker: `DATABASE_URL`, `AUTH_MICROSOFT_ENTRA_ID_ID`,
+  `AUTH_MICROSOFT_ENTRA_ID_SECRET`, `AUTH_MICROSOFT_ENTRA_ID_ISSUER` (opcional) i
+  `TOKEN_ENCRYPTION_KEY`. Es llegeixen en arrencar: si en falta cap, el worker no
+  arrenca, en lloc de fallar una bústia cada dos minuts.
+
 ## Notificacions Web Push (VAPID)
 
 Les notificacions de correu Urgent van per Web Push (`context.md` §5). Cal un parell

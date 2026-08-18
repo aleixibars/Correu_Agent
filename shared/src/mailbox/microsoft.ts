@@ -134,28 +134,23 @@ const readJson = async <T>(response: Response): Promise<T> => {
   }
 };
 
-export const exchangeMicrosoftAuthorizationCode = async ({
-  clientId,
-  clientSecret,
-  redirectUri,
-  code,
-  codeVerifier,
-  tenant,
-  now = new Date(),
-  fetch = globalThis.fetch,
-}: MicrosoftCodeExchangeRequest): Promise<MicrosoftTokenSet> => {
+/**
+ * Both grants post to the same endpoint and fail the same way, so the request,
+ * the error shape and the expiry arithmetic live here once.
+ */
+const requestMicrosoftToken = async (
+  tenant: string | undefined,
+  params: Record<string, string>,
+  now: Date,
+  fetch: typeof globalThis.fetch,
+): Promise<{
+  tokens: Omit<MicrosoftTokenSet, "refreshToken">;
+  refreshToken?: string;
+}> => {
   const response = await fetch(endpoint(tenant, "token"), {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      grant_type: "authorization_code",
-      code,
-      code_verifier: codeVerifier,
-      redirect_uri: redirectUri,
-      scope: SCOPE_PARAM,
-    }).toString(),
+    body: new URLSearchParams({ ...params, scope: SCOPE_PARAM }).toString(),
   });
 
   const body = await readJson<TokenResponseBody>(response);
@@ -170,16 +165,50 @@ export const exchangeMicrosoftAuthorizationCode = async ({
   if (!body.access_token) {
     throw new Error("Microsoft token exchange returned no access token.");
   }
+
+  return {
+    tokens: {
+      accessToken: body.access_token,
+      expiresAt: new Date(now.getTime() + (body.expires_in ?? 0) * 1000),
+      scopes: (body.scope ?? "").split(" ").filter(Boolean),
+    },
+    refreshToken: body.refresh_token,
+  };
+};
+
+export const exchangeMicrosoftAuthorizationCode = async ({
+  clientId,
+  clientSecret,
+  redirectUri,
+  code,
+  codeVerifier,
+  tenant,
+  now = new Date(),
+  fetch = globalThis.fetch,
+}: MicrosoftCodeExchangeRequest): Promise<MicrosoftTokenSet> => {
+  const { tokens, refreshToken } = await requestMicrosoftToken(
+    tenant,
+    {
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: "authorization_code",
+      code,
+      code_verifier: codeVerifier,
+      redirect_uri: redirectUri,
+    },
+    now,
+    fetch,
+  );
+
   // A grant without one is useless past the access token's hour: the mailbox
   // would go silent instead of failing here, where it can still be re-consented.
-  if (!body.refresh_token) {
+  if (!refreshToken) {
     throw new Error(
       "Microsoft token exchange returned no refresh token — was offline_access consented?",
     );
   }
 
-  const scopes = (body.scope ?? "").split(" ").filter(Boolean);
-  const granted = new Set(scopes.map(normalizeScope));
+  const granted = new Set(tokens.scopes.map(normalizeScope));
   const missing = REQUIRED_GRAPH_SCOPES.filter(
     (required) => !granted.has(normalizeScope(required)),
   );
@@ -187,12 +216,50 @@ export const exchangeMicrosoftAuthorizationCode = async ({
     throw new Error(`Microsoft consent is missing scopes: ${missing.join(", ")}.`);
   }
 
-  return {
-    accessToken: body.access_token,
-    refreshToken: body.refresh_token,
-    expiresAt: new Date(now.getTime() + (body.expires_in ?? 0) * 1000),
-    scopes,
-  };
+  return { ...tokens, refreshToken };
+};
+
+export interface MicrosoftTokenRefreshRequest {
+  clientId: string;
+  clientSecret: string;
+  /** The decrypted refresh token stored when the mailbox was connected. */
+  refreshToken: string;
+  tenant?: string;
+  now?: Date;
+  fetch?: typeof globalThis.fetch;
+}
+
+/**
+ * Renews the hour-long access token every poll runs on (context.md §8).
+ *
+ * The consented scopes are not re-checked here: Entra answers a refresh with
+ * the scopes of that response, which can legitimately be a subset, and a poll
+ * is the wrong place to decide a mailbox needs re-consenting. A scope that was
+ * really revoked surfaces as a 403 on the Graph call that needs it.
+ */
+export const refreshMicrosoftAccessToken = async ({
+  clientId,
+  clientSecret,
+  refreshToken,
+  tenant,
+  now = new Date(),
+  fetch = globalThis.fetch,
+}: MicrosoftTokenRefreshRequest): Promise<MicrosoftTokenSet> => {
+  const { tokens, refreshToken: rotated } = await requestMicrosoftToken(
+    tenant,
+    {
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+    },
+    now,
+    fetch,
+  );
+
+  // Entra rotates refresh tokens sometimes and not always; keeping the stored
+  // one when it does not is what stops a mailbox from silently losing its grant.
+  return { ...tokens, refreshToken: rotated ?? refreshToken };
 };
 
 export interface MicrosoftMailboxIdentity {

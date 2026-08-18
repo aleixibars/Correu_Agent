@@ -1,11 +1,20 @@
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 import { APP_NAME } from "@correu-agent/shared";
 import { POLL_INTERVAL_MS } from "./poll-interval";
-import { MAILBOX_POLL_QUEUE } from "./queue/mailbox-poll";
+import {
+  loadMicrosoftPollConfig,
+  type MicrosoftPollConfig,
+} from "./poll/microsoft";
+import {
+  startMailboxPollSchedule,
+  type MailboxPollSchedule,
+} from "./poll/schedule";
+import { createMailboxPollHandler } from "./queue/mailbox-poll";
 import { createQueueClient, startQueue } from "./queue/queue-client";
 
-// Entry point for the polling worker (context.md §10). The mailbox polling loop
-// and the provider clients (Gmail API / Microsoft Graph) land here issue by
-// issue — for now the worker only boots the pg-boss queue.
+// Entry point for the polling worker (context.md §10): a 2-minute schedule that
+// queues one job per connected mailbox, and the queue workers that poll them.
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -13,14 +22,24 @@ if (!databaseUrl) {
   throw new Error("DATABASE_URL is required to start the worker.");
 }
 
+// Read at boot, not per poll: a missing Entra secret should stop the worker
+// rather than fail one mailbox at a time, two minutes apart, forever.
+const microsoft: MicrosoftPollConfig = loadMicrosoftPollConfig();
+
+const db = drizzle(new Pool({ connectionString: databaseUrl }));
 const boss = createQueueClient(databaseUrl);
 
 boss.on("error", (error) => {
   console.error("Queue error:", error);
 });
 
+// Assigned once the queue is up; the shutdown handler is registered before that
+// and has to cope with a signal arriving in between.
+let schedule: MailboxPollSchedule | undefined;
+
 const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
   console.log(`Received ${signal}, stopping worker.`);
+  schedule?.stop();
   try {
     // Lets in-flight jobs finish instead of leaving them stuck in `active`.
     await boss.stop();
@@ -36,8 +55,9 @@ const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
-await startQueue(boss);
+await startQueue(boss, createMailboxPollHandler({ db, microsoft }));
+schedule = startMailboxPollSchedule({ boss, db });
 
 console.log(
-  `${APP_NAME} worker started. Consuming "${MAILBOX_POLL_QUEUE}", poll interval: ${POLL_INTERVAL_MS}ms.`,
+  `${APP_NAME} worker started. Polling connected mailboxes every ${POLL_INTERVAL_MS}ms.`,
 );
