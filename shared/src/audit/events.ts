@@ -4,7 +4,7 @@
 // entry says who acted, on what, and what the state was either side of the act.
 
 import type { DraftStatus, NewAuditLogEntry } from "../db/schema";
-import type { TriageCategory } from "../triage";
+import type { TriageCategory } from "../triage/taxonomy";
 
 /** The pipeline itself acted — triage, draft generation, an auto-reply rule. */
 export type SystemActor = { type: "system" };

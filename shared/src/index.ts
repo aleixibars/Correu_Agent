@@ -15,4 +15,4 @@
 
 export const APP_NAME = "Correu Agent";
 
-export * from "./triage";
+export * from "./triage/taxonomy";

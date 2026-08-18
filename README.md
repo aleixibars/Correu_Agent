@@ -172,8 +172,9 @@ lot: l'error es registra amb l'id de la bústia i es reporta al resultat de la
 feina. Si cap no s'ha pogut consultar, la feina falla perquè pg-boss la
 reintenti.
 
-Persistir els fils i missatges que troba el polling és el pas següent del
-pipeline.
+El que troba el polling es persisteix a `shared/src/mailbox/persist.ts`: un fil
+per conversa del proveïdor, el cos sencer de cada missatge i una entrada d'audit
+del correu realment nou. Triar-lo és el pas següent del pipeline.
 
 ### Gmail/Google Workspace
 
@@ -222,6 +223,37 @@ pipeline.
   `AUTH_MICROSOFT_ENTRA_ID_SECRET`, `AUTH_MICROSOFT_ENTRA_ID_ISSUER` (opcional) i
   `TOKEN_ENCRYPTION_KEY`. Es llegeixen en arrencar: si en falta cap, el worker no
   arrenca, en lloc de fallar una bústia cada dos minuts.
+
+## Triatge automàtic
+
+Cada fil nou es classifica en una de les 6 categories fixes de `context.md` §4
+amb Claude Haiku (`context.md` §6): el model és barat i la feina és una sola
+etiqueta. La taxonomia viu a `shared/src/triage/taxonomy.ts` i la comparteixen
+l'esquema (`triage_category`), el classificador i el tauler.
+
+- El classificador (`shared/src/triage/classify.ts`) llegeix el correu ja
+  desat, no el torna a demanar al proveïdor (`context.md` §7).
+- **No hi ha estat "sense classificar"** (`context.md` §4): una resposta del
+  model que no anomeni cap categoria cau a `personal` — l'única que ni avisa com
+  a urgent ni és elegible per a auto-resposta — en lloc de generar una cua de
+  feina manual.
+- Un fil ja triat no es torna a triar quan hi arriba una resposta: l'escriptura
+  (`shared/src/triage/triage-thread.ts`) va condicionada a `triaged_at is null`,
+  cosa que també resol dos workers classificant el mateix fil alhora.
+- Cada classificació queda a l'audit log com a `thread_classified`, amb la
+  categoria anterior i el model que ha respost (`context.md` §7).
+
+El disparador és el mateix tic de 2 minuts que el polling
+(`worker/src/triage/schedule.ts`): en lloc de fiar-se de la feina de polling que
+acaba d'escriure el fil, cada tic pregunta a la base de dades quins fils encara
+no tenen categoria i n'encua un `thread-triage` per fil (`singletonKey` per fil).
+Així un fil que es va quedar sense classificar — feina perduda, error de l'API —
+el recull el tic següent. La feina es processa a
+`worker/src/queue/thread-triage.ts`: un fil que falla no atura el lot, i si no
+se n'ha pogut triar cap la feina falla perquè pg-boss la reintenti.
+
+- Variable necessària al worker: `ANTHROPIC_API_KEY`. Es llegeix en arrencar: si
+  falta, el worker no arrenca, en lloc de fallar un fil rere l'altre.
 
 ## Notificacions Web Push (VAPID)
 

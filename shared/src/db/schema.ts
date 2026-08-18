@@ -15,7 +15,10 @@ import {
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
-import { AUTO_REPLY_ELIGIBLE_CATEGORIES, TRIAGE_CATEGORIES } from "../triage";
+import {
+  AUTO_REPLY_ELIGIBLE_CATEGORIES,
+  TRIAGE_CATEGORIES,
+} from "../triage/taxonomy";
 
 export const mailProviderEnum = pgEnum("mail_provider", ["google", "microsoft"]);
 

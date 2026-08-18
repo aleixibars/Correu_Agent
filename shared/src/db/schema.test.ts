@@ -1,6 +1,9 @@
 import { PgDialect, getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
-import { AUTO_REPLY_ELIGIBLE_CATEGORIES, TRIAGE_CATEGORIES } from "../triage";
+import {
+  AUTO_REPLY_ELIGIBLE_CATEGORIES,
+  TRIAGE_CATEGORIES,
+} from "../triage/taxonomy";
 import {
   auditLogEntries,
   authAccounts,

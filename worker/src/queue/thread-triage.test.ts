@@ -1,0 +1,155 @@
+import type Anthropic from "@anthropic-ai/sdk";
+import { drizzle } from "drizzle-orm/pg-proxy";
+import type { Job } from "pg-boss";
+import { describe, expect, it, vi } from "vitest";
+import { TRIAGE_MODEL, type TriageMessagesClient } from "@correu-agent/shared/triage";
+import {
+  THREAD_TRIAGE_QUEUE,
+  createThreadTriageHandler,
+  type ThreadTriageJobData,
+} from "./thread-triage";
+
+const TENANT_ID = "11111111-1111-1111-1111-111111111111";
+const THREAD_ID = "22222222-2222-2222-2222-222222222222";
+const OTHER_THREAD_ID = "33333333-3333-3333-3333-333333333333";
+
+const job = (data: ThreadTriageJobData, id = "job-1"): Job<ThreadTriageJobData> =>
+  ({ id, name: THREAD_TRIAGE_QUEUE, data }) as Job<ThreadTriageJobData>;
+
+/** In the column order `triageThread` selects: subject, category, triagedAt. */
+const threadRow = (triagedAt: string | null = null) => [
+  "Pressupost",
+  triagedAt ? "comercial" : null,
+  triagedAt,
+];
+
+const messageRow = () => [
+  "client@example.com",
+  "Pressupost",
+  "Voldríem un pressupost.",
+  "Voldríem un pressupost",
+];
+
+const createDb = (threads: unknown[][] = [threadRow()]) => {
+  let loads = 0;
+  let updates = 0;
+  return drizzle(async (sql) => {
+    if (sql.includes('from "threads"')) {
+      const thread = threads[loads++];
+      return { rows: thread ? [thread] : [] };
+    }
+    if (sql.includes('from "messages"')) return { rows: [messageRow()] };
+    // The guarded update reports the thread it really triaged.
+    if (sql.includes('update "threads"')) return { rows: [[`thread-${updates++}`]] };
+    return { rows: [] };
+  });
+};
+
+const createClient = (answers: string[] = ["comercial"]) => {
+  let calls = 0;
+  const create = vi.fn(async () => {
+    const text = answers[calls++] ?? answers[answers.length - 1]!;
+    if (text === "boom") throw new Error("Anthropic is down");
+    return {
+      model: TRIAGE_MODEL,
+      content: [{ type: "text", text }],
+    } as unknown as Anthropic.Message;
+  });
+  return { client: { create } as unknown as TriageMessagesClient, create };
+};
+
+describe("createThreadTriageHandler", () => {
+  it("classifies every thread in the batch", async () => {
+    const { client } = createClient(["comercial", "urgent"]);
+
+    const result = await createThreadTriageHandler({
+      db: createDb([threadRow(), threadRow()]),
+      anthropic: client,
+    })([
+      job({ tenantId: TENANT_ID, threadId: THREAD_ID }),
+      job({ tenantId: TENANT_ID, threadId: OTHER_THREAD_ID }, "job-2"),
+    ]);
+
+    expect(result.triaged).toEqual([
+      {
+        tenantId: TENANT_ID,
+        threadId: THREAD_ID,
+        category: "comercial",
+        model: TRIAGE_MODEL,
+      },
+      {
+        tenantId: TENANT_ID,
+        threadId: OTHER_THREAD_ID,
+        category: "urgent",
+        model: TRIAGE_MODEL,
+      },
+    ]);
+    expect(result.failed).toEqual([]);
+  });
+
+  it("classifies a thread named twice in one batch only once", async () => {
+    const { client, create } = createClient();
+
+    const result = await createThreadTriageHandler({
+      db: createDb(),
+      anthropic: client,
+    })([
+      job({ tenantId: TENANT_ID, threadId: THREAD_ID }),
+      job({ tenantId: TENANT_ID, threadId: THREAD_ID }, "job-2"),
+    ]);
+
+    // Classifying the same thread twice would only pay Anthropic twice.
+    expect(create).toHaveBeenCalledOnce();
+    expect(result.triaged).toHaveLength(1);
+  });
+
+  it("reports a thread that was already triaged as skipped", async () => {
+    const { client, create } = createClient();
+
+    const result = await createThreadTriageHandler({
+      db: createDb([threadRow("2026-01-01T09:00:00.000Z")]),
+      anthropic: client,
+    })([job({ tenantId: TENANT_ID, threadId: THREAD_ID })]);
+
+    expect(result.skipped).toEqual([{ tenantId: TENANT_ID, threadId: THREAD_ID }]);
+    expect(result.triaged).toEqual([]);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("keeps triaging the batch after one thread fails", async () => {
+    const { client } = createClient(["boom", "suport"]);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await createThreadTriageHandler({
+      db: createDb([threadRow(), threadRow()]),
+      anthropic: client,
+    })([
+      job({ tenantId: TENANT_ID, threadId: THREAD_ID }),
+      job({ tenantId: TENANT_ID, threadId: OTHER_THREAD_ID }, "job-2"),
+    ]);
+
+    expect(result.failed).toEqual([
+      {
+        tenantId: TENANT_ID,
+        threadId: THREAD_ID,
+        error: "Anthropic is down",
+      },
+    ]);
+    expect(result.triaged).toHaveLength(1);
+    error.mockRestore();
+  });
+
+  it("fails the batch when nothing in it could be triaged", async () => {
+    // An expired API key must not look like a batch of successfully triaged
+    // threads, or pg-boss would never retry it.
+    const { client } = createClient(["boom"]);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      createThreadTriageHandler({ db: createDb(), anthropic: client })([
+        job({ tenantId: TENANT_ID, threadId: THREAD_ID }),
+      ]),
+    ).rejects.toThrow("Anthropic is down");
+    error.mockRestore();
+  });
+});
