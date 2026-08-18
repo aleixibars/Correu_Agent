@@ -4,11 +4,23 @@
 // whose drafting job was lost — or failed for good — is picked up by the next
 // tick instead of waiting forever.
 
-import { and, asc, eq, gt, inArray, isNotNull, notExists, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  exists,
+  gt,
+  gte,
+  inArray,
+  isNotNull,
+  notExists,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import type { PgBoss } from "pg-boss";
 import { DRAFT_ELIGIBLE_CATEGORIES } from "@correu-agent/shared";
-import { drafts, threads } from "@correu-agent/shared/db/schema";
+import { drafts, messages, threads } from "@correu-agent/shared/db/schema";
 import { POLL_INTERVAL_MS } from "../poll-interval";
 import { THREAD_DRAFT_QUEUE, type ThreadDraftJobData } from "../queue/thread-draft";
 
@@ -36,10 +48,26 @@ export const listThreadsAwaitingDraft = async <
         // Newsletters and spam are archived, never answered (context.md §2).
         inArray(threads.category, [...DRAFT_ELIGIBLE_CATEGORIES]),
         isNotNull(threads.lastMessageAt),
-        // A draft written after the newest mail arrived answers the thread as it
-        // stands — whatever became of it. Comparing against the mail rather than
-        // against a draft status is what stops a discarded draft from being
-        // written again every two minutes, while new mail still earns a new one.
+        // The newest mail of the thread has to be one that is waiting for an
+        // answer. A thread the mailbox itself had the last word in needs
+        // nothing, and without this it would be queued on every tick for the
+        // rest of its life — the drafting job would answer `null` each time,
+        // and the oldest of those dead threads would crowd the batch out of
+        // the mail that does need drafting. It also covers the thread whose
+        // mail the poll has not written yet: `last_message_at` is stamped on
+        // the thread row one statement before the messages land.
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(messages)
+            .where(
+              and(
+                eq(messages.threadId, threads.id),
+                eq(messages.direction, "inbound"),
+                gte(messages.sentAt, threads.lastMessageAt),
+              ),
+            ),
+        ),
         notExists(
           db
             .select({ one: sql`1` })
@@ -47,7 +75,19 @@ export const listThreadsAwaitingDraft = async <
             .where(
               and(
                 eq(drafts.threadId, threads.id),
-                gt(drafts.createdAt, threads.lastMessageAt),
+                or(
+                  // A draft written after the newest mail arrived answers the
+                  // thread as it stands — whatever became of it. Comparing
+                  // against the mail rather than against a draft status is what
+                  // stops a discarded draft from being written again every two
+                  // minutes, while new mail still earns a new one.
+                  gt(drafts.createdAt, threads.lastMessageAt),
+                  // A draft still waiting for the user holds the thread's only
+                  // pending slot (`drafts_thread_pending_idx`), so newer mail
+                  // cannot be drafted for until that one is answered. Queueing
+                  // it would only pay Sonnet for a row that cannot be written.
+                  eq(drafts.status, "pending"),
+                ),
               ),
             ),
         ),

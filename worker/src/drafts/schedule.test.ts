@@ -41,6 +41,14 @@ describe("queueThreadDrafts", () => {
     // A thread already answered for the mail it holds is not queued again —
     // otherwise a discarded draft would come back every two minutes.
     expect(queries[0]!.sql).toContain('from "drafts"');
+    // Nor one whose only draft is still waiting for the user: the thread holds
+    // one pending draft at a time, so drafting newer mail now would pay for a
+    // row that cannot be written.
+    expect(queries[0]!.params).toContain("pending");
+    // Nor a thread the mailbox itself had the last word in — it would be queued
+    // on every tick forever and crowd out the mail that does need answering.
+    expect(queries[0]!.sql).toContain('from "messages"');
+    expect(queries[0]!.params).toContain("inbound");
     expect(send).toHaveBeenCalledWith(
       THREAD_DRAFT_QUEUE,
       { tenantId: TENANT_ID, threadId: THREAD_ID },

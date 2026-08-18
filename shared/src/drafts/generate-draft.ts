@@ -2,7 +2,7 @@
 // in the database, ask Sonnet for the reply, store it as a pending draft with
 // the headers that keep it inside the thread, and record why.
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, or } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { recordAuditLogEntry } from "../audit";
 import { drafts, messages, threads } from "../db/schema";
@@ -96,10 +96,19 @@ export const generateThreadDraft = async <
       and(
         eq(drafts.tenantId, tenantId),
         eq(drafts.threadId, threadId),
-        // Per *message*, not per thread: a draft the user discarded must not be
-        // written again on the next tick, while mail that arrives afterwards
-        // must still get one.
-        eq(drafts.inReplyToMessageId, answering.id),
+        or(
+          // Per *message*, not per thread: a draft the user discarded must not
+          // be written again on the next tick, while mail that arrives
+          // afterwards must still get one.
+          eq(drafts.inReplyToMessageId, answering.id),
+          // A draft still waiting for the user holds the thread's only pending
+          // slot (`drafts_thread_pending_idx`), so the insert below would lose
+          // to it anyway. Checking here rather than after the call is what
+          // stops newer mail from paying Sonnet every two minutes for a row
+          // that can never be written; the next tick after the user answers
+          // that draft is where this mail gets its own.
+          eq(drafts.status, "pending"),
+        ),
       ),
     )
     .limit(1);

@@ -230,6 +230,25 @@ describe("generateThreadDraft", () => {
     ]);
   });
 
+  it("waits for the draft the user still has open before drafting newer mail", async () => {
+    // The thread holds one pending draft at a time (`drafts_thread_pending_idx`),
+    // so the insert would lose anyway — asking Sonnet first would pay for a row
+    // that cannot be written, every two minutes, until the user answers it.
+    const { db, queries } = createDb({ existingDrafts: [[DRAFT_ID]] });
+    const { client, create } = createClient();
+
+    await expect(
+      generateThreadDraft(db, client, {
+        tenantId: TENANT_ID,
+        threadId: THREAD_ID,
+      }),
+    ).resolves.toBeNull();
+    expect(create).not.toHaveBeenCalled();
+
+    const load = queries.find(({ sql }) => sql.includes('from "drafts"'))!;
+    expect(load.params).toContain("pending");
+  });
+
   it("writes nothing when another worker stored the draft first", async () => {
     const { db, queries } = createDb({ inserted: [] });
     const { client } = createClient();
