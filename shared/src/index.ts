@@ -12,11 +12,13 @@
 //   - `./digest` reaches drizzle and the Anthropic SDK.
 //   - `./triage` reaches drizzle and the Anthropic SDK; the taxonomy alone
 //     (`./triage/taxonomy`) is browser-safe and is re-exported below.
+//   - `./drafts` reaches drizzle and the Anthropic SDK too.
 // Server and worker code imports them from `@correu-agent/shared/token-encryption`,
 // `@correu-agent/shared/web-push`, `@correu-agent/shared/db/schema`,
 // `@correu-agent/shared/audit`, `@correu-agent/shared/mailbox`,
 // `@correu-agent/shared/mail`, `@correu-agent/shared/retention`,
-// `@correu-agent/shared/digest` and `@correu-agent/shared/triage`.
+// `@correu-agent/shared/digest`, `@correu-agent/shared/triage` and
+// `@correu-agent/shared/drafts`.
 
 export const APP_NAME = "Correu Agent";
 

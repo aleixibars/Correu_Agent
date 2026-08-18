@@ -1,6 +1,6 @@
 {
-  "id": "295e0313-22e2-4362-9327-a81a2ddf36fa",
-  "prevId": "d6a2e38a-386e-4674-94b8-5191abbdd0e2",
+  "id": "e812a543-860e-4581-9064-b638923253e5",
+  "prevId": "295e0313-22e2-4362-9327-a81a2ddf36fa",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -436,6 +436,93 @@
           "value": "NOT \"auto_reply_rules\".\"enabled\" OR \"auto_reply_rules\".\"category\" IN ('comercial', 'suport', 'facturacio')"
         }
       },
+      "isRLSEnabled": false
+    },
+    "public.daily_digests": {
+      "name": "daily_digests",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "digest_date": {
+          "name": "digest_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "summary": {
+          "name": "summary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "thread_count": {
+          "name": "thread_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "daily_digests_tenant_id_tenants_id_fk": {
+          "name": "daily_digests_tenant_id_tenants_id_fk",
+          "tableFrom": "daily_digests",
+          "tableTo": "tenants",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "daily_digests_tenant_id_digest_date_unique": {
+          "name": "daily_digests_tenant_id_digest_date_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "digest_date"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.drafts": {

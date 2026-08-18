@@ -22,3 +22,16 @@ export const AUTO_REPLY_ELIGIBLE_CATEGORIES: readonly TriageCategory[] = [
 
 export const isAutoReplyEligible = (category: TriageCategory): boolean =>
   AUTO_REPLY_ELIGIBLE_CATEGORIES.includes(category);
+
+/**
+ * Categories a reply draft is written for (context.md §2). Newsletters and spam
+ * are the one kind of mail nobody answers — they are archived or labelled — so
+ * they are the only category left out. `personal` stays in: it is the catch-all
+ * the classifier falls back to, and dropping it would silently skip business
+ * mail that landed there.
+ */
+export const DRAFT_ELIGIBLE_CATEGORIES: readonly TriageCategory[] =
+  TRIAGE_CATEGORIES.filter((category) => category !== "newsletter");
+
+export const needsDraft = (category: TriageCategory): boolean =>
+  DRAFT_ELIGIBLE_CATEGORIES.includes(category);

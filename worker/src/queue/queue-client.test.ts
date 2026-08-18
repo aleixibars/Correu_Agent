@@ -12,6 +12,7 @@ import {
   type QueueHandlers,
 } from "./queue-client";
 import { RETENTION_PURGE_CRON, RETENTION_PURGE_QUEUE } from "./retention-purge";
+import { THREAD_DRAFT_QUEUE } from "./thread-draft";
 import { THREAD_TRIAGE_QUEUE } from "./thread-triage";
 
 /**
@@ -51,6 +52,7 @@ const createBoss = (existingPolicies: Record<string, string> = {}) => {
 const handlers: QueueHandlers = {
   mailboxPoll: vi.fn(async () => ({ polled: [], threads: [], failed: [] })),
   threadTriage: vi.fn(async () => ({ triaged: [], skipped: [], failed: [] })),
+  threadDraft: vi.fn(async () => ({ drafted: [], skipped: [], failed: [] })),
   retentionPurge: vi.fn(async () => ({ purged: 0 })),
   dailyDigest: vi.fn(async () => ({
     day: "2026-06-01",
@@ -74,6 +76,9 @@ describe("startQueue", () => {
     expect(calls.indexOf(`createQueue:${THREAD_TRIAGE_QUEUE}`)).toBeLessThan(
       calls.indexOf(`work:${THREAD_TRIAGE_QUEUE}`),
     );
+    expect(calls.indexOf(`createQueue:${THREAD_DRAFT_QUEUE}`)).toBeLessThan(
+      calls.indexOf(`work:${THREAD_DRAFT_QUEUE}`),
+    );
     expect(calls.indexOf(`createQueue:${RETENTION_PURGE_QUEUE}`)).toBeLessThan(
       calls.indexOf(`work:${RETENTION_PURGE_QUEUE}`),
     );
@@ -95,6 +100,10 @@ describe("startQueue", () => {
     expect(boss.work).toHaveBeenCalledWith(
       THREAD_TRIAGE_QUEUE,
       handlers.threadTriage,
+    );
+    expect(boss.work).toHaveBeenCalledWith(
+      THREAD_DRAFT_QUEUE,
+      handlers.threadDraft,
     );
     expect(boss.work).toHaveBeenCalledWith(
       RETENTION_PURGE_QUEUE,
@@ -189,6 +198,7 @@ describe("startQueue", () => {
     const { boss, calls } = createBoss({
       [MAILBOX_POLL_QUEUE]: SINGLE_FLIGHT_QUEUE_POLICY,
       [THREAD_TRIAGE_QUEUE]: SINGLE_FLIGHT_QUEUE_POLICY,
+      [THREAD_DRAFT_QUEUE]: SINGLE_FLIGHT_QUEUE_POLICY,
       [RETENTION_PURGE_QUEUE]: SINGLE_FLIGHT_QUEUE_POLICY,
       [DAILY_DIGEST_QUEUE]: SINGLE_FLIGHT_QUEUE_POLICY,
     });
@@ -196,6 +206,6 @@ describe("startQueue", () => {
     await startQueue(boss, handlers);
 
     expect(calls.some((call) => call.startsWith("deleteQueue"))).toBe(false);
-    expect(boss.work).toHaveBeenCalledTimes(4);
+    expect(boss.work).toHaveBeenCalledTimes(5);
   });
 });

@@ -15,6 +15,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import {
@@ -266,6 +267,14 @@ export const drafts = pgTable(
     // one lookup per row — without this the list scans every draft in the
     // tenant for each thread on the page.
     index("drafts_thread_created_at_idx").on(table.threadId, table.createdAt),
+    // One draft at a time waits for the user on a thread: the dashboard shows
+    // a thread with its draft, and regenerating supersedes the one it replaces
+    // rather than adding a second (context.md §2). Enforced here because the
+    // generation job is a slow model call two workers can enter at once —
+    // whoever inserts second is the one that must lose.
+    uniqueIndex("drafts_thread_pending_idx")
+      .on(table.threadId)
+      .where(sql`${table.status} = 'pending'`),
   ],
 );
 

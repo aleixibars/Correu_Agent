@@ -44,6 +44,7 @@ const EVENTS: { [A in AuditAction]: Extract<AuditEvent, { action: A }> } = {
     threadId: THREAD_ID,
     draftId: DRAFT_ID,
     model: "claude-sonnet-5",
+    language: "ca",
     autoReply: false,
   },
   draft_approved: {
