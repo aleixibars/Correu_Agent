@@ -24,13 +24,15 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "db:seed": "tsx scripts/seed.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/web-push": "^3.6.4",
     "drizzle-kit": "^0.31.10",
     "pg": "^8.23.0",
+    "tsx": "^4.23.12",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
   },

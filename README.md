@@ -48,6 +48,14 @@ no des del barrel `@correu-agent/shared` — el barrel l'importa codi que acaba 
 `shared/node_modules/`, on el binari `drizzle-kit` (que sí que puja a l'arrel) no la pot
 resoldre i les dues comandes de dalt fallen amb «Please install latest version of drizzle-orm».
 
+### Dades fictícies per a una prova local
+
+`npm run db:seed -w @correu-agent/shared` insereix 6 fils fictius (un per categoria, amb
+un missatge i, on toca, un esborrany pendent) i el digest d'avui, sense necessitat de cap
+bústia real ni clau d'Anthropic. Reutilitza el tenant únic del PoC (el mateix que crea el
+primer login) si ja existeix; re-executar-lo n'afegeix sis més, no dona error. Cal fer
+login amb una adreça d'`AUTH_ALLOWED_EMAILS` per veure'ls al tauler.
+
 ## Autenticació (Auth.js)
 
 El login del tauler i la connexió de bústies comparteixen els mateixos proveïdors
