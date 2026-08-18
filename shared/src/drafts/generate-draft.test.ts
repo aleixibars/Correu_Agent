@@ -54,15 +54,18 @@ const createDb = ({
   messages = [messageRow()],
   existingDrafts = [] as unknown[][],
   inserted = [[DRAFT_ID]] as unknown[][],
+  rule = [] as unknown[][],
 }: {
   thread?: unknown[] | null;
   messages?: unknown[][];
   existingDrafts?: unknown[][];
   inserted?: unknown[][];
+  rule?: unknown[][];
 } = {}) => {
   const queries: { sql: string; params: unknown[] }[] = [];
   const db = drizzle(async (sql, params) => {
     queries.push({ sql, params });
+    if (sql.includes('from "auto_reply_rules"')) return { rows: rule };
     if (sql.includes('from "threads"')) return { rows: thread ? [thread] : [] };
     if (sql.includes('from "messages"')) return { rows: messages };
     if (sql.includes('from "drafts"')) return { rows: existingDrafts };
@@ -73,6 +76,7 @@ const createDb = ({
 };
 
 const shape = (sql: string): string => {
+  if (sql.includes('from "auto_reply_rules"')) return "load rule";
   if (sql.includes('from "threads"')) return "load thread";
   if (sql.includes('from "messages"')) return "load messages";
   if (sql.includes('from "drafts"')) return "load drafts";
@@ -103,11 +107,14 @@ describe("generateThreadDraft", () => {
       },
       language: "ca",
       model: DRAFT_MODEL,
+      // No rule is on, so the draft waits for the dashboard (context.md §2).
+      autoReply: false,
     });
     expect(queries.map(({ sql }) => shape(sql))).toEqual([
       "load thread",
       "load messages",
       "load drafts",
+      "load rule",
       "store draft",
       "audit",
     ]);
@@ -261,5 +268,51 @@ describe("generateThreadDraft", () => {
     ).resolves.toBeNull();
     // One pending draft per thread; the loser audits nothing.
     expect(queries.map(({ sql }) => shape(sql))).not.toContain("audit");
+  });
+
+  it("marks the draft of a category whose auto-reply rule is on", async () => {
+    const { db, queries } = createDb({
+      rule: [["comercial", true, "Ofereix sempre una trucada de seguiment."]],
+    });
+    const { client, create } = createClient();
+
+    const result = await generateThreadDraft(db, client, {
+      tenantId: TENANT_ID,
+      threadId: THREAD_ID,
+      now: NOW,
+    });
+
+    expect(result?.autoReply).toBe(true);
+    // The rule's own instructions are what the reply is written under.
+    expect(String(create.mock.calls[0]![0].messages[0]!.content)).toContain(
+      "Ofereix sempre una trucada de seguiment.",
+    );
+
+    const insert = queries.find(({ sql }) =>
+      sql.includes('insert into "drafts"'),
+    )!;
+    expect(insert.params).toContain(true);
+
+    // "Why was this mail sent" starts here: the draft says a rule asked for it,
+    // not a person (context.md §7).
+    const audit = queries.find(({ sql }) =>
+      sql.includes('insert into "audit_log_entries"'),
+    )!;
+    expect(audit.params.join(" ")).toContain('"autoReply":true');
+  });
+
+  it("never reads a rule for a category auto-reply can never apply to", async () => {
+    // Urgent is the one nobody may answer unread (context.md §2, §4).
+    const { db, queries } = createDb({ thread: threadRow({ category: "urgent" }) });
+    const { client } = createClient();
+
+    const result = await generateThreadDraft(db, client, {
+      tenantId: TENANT_ID,
+      threadId: THREAD_ID,
+      now: NOW,
+    });
+
+    expect(result?.autoReply).toBe(false);
+    expect(queries.map(({ sql }) => shape(sql))).not.toContain("load rule");
   });
 });
