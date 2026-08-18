@@ -1,3 +1,6 @@
+import { AppHeaderSkeleton } from "../../components/AppHeaderSkeleton";
+import { THREADS_PATH } from "../../lib/auth/config";
+
 /**
  * Fallback Next renders while the thread list query runs, so the navigation
  * shows the shape of the list instead of a blank page. Static by design: it
@@ -8,17 +11,22 @@ export default function ThreadsLoading() {
   return (
     <div className="app-shell">
       <div className="airmail-stripe" />
-      {/* The header needs the signed-in address, which is part of what is still
-          loading, so here it is only its outline. */}
-      <div className="app-header" aria-hidden="true">
-        <span className="skeleton skeleton--brand" />
-        <span className="skeleton skeleton--pill" />
-      </div>
+      <AppHeaderSkeleton active={THREADS_PATH} />
       <h1>Fils</h1>
       <p className="meta" aria-live="polite">
         Carregant els fils…
       </p>
+      {/* The column headers need no query either, so the table keeps its real
+          head and only the cells are bars. */}
       <table className="thread-table" aria-hidden="true">
+        <thead>
+          <tr>
+            <th scope="col">Assumpte</th>
+            <th scope="col">Categoria</th>
+            <th scope="col">Estat</th>
+            <th scope="col">Últim missatge</th>
+          </tr>
+        </thead>
         <tbody>
           {/* A handful of rows: enough to read as a list, short enough not to
               promise more threads than the tenant may have. */}

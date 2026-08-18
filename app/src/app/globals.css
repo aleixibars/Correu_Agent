@@ -559,11 +559,6 @@ input[type="text"]:focus {
   margin-bottom: 18px;
 }
 
-.skeleton--brand {
-  width: 160px;
-  height: 1rem;
-}
-
 .skeleton--pill {
   width: 92px;
 }

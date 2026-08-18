@@ -46,9 +46,13 @@ describe("ThreadLoading", () => {
     expect(render()).toContain('aria-hidden="true"');
   });
 
-  // The list is one click away and needs no query, so waiting for a slow thread
-  // never traps the reader on a screen of bars.
-  it("still leads back to the thread list", () => {
-    expect(render()).toContain('href="/fils"');
+  // The list and the other sections are one click away and need no query, so
+  // waiting for a slow thread never traps the reader on a screen of bars.
+  it("still leads back to the thread list and to the other sections", () => {
+    const markup = render();
+
+    expect(markup).toContain('href="/fils"');
+    expect(markup).toContain('href="/digest"');
+    expect(markup).toContain('href="/auto-resposta"');
   });
 });

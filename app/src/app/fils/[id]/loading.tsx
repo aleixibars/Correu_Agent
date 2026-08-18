@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AppHeaderSkeleton } from "../../../components/AppHeaderSkeleton";
 import { THREADS_PATH } from "../../../lib/auth/config";
 
 /**
@@ -11,21 +12,19 @@ export default function ThreadLoading() {
   return (
     <div className="app-shell">
       <div className="airmail-stripe" />
-      {/* The header needs the signed-in address, which is part of what is still
-          loading, so here it is only its outline. */}
-      <div className="app-header" aria-hidden="true">
-        <span className="skeleton skeleton--brand" />
-        <span className="skeleton skeleton--pill" />
-      </div>
+      <AppHeaderSkeleton active={THREADS_PATH} />
       {/* The list needs no query, so a slow thread never traps the reader. */}
       <p>
         <Link href={THREADS_PATH}>← Torna als fils</Link>
       </p>
+      {/* The blocks below sit where the loaded thread puts them: the subject,
+          then the line that will carry its category and status, then the mail
+          and the draft. */}
+      <span className="skeleton skeleton--title" aria-hidden="true" />
       <p className="meta" aria-live="polite">
         Carregant el fil…
       </p>
       <div aria-hidden="true">
-        <span className="skeleton skeleton--title" />
         {[0, 1].map((message) => (
           <article key={message} className="message">
             <span className="skeleton skeleton--short" />

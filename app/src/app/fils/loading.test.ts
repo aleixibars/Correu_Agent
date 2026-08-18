@@ -41,6 +41,24 @@ describe("ThreadsLoading", () => {
     expect(markup).toContain("skeleton");
   });
 
+  it("keeps the real column headers of the table", () => {
+    const markup = render();
+
+    for (const column of ["Assumpte", "Categoria", "Estat", "Últim missatge"]) {
+      expect(markup).toContain(column);
+    }
+  });
+
+  // The nav needs no query either, so a slow list never traps the reader on a
+  // screen of bars.
+  it("still leads to the other sections, with the list marked as current", () => {
+    const markup = render();
+
+    expect(markup).toContain('href="/digest"');
+    expect(markup).toContain('href="/auto-resposta"');
+    expect(markup).toContain('aria-current="page" href="/fils"');
+  });
+
   // Bars stand in for content the reader cannot act on yet, so a screen reader
   // should hear the waiting message and not a table of empty cells.
   it("hides the placeholder shapes from assistive technology", () => {
