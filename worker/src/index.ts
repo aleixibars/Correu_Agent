@@ -12,9 +12,11 @@ import {
 } from "./poll/schedule";
 import { createMailboxPollHandler } from "./queue/mailbox-poll";
 import { createQueueClient, startQueue } from "./queue/queue-client";
+import { createRetentionPurgeHandler } from "./queue/retention-purge";
 
 // Entry point for the polling worker (context.md §10): a 2-minute schedule that
-// queues one job per connected mailbox, and the queue workers that poll them.
+// queues one job per connected mailbox, the queue workers that poll them, and
+// the daily 90-day retention purge (context.md §7).
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -56,7 +58,10 @@ const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
-await startQueue(boss, createMailboxPollHandler({ db, google, microsoft }));
+await startQueue(boss, {
+  mailboxPoll: createMailboxPollHandler({ db, google, microsoft }),
+  retentionPurge: createRetentionPurgeHandler({ db }),
+});
 schedule = startMailboxPollSchedule({ boss, db });
 
 console.log(
