@@ -61,6 +61,9 @@ jobs:
         run: npm install -g @anthropic-ai/claude-code
 
       - name: Install caveman plugin (cuts agent token spend)
+        # Non-fatal: an upstream marketplace/manifest break here must never
+        # take the whole pipeline down over a token-saving nicety.
+        continue-on-error: true
         run: |
           claude plugin marketplace add JuliusBrussee/caveman
           claude plugin install caveman@caveman
