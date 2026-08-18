@@ -156,14 +156,19 @@ describe("ThreadsPage", () => {
   });
 
   // The dashboard is an office tool (context.md §5), but a narrow screen has to
-  // scroll the table sideways instead of having the layout burst.
-  it("wraps the table in a horizontally scrollable container", async () => {
+  // scroll the table sideways instead of having the layout burst. The tab order
+  // only reaches the links in the first column, so the scroller itself has to be
+  // focusable or the columns to its right stay out of a keyboard's reach.
+  it("wraps the table in a scrollable container a keyboard can reach", async () => {
     signedIn();
     listThreads.mockResolvedValue(threadPerCategory());
 
-    const markup = await render();
+    const wrapper = /<div ([^>]*\bclass="table-scroll")([^>]*)><table/.exec(
+      await render(),
+    );
 
-    expect(markup).toContain('<div class="table-scroll"><table');
+    expect(wrapper).not.toBeNull();
+    expect(wrapper![1] + wrapper![2]).toContain('tabindex="0"');
   });
 
   it("leads back to the dashboard", async () => {

@@ -271,6 +271,9 @@ button:disabled {
 }
 
 .thread-table {
+  /* Sense un mínim, `width: 100%` encongiria les columnes fins a fer-les
+     il·legibles en comptes de deixar desplaçar el contenidor. En rem perquè
+     el mínim creixi si l'usuari amplia la mida de lletra. */
   min-width: 34rem;
   width: 100%;
   border-collapse: collapse;

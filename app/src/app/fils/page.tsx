@@ -36,7 +36,16 @@ export default async function ThreadsPage() {
       {threads.length === 0 ? (
         <p>Encara no hi ha cap fil processat.</p>
       ) : (
-        <div className="table-scroll">
+        // Amb rol de regió i tabindex, qui navega amb teclat pot desplaçar la
+        // taula: el tabulador només arriba als enllaços de la primera columna,
+        // així que sense això les altres columnes queden inabastables en una
+        // pantalla estreta.
+        <div
+          className="table-scroll"
+          role="region"
+          aria-label="Taula de fils"
+          tabIndex={0}
+        >
           <table className="thread-table">
             <thead>
               <tr>
