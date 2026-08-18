@@ -15,7 +15,7 @@ const REPLY = { language: "ca", body: "Bon dia,\n\nUs enviem el pressupost." };
 
 const createClient = (text = JSON.stringify(REPLY)) => {
   const create = vi.fn(
-    async () =>
+    async (_params: Anthropic.MessageCreateParamsNonStreaming) =>
       ({
         model: DRAFT_MODEL,
         content: [{ type: "text", text }],

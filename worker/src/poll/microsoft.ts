@@ -84,39 +84,15 @@ export const pollMicrosoftMailbox = async <
     now = () => new Date(),
   }: MicrosoftPollConfig,
 ): Promise<MailboxPoll> => {
-  if (!account.refreshTokenEncrypted) {
-    throw new Error(
-      `Mailbox ${account.emailAddress} has no refresh token — it has to be reconnected.`,
-    );
-  }
-
   const polledAt = now();
-  const stillValid =
-    account.accessTokenEncrypted &&
-    account.tokenExpiresAt &&
-    account.tokenExpiresAt.getTime() - polledAt.getTime() > EXPIRY_SKEW_MS
-      ? account.accessTokenEncrypted
-      : null;
-
-  let accessToken: string;
-  if (stillValid) {
-    accessToken = decryptToken(stillValid, encryptionKey);
-  } else {
-    const refreshed: MicrosoftTokenSet = await refreshMicrosoftAccessToken({
-      clientId,
-      clientSecret,
-      tenant,
-      refreshToken: decryptToken(account.refreshTokenEncrypted, encryptionKey),
-      now: polledAt,
-      fetch,
-    });
-    accessToken = refreshed.accessToken;
-    await updateAccount(db, account, {
-      accessTokenEncrypted: encryptToken(refreshed.accessToken, encryptionKey),
-      refreshTokenEncrypted: encryptToken(refreshed.refreshToken, encryptionKey),
-      tokenExpiresAt: refreshed.expiresAt,
-    });
-  }
+  const accessToken = await resolveMicrosoftAccessToken(db, account, {
+    clientId,
+    clientSecret,
+    tenant,
+    encryptionKey,
+    fetch,
+    now: () => polledAt,
+  });
 
   const sync = await fetchMicrosoftNewMessages({
     accessToken,
@@ -135,6 +111,62 @@ export const pollMicrosoftMailbox = async <
         lastPolledAt: polledAt,
       }),
   };
+};
+
+/**
+ * The stored access token while it lasts, a freshly minted one after that.
+ * Entra rotates the refresh token away on every use, so the new pair is stored
+ * as soon as it is minted or the mailbox is locked out.
+ *
+ * Exported because reading a mailbox is not the only thing the worker needs a
+ * token for: an auto-reply is sent from the same mailbox, with the same grant.
+ */
+export const resolveMicrosoftAccessToken = async <
+  T extends PgQueryResultHKT,
+  TSchema extends Record<string, unknown> = Record<string, never>,
+>(
+  db: PgDatabase<T, TSchema>,
+  account: PollableMailboxAccount,
+  {
+    clientId,
+    clientSecret,
+    tenant,
+    encryptionKey,
+    fetch = globalThis.fetch,
+    now = () => new Date(),
+  }: MicrosoftPollConfig,
+): Promise<string> => {
+  if (!account.refreshTokenEncrypted) {
+    throw new Error(
+      `Mailbox ${account.emailAddress} has no refresh token — it has to be reconnected.`,
+    );
+  }
+
+  const at = now();
+  const stillValid =
+    account.accessTokenEncrypted &&
+    account.tokenExpiresAt &&
+    account.tokenExpiresAt.getTime() - at.getTime() > EXPIRY_SKEW_MS
+      ? account.accessTokenEncrypted
+      : null;
+
+  if (stillValid) return decryptToken(stillValid, encryptionKey);
+
+  const refreshed: MicrosoftTokenSet = await refreshMicrosoftAccessToken({
+    clientId,
+    clientSecret,
+    tenant,
+    refreshToken: decryptToken(account.refreshTokenEncrypted, encryptionKey),
+    now: at,
+    fetch,
+  });
+  await updateAccount(db, account, {
+    accessTokenEncrypted: encryptToken(refreshed.accessToken, encryptionKey),
+    refreshTokenEncrypted: encryptToken(refreshed.refreshToken, encryptionKey),
+    tokenExpiresAt: refreshed.expiresAt,
+  });
+
+  return refreshed.accessToken;
 };
 
 /** Every write this poll makes is to its own mailbox row, and to its tenant's alone. */

@@ -61,10 +61,10 @@ export const pollGmailMailbox = async <
   { credentials, encryptionKey, now = () => new Date() }: GmailPollConfig,
 ): Promise<MailboxPoll> => {
   const polledAt = now();
-  const accessToken = await currentAccessToken(db, account, {
+  const accessToken = await resolveGmailAccessToken(db, account, {
     credentials,
     encryptionKey,
-    polledAt,
+    now: () => polledAt,
   });
 
   const poll = await createGmailClient(accessToken).fetchNewMessages(
@@ -99,23 +99,19 @@ export const pollGmailMailbox = async <
  * The stored access token while it lasts, a freshly minted one after that. The
  * new token is persisted encrypted so the next poll two minutes from now does
  * not have to mint another one (context.md §7, §8).
+ *
+ * Exported because reading a mailbox is not the only thing the worker needs a
+ * token for: an auto-reply is sent from the same mailbox, with the same grant.
  */
-const currentAccessToken = async <
+export const resolveGmailAccessToken = async <
   T extends PgQueryResultHKT,
   TSchema extends Record<string, unknown> = Record<string, never>,
 >(
   db: PgDatabase<T, TSchema>,
   account: PollableMailboxAccount,
-  {
-    credentials,
-    encryptionKey,
-    polledAt,
-  }: {
-    credentials: GoogleOAuthCredentials;
-    encryptionKey: Buffer;
-    polledAt: Date;
-  },
+  { credentials, encryptionKey, now = () => new Date() }: GmailPollConfig,
 ): Promise<string> => {
+  const polledAt = now();
   const expiresAt = account.tokenExpiresAt?.getTime() ?? 0;
   if (
     account.accessTokenEncrypted &&
@@ -126,7 +122,7 @@ const currentAccessToken = async <
 
   if (!account.refreshTokenEncrypted) {
     throw new Error(
-      `Mailbox ${account.emailAddress} has no refresh token: it has to be reconnected before it can be polled.`,
+      `Mailbox ${account.emailAddress} has no refresh token: it has to be reconnected before it can be read or replied from.`,
     );
   }
 
