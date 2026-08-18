@@ -263,7 +263,18 @@ button:disabled {
   margin-bottom: 20px;
 }
 
+/* El tauler és una eina d'escriptori (context.md §5), però en una pantalla
+   estreta la taula s'ha de poder desplaçar en horitzontal en lloc de desbordar
+   i trencar la maqueta. */
+.table-scroll {
+  overflow-x: auto;
+}
+
 .thread-table {
+  /* Sense un mínim, `width: 100%` encongiria les columnes fins a fer-les
+     il·legibles en comptes de deixar desplaçar el contenidor. En rem perquè
+     el mínim creixi si l'usuari amplia la mida de lletra. */
+  min-width: 34rem;
   width: 100%;
   border-collapse: collapse;
   background: var(--paper-raised);
