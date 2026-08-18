@@ -47,3 +47,16 @@ export const buildReplyHeaders = (parent: ReplyParentMessage): ReplyHeaders => {
 
   return { inReplyTo: parent.messageIdHeader, references: references.join(" ") };
 };
+
+/**
+ * The subject of the reply: the thread's own, prefixed once. Mail that arrived
+ * without a subject is answered without one too — inventing a subject for a
+ * conversation the client sees as untitled only makes the reply look foreign.
+ */
+export const replySubject = (subject: string | null): string => {
+  const trimmed = subject?.trim() ?? "";
+  if (trimmed === "") return "";
+  // Case-insensitive, and any of the local variants a client may already have
+  // added ("RE:", "Re :"), so a thread does not grow a chain of prefixes.
+  return /^re\s*:/i.test(trimmed) ? trimmed : `Re: ${trimmed}`;
+};

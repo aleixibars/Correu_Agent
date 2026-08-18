@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MAX_MESSAGES_PER_POLL, createGmailClient } from "./gmail";
+import {
+  MAX_MESSAGES_PER_POLL,
+  createGmailClient,
+  createGmailSender,
+} from "./gmail";
 
 const ACCESS_TOKEN = "access-1";
 
@@ -369,5 +373,167 @@ describe("createGmailClient", () => {
     await expect(
       createGmailClient(ACCESS_TOKEN).fetchNewMessages("1000"),
     ).rejects.toThrow(/Rate Limit Exceeded/);
+  });
+});
+
+const outgoingReply = (overrides: Record<string, unknown> = {}) => ({
+  fromAddress: "bustia@example.com",
+  toAddresses: ["client@example.com"],
+  ccAddresses: [] as string[],
+  subject: "Re: Pressupost anual",
+  bodyText: "Bon dia,\n\nUs enviem el pressupost.",
+  providerThreadId: "thread-1",
+  inReplyToProviderMessageId: "msg-1",
+  inReplyTo: "<msg-1@example.com>",
+  references: "<msg-0@example.com> <msg-1@example.com>",
+  ...overrides,
+});
+
+const gmailAccepts = (body: unknown, status = 200) => {
+  const fetchMock = vi.fn(
+    async (input: string | URL, init?: RequestInit) => {
+      void input;
+      void init;
+      return jsonResponse(body, status);
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+};
+
+const sentMime = (fetchMock: ReturnType<typeof gmailAccepts>) => {
+  const init = fetchMock.mock.calls[0]![1] as RequestInit;
+  const sent = JSON.parse(String(init.body)) as { raw: string; threadId: string };
+  const mime = Buffer.from(sent.raw, "base64url").toString("utf8");
+  const separator = mime.indexOf("\r\n\r\n");
+  return {
+    threadId: sent.threadId,
+    headers: mime.slice(0, separator),
+    body: Buffer.from(mime.slice(separator + 4), "base64").toString("utf8"),
+  };
+};
+
+/** Undoes RFC 5322 folding, the way a receiving client does before reading a header. */
+const unfold = (headers: string): string => headers.replace(/\r\n(?=[ \t])/g, "");
+
+const decodeEncodedWords = (value: string): string =>
+  value
+    .split(/\s+/)
+    .map((word) => {
+      const match = /^=\?UTF-8\?B\?(.*)\?=$/.exec(word);
+      return match ? Buffer.from(match[1]!, "base64") : Buffer.from(word, "utf8");
+    })
+    .reduce((decoded, part) => Buffer.concat([decoded, part]), Buffer.alloc(0))
+    .toString("utf8");
+
+describe("createGmailSender", () => {
+  it("sends the reply into the thread it answers", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1", threadId: "thread-1" });
+
+    const result = await createGmailSender(ACCESS_TOKEN).sendReply(outgoingReply());
+
+    expect(String(fetchMock.mock.calls[0]![0])).toContain("/messages/send");
+    const { threadId, headers, body } = sentMime(fetchMock);
+    // Gmail threads by `threadId`; every other client threads by the headers.
+    expect(threadId).toBe("thread-1");
+    expect(headers).toContain("From: bustia@example.com");
+    expect(headers).toContain("To: client@example.com");
+    expect(headers).toContain("In-Reply-To: <msg-1@example.com>");
+    expect(headers).toContain(
+      "References: <msg-0@example.com> <msg-1@example.com>",
+    );
+    // RFC 2045 §6.8: the canonical form of a text body ends its lines with CRLF.
+    expect(body).toBe("Bon dia,\r\n\r\nUs enviem el pressupost.");
+    expect(result).toEqual({ providerMessageId: "sent-1", messageIdHeader: null });
+  });
+
+  it("encodes a subject a header cannot carry as it stands", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(
+      outgoingReply({ subject: "Re: Pressupost de l\u2019any" }),
+    );
+
+    // RFC 2047, or the accent would not survive a US-ASCII header.
+    expect(sentMime(fetchMock).headers).toContain("Subject: =?UTF-8?B?");
+  });
+
+  it("sends a subject-less reply without a header that ends in whitespace", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+
+    // Mail that arrived untitled is answered untitled (`replySubject`), so the
+    // header carries no value at all.
+    await createGmailSender(ACCESS_TOKEN).sendReply(outgoingReply({ subject: "" }));
+
+    expect(sentMime(fetchMock).headers.split("\r\n")).toContain("Subject:");
+  });
+
+  it("does not let a line break in a subject open a header of its own", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(
+      outgoingReply({ subject: "Pressupost\r\nBcc: tercer@example.com" }),
+    );
+
+    const lines = sentMime(fetchMock).headers.split("\r\n");
+    expect(lines.some((line) => line.startsWith("Bcc:"))).toBe(false);
+    expect(lines).toContain("Subject: Pressupost Bcc: tercer@example.com");
+  });
+
+  it("leaves the threading headers out when the mail answered had no Message-ID", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(
+      outgoingReply({ inReplyTo: null, references: null }),
+    );
+
+    const { headers } = sentMime(fetchMock);
+    expect(headers).not.toContain("In-Reply-To:");
+    expect(headers).not.toContain("References:");
+  });
+
+  it("folds a References chain too long to be one line", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+    // A thread grows its chain by one id per mail, so a long conversation runs
+    // past the line limit on its own.
+    const chain = Array.from(
+      { length: 30 },
+      (_, index) => `<msg-${index}@mail.example.com>`,
+    ).join(" ");
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(
+      outgoingReply({ references: chain }),
+    );
+
+    const { headers } = sentMime(fetchMock);
+    const lines = headers.split("\r\n");
+    expect(lines.filter((line) => line.startsWith(" <msg-")).length).toBeGreaterThan(0);
+    expect(lines.every((line) => line.length <= 78)).toBe(true);
+    // Folding is whitespace only: unfolding gives the chain back untouched.
+    expect(unfold(headers)).toContain(`References: ${chain}`);
+  });
+
+  it("splits a long accented subject into encoded words a decoder can rejoin", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+    const subject = `Re: ${"Pressupost de l\u2019any per a la reuni\u00f3 ".repeat(4)}`.trim();
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(outgoingReply({ subject }));
+
+    const { headers } = sentMime(fetchMock);
+    const encoded = unfold(headers)
+      .split("\r\n")
+      .find((line) => line.startsWith("Subject: "))!
+      .slice("Subject: ".length);
+    // RFC 2047 §2 caps an encoded word at 75 characters, wrapping included.
+    for (const word of encoded.split(" ")) expect(word.length).toBeLessThanOrEqual(75);
+    expect(decodeEncodedWords(encoded)).toBe(subject);
+  });
+
+  it("fails loudly when Gmail refuses the send", async () => {
+    gmailAccepts({ error: { message: "Insufficient Permission" } }, 403);
+
+    await expect(
+      createGmailSender(ACCESS_TOKEN).sendReply(outgoingReply()),
+    ).rejects.toThrow(/Insufficient Permission/);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildReplyHeaders } from "./reply-headers";
+import { buildReplyHeaders, replySubject } from "./reply-headers";
 
 const MESSAGE_ID = "<abc@mail.example.com>";
 
@@ -65,5 +65,22 @@ describe("buildReplyHeaders", () => {
         references: "<first@mail.example.com>",
       }),
     ).toEqual({ inReplyTo: null, references: "<first@mail.example.com>" });
+  });
+});
+
+describe("replySubject", () => {
+  it("prefixes the thread's subject once", () => {
+    expect(replySubject("Pressupost")).toBe("Re: Pressupost");
+  });
+
+  it("does not stack a prefix on a subject that already replies", () => {
+    // Whatever the client that wrote it spelled it as.
+    expect(replySubject("RE: Pressupost")).toBe("RE: Pressupost");
+    expect(replySubject("re : Pressupost")).toBe("re : Pressupost");
+  });
+
+  it("answers mail that arrived without a subject without one", () => {
+    expect(replySubject(null)).toBe("");
+    expect(replySubject("   ")).toBe("");
   });
 });

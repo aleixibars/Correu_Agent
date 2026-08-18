@@ -3,10 +3,14 @@
 // hands the new messages back in the provider-agnostic shape of `./types`.
 
 import { errorDetail, readJson } from "./google-errors";
+import { buildReplyMime } from "./mime";
 import type {
   MailPollResult,
   MailProviderClient,
+  MailSenderClient,
+  OutgoingReply,
   ProviderMessage,
+  SentReply,
 } from "./types";
 
 const GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
@@ -67,6 +71,30 @@ const gmailGet = async (
     );
   }
   return body;
+};
+
+const gmailPost = async (
+  accessToken: string,
+  path: string,
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> => {
+  const response = await fetch(`${GMAIL_API_BASE}${path}`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      accept: "application/json",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const answer = await readJson(response);
+  if (!response.ok) {
+    throw new Error(
+      `Gmail refused ${path} (${response.status}): ${errorDetail(answer)}`,
+    );
+  }
+  return answer;
 };
 
 const headerValue = (headers: GmailHeader[], name: string): string | null => {
@@ -318,5 +346,31 @@ export const createGmailClient = (accessToken: string): MailProviderClient => ({
       cursor: truncated ? (lastRecordId ?? cursor) : latestHistoryId,
       cursorReset: false,
     };
+  },
+});
+
+/**
+ * Sends the reply of an approved draft (context.md §2). `threadId` is what puts
+ * the mail inside the conversation for Gmail's own threading; the RFC 5322
+ * headers in the MIME are what put it there for every other client.
+ *
+ * The `Message-ID` Gmail stamps is deliberately not read back: that would be a
+ * second call *after* the mail has left, and a failure there would be retried as
+ * another send. The mail is out — nothing may run between the send and the row
+ * that records it.
+ */
+export const createGmailSender = (accessToken: string): MailSenderClient => ({
+  async sendReply(reply: OutgoingReply): Promise<SentReply> {
+    const sent = await gmailPost(accessToken, "/messages/send", {
+      raw: Buffer.from(buildReplyMime(reply), "utf8").toString("base64url"),
+      threadId: reply.providerThreadId,
+    });
+
+    const providerMessageId = asString(sent.id);
+    if (!providerMessageId) {
+      throw new Error("Gmail accepted the reply but returned no message id.");
+    }
+
+    return { providerMessageId, messageIdHeader: null };
   },
 });

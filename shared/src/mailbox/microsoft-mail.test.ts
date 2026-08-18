@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { fetchMicrosoftNewMessages } from "./microsoft-mail";
+import {
+  createMicrosoftSender,
+  fetchMicrosoftNewMessages,
+} from "./microsoft-mail";
 
 const CONNECTED_AT = new Date("2026-01-01T00:00:00.000Z");
 
@@ -229,5 +232,72 @@ describe("fetchMicrosoftNewMessages", () => {
         fetch,
       }),
     ).rejects.toThrow(/InvalidAuthenticationToken/);
+  });
+});
+
+const outgoingReply = (overrides: Record<string, unknown> = {}) => ({
+  fromAddress: "bustia@example.com",
+  toAddresses: ["client@example.com"],
+  ccAddresses: [] as string[],
+  subject: "Re: Pressupost",
+  bodyText: "Bon dia,\n\nUs enviem el pressupost.",
+  providerThreadId: "conversation-1",
+  inReplyToProviderMessageId: "message-1",
+  inReplyTo: "<message-1@example.com>",
+  references: "<message-1@example.com>",
+  ...overrides,
+});
+
+describe("createMicrosoftSender", () => {
+  it("replies from the message being answered so the mail stays in the conversation", async () => {
+    const { fetch, calls } = stubFetch([
+      {
+        body: {
+          id: "reply-draft-1",
+          internetMessageId: "<reply-1@example.com>",
+        },
+      },
+      { status: 202, body: undefined },
+    ]);
+
+    const result = await createMicrosoftSender({
+      accessToken: "access-token",
+      fetch,
+    }).sendReply(outgoingReply());
+
+    expect(calls[0]!.url).toContain("/me/messages/message-1/createReply");
+    expect(await calls[0]!.json()).toEqual({
+      message: {
+        subject: "Re: Pressupost",
+        toRecipients: [{ emailAddress: { address: "client@example.com" } }],
+        ccRecipients: [],
+        body: {
+          contentType: "Text",
+          content: "Bon dia,\n\nUs enviem el pressupost.",
+        },
+      },
+    });
+    // Graph creates the reply as a draft; a second call is what sends it.
+    expect(calls[1]!.url).toContain("/me/messages/reply-draft-1/send");
+    expect(calls[1]!.method).toBe("POST");
+    expect(result).toEqual({
+      providerMessageId: "reply-draft-1",
+      messageIdHeader: "<reply-1@example.com>",
+    });
+  });
+
+  it("fails loudly when Graph refuses to create the reply", async () => {
+    const { fetch } = stubFetch([
+      {
+        status: 403,
+        body: { error: { code: "ErrorAccessDenied", message: "Access is denied." } },
+      },
+    ]);
+
+    await expect(
+      createMicrosoftSender({ accessToken: "access-token", fetch }).sendReply(
+        outgoingReply(),
+      ),
+    ).rejects.toThrow(/ErrorAccessDenied/);
   });
 });

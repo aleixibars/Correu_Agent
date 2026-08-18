@@ -44,3 +44,41 @@ export interface MailProviderClient {
   /** `null` on a mailbox with no cursor yet: nothing is returned, only a fresh cursor. */
   fetchNewMessages(cursor: string | null): Promise<MailPollResult>;
 }
+
+/**
+ * A reply on its way out of the mailbox, in the one shape both providers accept
+ * (context.md §2 — approving a draft really sends it). Recipients and threading
+ * headers come from the message being answered, never from the model.
+ */
+export interface OutgoingReply {
+  /** The connected mailbox the reply is sent from. */
+  fromAddress: string;
+  toAddresses: string[];
+  ccAddresses: string[];
+  /** Subject of the reply, already carrying its `Re:` prefix. */
+  subject: string;
+  bodyText: string;
+  /** Gmail `threadId` / Graph `conversationId`, so the reply lands in the thread. */
+  providerThreadId: string;
+  /** Provider id of the message being answered — Graph threads a reply from it. */
+  inReplyToProviderMessageId: string;
+  /** RFC 5322 threading headers built by `buildReplyHeaders` (context.md §4). */
+  inReplyTo: string | null;
+  references: string | null;
+}
+
+/** What the provider says about the mail it has just sent. */
+export interface SentReply {
+  providerMessageId: string;
+  /** The `Message-ID` the provider stamped; null when it does not report one. */
+  messageIdHeader: string | null;
+}
+
+/**
+ * Sending one reply, the only mail-writing capability the product needs. Kept
+ * apart from `MailProviderClient` because polling and sending are reached from
+ * different places — the worker polls, the dashboard sends on approval.
+ */
+export interface MailSenderClient {
+  sendReply(reply: OutgoingReply): Promise<SentReply>;
+}
