@@ -1,19 +1,8 @@
 import Link from "next/link";
 import { APP_NAME } from "@correu-agent/shared";
 import { signOut } from "../auth";
-import {
-  AUTO_REPLY_PATH,
-  DASHBOARD_PATH,
-  DIGEST_PATH,
-  LOGIN_PATH,
-  THREADS_PATH,
-} from "../lib/routes";
-
-const NAV_ITEMS = [
-  { href: THREADS_PATH, label: "Fils" },
-  { href: DIGEST_PATH, label: "Digest" },
-  { href: AUTO_REPLY_PATH, label: "Auto-resposta" },
-] as const;
+import { DASHBOARD_PATH, LOGIN_PATH } from "../lib/routes";
+import { AppNav } from "./AppNav";
 
 /**
  * Shared chrome for every authenticated page: wordmark, section nav and the
@@ -33,20 +22,7 @@ export const AppHeader = ({
       <Link href={DASHBOARD_PATH} className="app-header__wordmark">
         {APP_NAME}
       </Link>
-      <nav>
-        <ul className="app-header__nav">
-          {NAV_ITEMS.map((item) => (
-            <li key={item.href}>
-              <Link
-                href={item.href}
-                aria-current={active === item.href ? "page" : undefined}
-              >
-                {item.label}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </nav>
+      <AppNav active={active} />
     </div>
     <div className="app-header__user">
       <span className="meta">{email}</span>

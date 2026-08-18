@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { IBM_Plex_Mono, Source_Sans_3, Space_Grotesk } from "next/font/google";
-import { APP_NAME } from "@correu-agent/shared";
+import { APP_DESCRIPTION, APP_NAME } from "@correu-agent/shared";
 import "./globals.css";
 
 // Three-role type system (design brief): Space Grotesk carries the product's
@@ -27,7 +27,7 @@ const monoFont = IBM_Plex_Mono({
 
 export const metadata = {
   title: APP_NAME,
-  description: "Automatització de correu per a empreses.",
+  description: APP_DESCRIPTION,
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

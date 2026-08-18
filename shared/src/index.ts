@@ -22,5 +22,6 @@
 // `@correu-agent/shared/drafts` and `@correu-agent/shared/auto-reply`.
 
 export const APP_NAME = "Correu Agent";
+export const APP_DESCRIPTION = "Automatització de correu per a empreses.";
 
 export * from "./triage/taxonomy";
