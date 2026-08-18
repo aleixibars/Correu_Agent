@@ -13,6 +13,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import {
@@ -258,7 +259,17 @@ export const drafts = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (table) => [index("drafts_tenant_status_idx").on(table.tenantId, table.status)],
+  (table) => [
+    index("drafts_tenant_status_idx").on(table.tenantId, table.status),
+    // One draft at a time waits for the user on a thread: the dashboard shows
+    // a thread with its draft, and regenerating supersedes the one it replaces
+    // rather than adding a second (context.md §2). Enforced here because the
+    // generation job is a slow model call two workers can enter at once —
+    // whoever inserts second is the one that must lose.
+    uniqueIndex("drafts_thread_pending_idx")
+      .on(table.threadId)
+      .where(sql`${table.status} = 'pending'`),
+  ],
 );
 
 /** Auto-reply is opt-in per category, never a global switch (context.md §2). */
