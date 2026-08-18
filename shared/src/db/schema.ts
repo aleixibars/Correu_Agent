@@ -260,7 +260,13 @@ export const drafts = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (table) => [index("drafts_tenant_status_idx").on(table.tenantId, table.status)],
+  (table) => [
+    index("drafts_tenant_status_idx").on(table.tenantId, table.status),
+    // The dashboard thread list reads the live draft of each thread it shows,
+    // one lookup per row — without this the list scans every draft in the
+    // tenant for each thread on the page.
+    index("drafts_thread_created_at_idx").on(table.threadId, table.createdAt),
+  ],
 );
 
 /** Auto-reply is opt-in per category, never a global switch (context.md §2). */

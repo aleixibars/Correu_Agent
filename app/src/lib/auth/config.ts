@@ -25,6 +25,9 @@ export const LOGIN_PATH = "/login";
 /** Where a visitor lands once signed in. */
 export const DASHBOARD_PATH = "/";
 
+/** The processed-thread list of the dashboard (context.md §2). */
+export const THREADS_PATH = "/fils";
+
 export interface AuthConfigOptions {
   adapter: Adapter;
   /** Addresses allowed to sign in; anything else is turned away. */

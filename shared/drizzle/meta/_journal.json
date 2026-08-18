@@ -33,8 +33,15 @@
     {
       "idx": 4,
       "version": "7",
-      "when": 1787056190231,
-      "tag": "0004_daily_digests",
+      "when": 1787056300043,
+      "tag": "0004_drafts_thread_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1787057254948,
+      "tag": "0005_daily_digests",
       "breakpoints": true
     }
   ]
