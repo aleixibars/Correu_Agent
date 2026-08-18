@@ -36,47 +36,49 @@ export default async function ThreadsPage() {
       {threads.length === 0 ? (
         <p>Encara no hi ha cap fil processat.</p>
       ) : (
-        <table className="thread-table">
-          <thead>
-            <tr>
-              <th scope="col">Assumpte</th>
-              <th scope="col">Categoria</th>
-              <th scope="col">Estat</th>
-              <th scope="col">Últim missatge</th>
-            </tr>
-          </thead>
-          <tbody>
-            {threads.map(({ id, subject, category, status, lastMessageAt }) => (
-              <tr key={id}>
-                <td>
-                  {/* L'assumpte porta a la pantalla on es revisa l'esborrany
-                      del fil (context.md §2). */}
-                  <Link href={threadPath(id)}>{subjectLabel(subject)}</Link>
-                </td>
-                {/* Un fil sense categoria és un fil que el triatge encara no ha
-                    tocat; l'estat ja ho diu, així que la cel·la no repeteix el
-                    motiu. */}
-                <td>
-                  {category === null ? (
-                    <span className="meta">—</span>
-                  ) : (
-                    <CategoryStamp category={category} />
-                  )}
-                </td>
-                <td className="status">{threadStatusLabel(status)}</td>
-                <td className="meta">
-                  {lastMessageAt === null ? (
-                    "—"
-                  ) : (
-                    <time dateTime={lastMessageAt.toISOString()}>
-                      {dateFormat.format(lastMessageAt)}
-                    </time>
-                  )}
-                </td>
+        <div className="table-scroll">
+          <table className="thread-table">
+            <thead>
+              <tr>
+                <th scope="col">Assumpte</th>
+                <th scope="col">Categoria</th>
+                <th scope="col">Estat</th>
+                <th scope="col">Últim missatge</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {threads.map(({ id, subject, category, status, lastMessageAt }) => (
+                <tr key={id}>
+                  <td>
+                    {/* L'assumpte porta a la pantalla on es revisa l'esborrany
+                        del fil (context.md §2). */}
+                    <Link href={threadPath(id)}>{subjectLabel(subject)}</Link>
+                  </td>
+                  {/* Un fil sense categoria és un fil que el triatge encara no ha
+                      tocat; l'estat ja ho diu, així que la cel·la no repeteix el
+                      motiu. */}
+                  <td>
+                    {category === null ? (
+                      <span className="meta">—</span>
+                    ) : (
+                      <CategoryStamp category={category} />
+                    )}
+                  </td>
+                  <td className="status">{threadStatusLabel(status)}</td>
+                  <td className="meta">
+                    {lastMessageAt === null ? (
+                      "—"
+                    ) : (
+                      <time dateTime={lastMessageAt.toISOString()}>
+                        {dateFormat.format(lastMessageAt)}
+                      </time>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

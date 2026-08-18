@@ -155,6 +155,17 @@ describe("ThreadsPage", () => {
     expect(markup).toContain(`href="${threadPath("thread-0")}"`);
   });
 
+  // The dashboard is an office tool (context.md §5), but a narrow screen has to
+  // scroll the table sideways instead of having the layout burst.
+  it("wraps the table in a horizontally scrollable container", async () => {
+    signedIn();
+    listThreads.mockResolvedValue(threadPerCategory());
+
+    const markup = await render();
+
+    expect(markup).toContain('<div class="table-scroll"><table');
+  });
+
   it("leads back to the dashboard", async () => {
     signedIn();
 
