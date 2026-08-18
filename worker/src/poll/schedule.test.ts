@@ -49,6 +49,16 @@ describe("queueMailboxPolls", () => {
     );
   });
 
+  it("does not count a poll the queue dropped as a duplicate", async () => {
+    const { db } = createDb([[MAILBOX_ID, TENANT_ID]]);
+    const boss = {
+      // What pg-boss answers when the mailbox already has a poll waiting.
+      send: vi.fn(async () => null),
+    } as unknown as PgBoss;
+
+    await expect(queueMailboxPolls(boss, db)).resolves.toBe(0);
+  });
+
   it("sends nothing when no mailbox is connected", async () => {
     const { db } = createDb([]);
     const { boss, send } = createBoss();

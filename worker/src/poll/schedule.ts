@@ -7,6 +7,11 @@ import { POLL_INTERVAL_MS } from "../poll-interval";
 import { MAILBOX_POLL_QUEUE, type MailboxPollJobData } from "../queue/mailbox-poll";
 import { listPollableMailboxAccounts } from "./accounts";
 
+/**
+ * Queues one poll per pollable mailbox and reports how many jobs were really
+ * created — a mailbox whose previous poll is still waiting is skipped by the
+ * queue, not queued twice.
+ */
 export const queueMailboxPolls = async <
   T extends PgQueryResultHKT,
   TSchema extends Record<string, unknown> = Record<string, never>,
@@ -15,20 +20,25 @@ export const queueMailboxPolls = async <
   db: PgDatabase<T, TSchema>,
 ): Promise<number> => {
   const accounts = await listPollableMailboxAccounts(db);
+  let queued = 0;
 
   for (const account of accounts) {
     const data: MailboxPollJobData = {
       tenantId: account.tenantId,
       mailboxAccountId: account.id,
     };
-    await boss.send(MAILBOX_POLL_QUEUE, data, {
-      // A poll that outlives its tick (a big first sync, a slow Graph) must not
-      // leave a queue of duplicate polls waiting behind it.
+    // A poll that outlives its tick (a big first sync, a slow Graph) must not
+    // leave a queue of duplicate polls waiting behind it, so the mailbox is the
+    // singleton key — enforced by the queue's `short` policy (`queue-client.ts`).
+    // A dropped duplicate comes back as a null id and is a normal tick, not a
+    // failure: the poll it would have repeated is still waiting.
+    const jobId = await boss.send(MAILBOX_POLL_QUEUE, data, {
       singletonKey: `${account.tenantId}:${account.id}`,
     });
+    if (jobId) queued += 1;
   }
 
-  return accounts.length;
+  return queued;
 };
 
 export interface MailboxPollSchedule {

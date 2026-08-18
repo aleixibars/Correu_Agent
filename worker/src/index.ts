@@ -6,7 +6,10 @@ import {
   loadMicrosoftPollConfig,
   type MicrosoftPollConfig,
 } from "./poll/microsoft";
-import { startMailboxPollSchedule } from "./poll/schedule";
+import {
+  startMailboxPollSchedule,
+  type MailboxPollSchedule,
+} from "./poll/schedule";
 import { createMailboxPollHandler } from "./queue/mailbox-poll";
 import { createQueueClient, startQueue } from "./queue/queue-client";
 
@@ -30,12 +33,13 @@ boss.on("error", (error) => {
   console.error("Queue error:", error);
 });
 
-await startQueue(boss, createMailboxPollHandler({ db, microsoft }));
-const schedule = startMailboxPollSchedule({ boss, db });
+// Assigned once the queue is up; the shutdown handler is registered before that
+// and has to cope with a signal arriving in between.
+let schedule: MailboxPollSchedule | undefined;
 
 const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
   console.log(`Received ${signal}, stopping worker.`);
-  schedule.stop();
+  schedule?.stop();
   try {
     // Lets in-flight jobs finish instead of leaving them stuck in `active`.
     await boss.stop();
@@ -46,8 +50,13 @@ const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
   }
 };
 
+// Registered before start() so a signal arriving during the pg-boss schema
+// migration still shuts the worker down: stop() waits for an in-flight start().
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
+
+await startQueue(boss, createMailboxPollHandler({ db, microsoft }));
+schedule = startMailboxPollSchedule({ boss, db });
 
 console.log(
   `${APP_NAME} worker started. Polling connected mailboxes every ${POLL_INTERVAL_MS}ms.`,

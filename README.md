@@ -154,8 +154,13 @@ El worker consulta cada bústia connectada **cada 2 minuts**
 (`worker/src/poll-interval.ts`, `context.md` §8; el pas a webhooks queda per més
 endavant). Cada tic (`worker/src/poll/schedule.ts`) encua una feina `mailbox-poll`
 per bústia amb un `singletonKey` propi, així una consulta lenta no deixa una cua
-de consultes duplicades al darrere. El primer tic és immediat: un worker que
-acaba de reiniciar no ha d'esperar dos minuts per mirar el correu.
+de consultes duplicades al darrere. Qui ho fa complir és la política `short` de
+la cua (`worker/src/queue/queue-client.ts`): amb la política per defecte el
+`singletonKey` no filtra res. pg-boss fixa la política en crear la cua i no la
+deixa canviar després, així que una cua creada per un worker anterior s'ha
+d'esborrar un cop perquè es torni a crear — el worker ho avisa a l'arrencada.
+El primer tic és immediat: un worker que acaba de reiniciar no ha d'esperar dos
+minuts per mirar el correu.
 
 La feina es processa a `worker/src/queue/mailbox-poll.ts`: rellegeix la bústia de
 la base de dades (els tokens i el cursor es mouen entre encuar i processar) i la
