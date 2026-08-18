@@ -40,16 +40,31 @@ describe("manifest", () => {
     expect(manifest().display).toBe("browser");
   });
 
-  it("declares icons that exist and cover the standard sizes", () => {
+  it("declares icons that exist and scale to any size", () => {
     const icons = manifest().icons ?? [];
     expect(icons.length).toBeGreaterThan(0);
 
     for (const icon of icons) {
       expect(iconFile(icon.src)).toContain("<svg");
       expect(icon.type).toBe("image/svg+xml");
+      // Vectors cover every size; a fixed size list here would be a claim
+      // about raster assets that do not exist.
+      expect(icon.sizes).toBe("any");
     }
+  });
 
-    const sizes = icons.flatMap((icon) => (icon.sizes ?? "").split(" "));
-    expect(sizes).toEqual(expect.arrayContaining(["192x192", "512x512"]));
+  it("draws the icons from the dashboard palette", () => {
+    // The icon restates more tokens than the manifest does — ink, paper and
+    // both airmail stripe colors — so it is the likelier place for the
+    // identity to drift.
+    const palette = ["paper", "ink", "airmail-red", "airmail-blue"].map(token);
+
+    for (const icon of manifest().icons ?? []) {
+      const colors = iconFile(icon.src).match(/#[0-9a-f]{3,8}/gi) ?? [];
+      expect(colors.length).toBeGreaterThan(0);
+      for (const color of colors) {
+        expect(palette).toContain(color.toLowerCase());
+      }
+    }
   });
 });

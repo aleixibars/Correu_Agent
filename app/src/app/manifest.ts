@@ -24,7 +24,11 @@ export default function manifest(): MetadataRoute.Manifest {
       {
         src: "/icon.svg",
         type: "image/svg+xml",
-        sizes: "48x48 72x72 96x96 128x128 192x192 256x256 512x512 any",
+        // A single scalable icon: `any` is what a vector covers, and it is
+        // what Next puts in the `<link rel="icon">` for the same file.
+        // Listing the raster sizes a store or an install prompt would look
+        // for would be claiming something this manifest does not do.
+        sizes: "any",
       },
     ],
   };
