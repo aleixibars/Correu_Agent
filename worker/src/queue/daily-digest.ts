@@ -20,6 +20,25 @@ export const DAILY_DIGEST_QUEUE = "daily-digest";
  */
 export const DAILY_DIGEST_CRON = "0 5 * * *";
 
+/**
+ * Retries spread over hours instead of pg-boss's default (2 retries, no delay).
+ *
+ * A day is digested by exactly one run: nothing revisits a day whose run failed,
+ * so three attempts fired within the same second are no defence at all against
+ * the failure this job actually meets — an overloaded model API, or a key that
+ * needs rotating — and the day would be lost for good. Backing off buys the
+ * hours those take to clear.
+ *
+ * The delays stay well inside the day being digested: 05:00 UTC plus a worst
+ * case of roughly four hours of backoff is still the same UTC day, so a retry
+ * never crosses midnight and re-aims at the day after the one it was queued for.
+ */
+export const DAILY_DIGEST_RETRY = {
+  retryLimit: 4,
+  retryDelay: 900,
+  retryBackoff: true,
+} as const;
+
 /** The digest takes no arguments: it is yesterday, for every tenant. */
 export type DailyDigestJobData = Record<string, never>;
 

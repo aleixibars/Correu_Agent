@@ -306,7 +306,11 @@ a la mateixa bústia vigilada seria circular.
 - La feina (`worker/src/queue/daily-digest.ts`) va per la cua `daily-digest`,
   programada pel cron de pg-boss un cop al dia a les 05:00 UTC — el dia ha
   d'haver acabat abans de poder-lo resumir. Un tenant que falla no atura la
-  resta, i si fallen tots la feina falla perquè pg-boss la reintenti.
+  resta, i si fallen tots la feina falla perquè pg-boss la reintenti. Els
+  reintents van amb espera creixent i no de seguida: cada execució cobreix un
+  dia i ningú no hi torna, així que un model saturat es perdria el dia sencer si
+  els tres intents caiguessin dins del mateix segon. L'espera màxima queda dins
+  del mateix dia UTC, perquè un reintent no acabi resumint el dia equivocat.
 - Un dia sense correu processat no genera cap fila ni cap crida al model. Tornar
   a executar un dia (`daily_digests` és únic per tenant i data) el reescriu: és
   una correcció, mai un segon digest del mateix correu.

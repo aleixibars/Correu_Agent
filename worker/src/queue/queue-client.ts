@@ -2,6 +2,7 @@ import { PgBoss, type WorkHandler } from "pg-boss";
 import {
   DAILY_DIGEST_CRON,
   DAILY_DIGEST_QUEUE,
+  DAILY_DIGEST_RETRY,
   type DailyDigestJobData,
   type DailyDigestResult,
 } from "./daily-digest";
@@ -112,12 +113,13 @@ export const startQueue = async (
   );
 
   await ensureQueue(boss, DAILY_DIGEST_QUEUE);
-  await boss.schedule(
-    DAILY_DIGEST_QUEUE,
-    DAILY_DIGEST_CRON,
-    {},
-    { singletonKey: DAILY_DIGEST_QUEUE },
-  );
+  // Unlike the purge, a failed digest run is not made good by tomorrow's: each
+  // run covers one day and nothing revisits it, so this one carries its own
+  // retry schedule rather than pg-boss's immediate default.
+  await boss.schedule(DAILY_DIGEST_QUEUE, DAILY_DIGEST_CRON, {}, {
+    singletonKey: DAILY_DIGEST_QUEUE,
+    ...DAILY_DIGEST_RETRY,
+  });
   await boss.work<DailyDigestJobData, DailyDigestResult>(
     DAILY_DIGEST_QUEUE,
     dailyDigest,

@@ -1,6 +1,10 @@
 import type { PgBoss } from "pg-boss";
 import { describe, expect, it, vi } from "vitest";
-import { DAILY_DIGEST_CRON, DAILY_DIGEST_QUEUE } from "./daily-digest";
+import {
+  DAILY_DIGEST_CRON,
+  DAILY_DIGEST_QUEUE,
+  DAILY_DIGEST_RETRY,
+} from "./daily-digest";
 import { MAILBOX_POLL_QUEUE } from "./mailbox-poll";
 import {
   SINGLE_FLIGHT_QUEUE_POLICY,
@@ -136,6 +140,33 @@ describe("startQueue", () => {
     expect(calls.indexOf(`createQueue:${DAILY_DIGEST_QUEUE}`)).toBeLessThan(
       calls.indexOf(`schedule:${DAILY_DIGEST_QUEUE}`),
     );
+  });
+
+  it("retries a failed digest over hours rather than in the same second", async () => {
+    const { boss } = createBoss();
+
+    await startQueue(boss, handlers);
+
+    // Nothing revisits a day whose digest run failed, so pg-boss's default of
+    // two immediate retries would lose the day to an overloaded model API.
+    expect(boss.schedule).toHaveBeenCalledWith(
+      DAILY_DIGEST_QUEUE,
+      DAILY_DIGEST_CRON,
+      {},
+      expect.objectContaining({
+        retryLimit: DAILY_DIGEST_RETRY.retryLimit,
+        retryDelay: DAILY_DIGEST_RETRY.retryDelay,
+        retryBackoff: true,
+      }),
+    );
+    // The backoff has to stay inside the UTC day being digested, or a late
+    // retry would re-derive "yesterday" and cover the wrong one.
+    const worstCaseSeconds = Array.from(
+      { length: DAILY_DIGEST_RETRY.retryLimit },
+      (_unused, retryCount) => DAILY_DIGEST_RETRY.retryDelay * 2 ** retryCount,
+    ).reduce((total, delay) => total + delay, 0);
+    const hoursLeftInDay = 24 - Number(DAILY_DIGEST_CRON.split(" ")[1]);
+    expect(worstCaseSeconds).toBeLessThan(hoursLeftInDay * 60 * 60);
   });
 
   it("recreates a queue an earlier worker left on another policy", async () => {

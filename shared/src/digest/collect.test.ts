@@ -54,6 +54,15 @@ describe("digestDayRange", () => {
     expect(() => digestDayRange("2026-02-31")).toThrow();
   });
 
+  it("accepts a leap day, which the round-trip check must not mistake for one", () => {
+    // 29 February exists in 2028 and rolls forward in 2027: the check has to
+    // tell those apart rather than refuse every February day it distrusts.
+    expect(digestDayRange("2028-02-29").end).toEqual(
+      new Date("2028-03-01T00:00:00.000Z"),
+    );
+    expect(() => digestDayRange("2027-02-29")).toThrow();
+  });
+
   it("names the day it rejected, even one Date cannot parse at all", () => {
     // "2026-13-01" is not a date `Date` rolls forward, it is one it refuses:
     // the day has to be named in the error rather than surface as an
