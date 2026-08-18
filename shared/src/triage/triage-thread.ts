@@ -6,13 +6,11 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { recordAuditLogEntry } from "../audit";
 import { messages, threads } from "../db/schema";
 import {
+  MAX_THREAD_MESSAGES,
   classifyThread,
   type ThreadClassification,
   type TriageMessagesClient,
 } from "./classify";
-
-/** Enough of a thread to place it; the rest is noise the model pays for. */
-const MAX_MESSAGES = 10;
 
 export interface TriageThreadInput {
   tenantId: string;
@@ -61,7 +59,8 @@ export const triageThread = async <
     .where(eq(messages.threadId, threadId))
     // Oldest first: the mail that opened the thread is what it is about.
     .orderBy(asc(messages.sentAt))
-    .limit(MAX_MESSAGES);
+    // The classifier drops anything past this anyway, so the rows are not read.
+    .limit(MAX_THREAD_MESSAGES);
 
   const { category, model } = await classifyThread(client, {
     subject: thread.subject,

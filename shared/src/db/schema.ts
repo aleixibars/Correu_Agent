@@ -181,6 +181,13 @@ export const threads = pgTable(
       table.tenantId,
       table.lastMessageAt,
     ),
+    // The triage tick drains "which threads still have no category" every 2
+    // minutes, and that set is tiny next to the threads already triaged — which
+    // only ever grow. Partial, so the index stays the size of the backlog
+    // instead of the size of the mailbox.
+    index("threads_awaiting_triage_idx")
+      .on(table.lastMessageAt)
+      .where(sql`${table.triagedAt} is null`),
   ],
 );
 
