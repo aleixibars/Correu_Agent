@@ -157,6 +157,21 @@ describe("exchangeMicrosoftAuthorizationCode", () => {
     ).rejects.toThrow(/invalid_grant/);
   });
 
+  it.each([
+    ["bare permission names", "Mail.Read Mail.Send User.Read"],
+    ["lowercased URIs", "https://graph.microsoft.com/mail.read https://graph.microsoft.com/mail.send"],
+    [
+      "percent-encoded URIs, as Microsoft's docs show them",
+      "https%3A%2F%2Fgraph.microsoft.com%2FMail.Read https%3A%2F%2Fgraph.microsoft.com%2FMail.Send",
+    ],
+  ])("accepts a consent Entra spelled back as %s", async (_shape, scope) => {
+    const { fetch } = stubFetch({ body: { ...TOKEN_RESPONSE, scope } });
+
+    await expect(
+      exchangeMicrosoftAuthorizationCode({ ...EXCHANGE_REQUEST, fetch }),
+    ).resolves.toMatchObject({ accessToken: "access-token" });
+  });
+
   it("rejects a consent that left out a mail scope", async () => {
     const { fetch } = stubFetch({
       body: {

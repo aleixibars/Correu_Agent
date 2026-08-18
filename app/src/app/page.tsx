@@ -9,11 +9,12 @@ import {
   MICROSOFT_MAILBOX_CONNECT_PATH,
 } from "../lib/mailbox/microsoft";
 
-const MAILBOX_MESSAGES: Record<string, string> = {
-  [MAILBOX_CONNECTED_RESULT]: "Bústia connectada.",
-  [MAILBOX_ERROR_RESULT]:
-    "No s'ha pogut connectar la bústia. Torna-ho a provar.",
-};
+// A Map, not an object literal: the key comes straight off the query string, and
+// `?bustia=constructor` would resolve to an inherited property on a literal.
+const MAILBOX_MESSAGES = new Map<string, string>([
+  [MAILBOX_CONNECTED_RESULT, "Bústia connectada."],
+  [MAILBOX_ERROR_RESULT, "No s'ha pogut connectar la bústia. Torna-ho a provar."],
+]);
 
 export default async function HomePage({
   searchParams,
@@ -34,7 +35,8 @@ export default async function HomePage({
   }
 
   const result = (await searchParams)[MAILBOX_RESULT_PARAM];
-  const message = typeof result === "string" ? MAILBOX_MESSAGES[result] : undefined;
+  const message =
+    typeof result === "string" ? MAILBOX_MESSAGES.get(result) : undefined;
 
   return (
     <main>

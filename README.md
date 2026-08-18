@@ -104,7 +104,9 @@ registrar-hi una URL de redirecció més:
 
 Detalls del flux:
 
-- Cal `TOKEN_ENCRYPTION_KEY`: sense clau, la connexió falla abans de desar res.
+- Cal `TOKEN_ENCRYPTION_KEY`: sense clau (o sense les variables d'Entra), la
+  connexió s'atura al tauler i ni tan sols envia l'usuari a la pantalla de
+  consentiment, que li demanaria accés al correu per després llençar-lo.
 - L'estat CSRF i el verificador PKCE viuen en una galeta `httpOnly` d'un sol ús
   que caduca als 10 minuts.
 - Sense `offline_access` consentit, Entra no retorna cap refresh token i la

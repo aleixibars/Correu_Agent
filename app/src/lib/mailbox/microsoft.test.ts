@@ -79,12 +79,13 @@ const handlersFor = (
     session?: Session | null;
     fetch?: typeof globalThis.fetch;
     db?: ReturnType<typeof createRecordingDb>["db"];
+    env?: Record<string, string | undefined>;
   } = {},
 ) =>
   createMicrosoftMailboxHandlers({
     auth: async () => ("session" in options ? options.session! : SESSION),
     db: options.db ?? createRecordingDb().db,
-    env: ENV,
+    env: options.env ?? ENV,
     fetch: options.fetch ?? stubFetch().fetch,
   });
 
@@ -145,6 +146,38 @@ describe("microsoft mailbox connect", () => {
       `https://correu.example${MICROSOFT_MAILBOX_CALLBACK_PATH}`,
     );
   });
+
+  it("takes the outermost host when a proxy chain appended its own", async () => {
+    const chained = new NextRequest(
+      `http://10.0.0.7:3000${MICROSOFT_MAILBOX_CONNECT_PATH}`,
+      {
+        headers: {
+          "x-forwarded-proto": "https, http",
+          "x-forwarded-host": "correu.example, 10.0.0.7:3000",
+        },
+      },
+    );
+
+    const response = await handlersFor().connect(chained);
+    const authorizeUrl = new URL(response.headers.get("location")!);
+
+    expect(authorizeUrl.searchParams.get("redirect_uri")).toBe(
+      `https://correu.example${MICROSOFT_MAILBOX_CALLBACK_PATH}`,
+    );
+  });
+
+  it.each(["TOKEN_ENCRYPTION_KEY", "AUTH_MICROSOFT_ENTRA_ID_ID"])(
+    "stops at the dashboard instead of asking for consent it cannot use when %s is unset",
+    async (missing) => {
+      const response = await handlersFor({
+        env: { ...ENV, [missing]: undefined },
+      }).connect(request(MICROSOFT_MAILBOX_CONNECT_PATH));
+
+      expect(response.headers.get("location")).toBe(
+        "https://correu.example/?bustia=error",
+      );
+    },
+  );
 
   it("keeps the CSRF state and the PKCE verifier in an http-only cookie", async () => {
     const response = await handlersFor().connect(

@@ -29,6 +29,25 @@ const REQUIRED_GRAPH_SCOPES = [
 const SCOPE_PARAM = MICROSOFT_MAILBOX_SCOPES.join(" ");
 
 /**
+ * Entra is not consistent about how it spells a granted scope back at us: the
+ * fully qualified `https://graph.microsoft.com/Mail.Read`, the bare
+ * `Mail.Read`, a lowercased variant, and (per Microsoft's own token-response
+ * docs) a percent-encoded URI are all shapes seen in the wild. Comparing the
+ * raw strings would reject a perfectly good consent and leave the mailbox
+ * permanently unconnectable, so both sides are reduced to the bare permission
+ * name first.
+ */
+const normalizeScope = (scope: string): string => {
+  let decoded = scope;
+  try {
+    decoded = decodeURIComponent(scope);
+  } catch {
+    // A stray `%` is not an encoding; compare what was actually sent.
+  }
+  return (decoded.split("/").pop() ?? decoded).toLowerCase();
+};
+
+/**
  * Turns `AUTH_MICROSOFT_ENTRA_ID_ISSUER` into the directory segment of the
  * OAuth endpoints, so the mailbox connection targets the same directory the
  * dashboard login is pinned to (README, "Autenticació").
@@ -160,9 +179,9 @@ export const exchangeMicrosoftAuthorizationCode = async ({
   }
 
   const scopes = (body.scope ?? "").split(" ").filter(Boolean);
+  const granted = new Set(scopes.map(normalizeScope));
   const missing = REQUIRED_GRAPH_SCOPES.filter(
-    (required) =>
-      !scopes.some((scope) => scope.toLowerCase() === required.toLowerCase()),
+    (required) => !granted.has(normalizeScope(required)),
   );
   if (missing.length > 0) {
     throw new Error(`Microsoft consent is missing scopes: ${missing.join(", ")}.`);

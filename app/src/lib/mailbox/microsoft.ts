@@ -48,14 +48,21 @@ export interface MicrosoftMailboxHandlers {
   callback: (request: NextRequest) => Promise<NextResponse>;
 }
 
+/** Chained proxies append rather than replace, so the value can be a list. */
+const firstForwarded = (value: string | null): string | undefined =>
+  value?.split(",")[0]?.trim() || undefined;
+
 /**
  * Render terminates TLS at its proxy, so the request URL carries an internal
- * host — the redirect URI registered at Entra has to be the public one.
+ * host — the redirect URI registered at Entra has to be the public one. The
+ * forwarded headers are trusted for the same reason `trustHost` is set on the
+ * Auth.js config: on Render they are the only place the public origin appears.
  */
 const publicOrigin = (request: NextRequest): string => {
-  const host = request.headers.get("x-forwarded-host");
+  const host = firstForwarded(request.headers.get("x-forwarded-host"));
   if (!host) return request.nextUrl.origin;
-  const protocol = request.headers.get("x-forwarded-proto") ?? "https";
+  const protocol =
+    firstForwarded(request.headers.get("x-forwarded-proto")) ?? "https";
   return `${protocol}://${host}`;
 };
 
@@ -107,7 +114,22 @@ export const createMicrosoftMailboxHandlers = <
     const session = await auth();
     if (!session) return NextResponse.redirect(new URL(LOGIN_PATH, origin));
 
-    const { clientId, tenant } = oauthConfig();
+    let clientId: string;
+    let tenant: string;
+    try {
+      ({ clientId, tenant } = oauthConfig());
+      // Checked here and not only where the tokens are written: without a key
+      // the connection cannot succeed, and failing now spares the user a
+      // consent screen that grants mail access this app would then throw away.
+      loadTokenEncryptionKey(env);
+    } catch (error) {
+      // The message names the missing variable, so it stays in the server log.
+      console.error("Cannot start the Microsoft mailbox connection:", error);
+      return NextResponse.redirect(
+        dashboardResult(origin, MAILBOX_ERROR_RESULT),
+      );
+    }
+
     const state = randomUrlSafe();
     const codeVerifier = randomUrlSafe();
 
