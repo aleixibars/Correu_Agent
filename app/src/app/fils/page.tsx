@@ -1,7 +1,8 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { APP_NAME } from "@correu-agent/shared";
 import { auth } from "../../auth";
-import { LOGIN_PATH } from "../../lib/auth/config";
+import { DASHBOARD_PATH, LOGIN_PATH } from "../../lib/auth/config";
 import { categoryLabel } from "../../lib/category-labels";
 import { db } from "../../lib/db";
 import { listThreads } from "../../lib/threads/list-threads";
@@ -18,6 +19,12 @@ const dateFormat = new Intl.DateTimeFormat("ca-ES", {
   timeStyle: "short",
   timeZone: "Europe/Madrid",
 });
+
+// Un correu sense assumpte arriba com a cadena buida, no com a null: Gmail
+// envia la capçalera `Subject:` buida i Graph un `subject` buit. Sense això la
+// cel·la quedaria en blanc i la fila semblaria trencada.
+const subjectLabel = (subject: string | null): string =>
+  subject !== null && subject.trim() !== "" ? subject : "(Sense assumpte)";
 
 export default async function ThreadsPage() {
   const session = await auth();
@@ -43,7 +50,7 @@ export default async function ThreadsPage() {
           <tbody>
             {threads.map(({ id, subject, category, status, lastMessageAt }) => (
               <tr key={id}>
-                <td>{subject ?? "(Sense assumpte)"}</td>
+                <td>{subjectLabel(subject)}</td>
                 {/* Un fil sense categoria és un fil que el triatge encara no ha
                     tocat; l'estat ja ho diu, així que la cel·la no repeteix el
                     motiu. */}
@@ -63,6 +70,9 @@ export default async function ThreadsPage() {
           </tbody>
         </table>
       )}
+      <p>
+        <Link href={DASHBOARD_PATH}>Torna al tauler</Link>
+      </p>
     </main>
   );
 }

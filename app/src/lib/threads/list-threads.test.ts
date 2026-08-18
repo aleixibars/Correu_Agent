@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { listThreads } from "./list-threads";
 
 const TENANT_ID = "11111111-1111-1111-1111-111111111111";
-const OTHER_TENANT_ID = "44444444-4444-4444-4444-444444444444";
 const THREAD_ID = "55555555-5555-5555-5555-555555555555";
 
 /**
@@ -56,11 +55,22 @@ describe("listThreads", () => {
 
     expect(statements).toHaveLength(1);
     const { sql, params } = statements[0]!;
-    expect(sql).toContain('"threads"');
+    expect(sql).toContain('from "threads"');
+    expect(sql).toContain('"threads"."tenant_id" = ');
     expect(params).toContain(TENANT_ID);
-    expect(params).not.toContain(OTHER_TENANT_ID);
-    expect(sql).toContain("order by");
-    expect(sql).toContain("desc");
+    expect(sql).toContain('order by "threads"."last_message_at" desc');
+  });
+
+  // Postgres sorts nulls first on a descending order, so a thread stored
+  // before its mail would otherwise be pinned above today's mail.
+  it("sends a thread with no mail date to the bottom", async () => {
+    const { db, statements } = recordingDatabase();
+
+    await listThreads(db, { tenantId: TENANT_ID });
+
+    expect(statements[0]!.sql).toContain(
+      'order by "threads"."last_message_at" desc nulls last',
+    );
   });
 
   it("caps how many threads one page reads", async () => {

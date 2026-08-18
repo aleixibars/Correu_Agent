@@ -59,8 +59,11 @@ export const listThreads = async <
     })
     .from(threads)
     .where(eq(threads.tenantId, tenantId))
-    // Newest mail first: the reviewer works the top of the list.
-    .orderBy(desc(threads.lastMessageAt))
+    // Newest mail first: the reviewer works the top of the list. `nulls last`
+    // because Postgres sorts nulls first on a descending order, and a thread
+    // stored before its mail — the only way the date is missing — would
+    // otherwise sit pinned above today's mail.
+    .orderBy(sql`${threads.lastMessageAt} desc nulls last`)
     .limit(limit);
 
   return rows.map(({ triagedAt, draftStatus, ...thread }) => ({

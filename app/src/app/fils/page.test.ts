@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "next-auth";
 import { TRIAGE_CATEGORIES } from "@correu-agent/shared";
 import { CATEGORY_LABELS } from "../../lib/category-labels";
+import { DASHBOARD_PATH } from "../../lib/auth/config";
 import { TEST_TENANT_ID } from "../../lib/auth/test-fixtures";
 import type { ThreadListItem } from "../../lib/threads/list-threads";
 
@@ -131,5 +132,21 @@ describe("ThreadsPage", () => {
     ]);
 
     expect(await render()).toContain("(Sense assumpte)");
+  });
+
+  // Both providers report a missing subject as an empty header, not as a null.
+  it("names a thread whose subject is blank", async () => {
+    signedIn();
+    listThreads.mockResolvedValue([
+      { ...threadPerCategory()[0]!, subject: "   " },
+    ]);
+
+    expect(await render()).toContain("(Sense assumpte)");
+  });
+
+  it("leads back to the dashboard", async () => {
+    signedIn();
+
+    expect(await render()).toContain(`href="${DASHBOARD_PATH}"`);
   });
 });
