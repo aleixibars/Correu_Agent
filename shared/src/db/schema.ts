@@ -19,6 +19,8 @@ import { AUTO_REPLY_ELIGIBLE_CATEGORIES, TRIAGE_CATEGORIES } from "../triage";
 
 export const mailProviderEnum = pgEnum("mail_provider", ["google", "microsoft"]);
 
+export type MailProvider = (typeof mailProviderEnum.enumValues)[number];
+
 /** The six fixed PoC categories (context.md §4), kept in sync with `TRIAGE_CATEGORIES`. */
 export const triageCategoryEnum = pgEnum("triage_category", TRIAGE_CATEGORIES);
 

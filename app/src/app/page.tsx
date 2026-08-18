@@ -7,14 +7,13 @@ import {
   MAILBOX_STATUS_PARAM,
   mailboxConnectionNotice,
 } from "../lib/mailbox/connect-messages";
-
-/** Where the Gmail connection flow starts (`api/mailbox/google/connect`). */
-const GOOGLE_CONNECT_PATH = "/api/mailbox/google/connect";
+import { GOOGLE_CONNECT_PATH } from "../lib/mailbox/google-oauth";
+import { MICROSOFT_MAILBOX_CONNECT_PATH } from "../lib/mailbox/microsoft";
 
 export default async function HomePage({
   searchParams,
 }: {
-  // The mailbox callback redirects here with the outcome of the connection.
+  // The mailbox callbacks redirect here with the outcome of the connection.
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const session = await auth();
@@ -44,11 +43,17 @@ export default async function HomePage({
         <p role={notice.ok ? "status" : "alert"}>{notice.text}</p>
       )}
       <p>
-        {/* A plain anchor, not `next/link`: the target is a route handler that
-            redirects off-site to Google, and a client-side navigation would run
-            it twice — once for the RSC fetch that cannot follow the cross-origin
-            redirect, once for the hard navigation that replaces it. */}
+        {/* Plain anchors, not `next/link`: the targets are route handlers that
+            redirect off-site to the provider, and a client-side navigation
+            would run them twice — once for the RSC fetch that cannot follow the
+            cross-origin redirect, once for the hard navigation that replaces
+            it. */}
         <a href={GOOGLE_CONNECT_PATH}>Connecta una bústia de Gmail</a>
+      </p>
+      <p>
+        <a href={MICROSOFT_MAILBOX_CONNECT_PATH}>
+          Connecta una bústia de Microsoft 365/Outlook
+        </a>
       </p>
       <form
         action={async () => {

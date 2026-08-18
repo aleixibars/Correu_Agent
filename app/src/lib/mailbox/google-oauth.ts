@@ -5,12 +5,16 @@
 // nobody present.
 
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { publicAppUrl } from "./public-url";
 
 export const GOOGLE_AUTHORIZATION_ENDPOINT =
   "https://accounts.google.com/o/oauth2/v2/auth";
 export const GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 export const GMAIL_PROFILE_ENDPOINT =
   "https://gmail.googleapis.com/gmail/v1/users/me/profile";
+
+/** Where the dashboard link starts the Gmail connection. */
+export const GOOGLE_CONNECT_PATH = "/api/mailbox/google/connect";
 
 /** Where Google sends the user back after the consent screen. */
 export const GOOGLE_CALLBACK_PATH = "/api/mailbox/google/callback";
@@ -72,18 +76,6 @@ export const loadGoogleOAuthClient = (
   }
   return { clientId, clientSecret, redirectUri };
 };
-
-/**
- * Google matches the redirect URI against the registered one character for
- * character, and Render terminates TLS at a proxy — so the public URL is
- * configuration (`AUTH_URL`), with the request origin as the local fallback.
- */
-export const publicAppUrl = (
-  request: Request,
-  path: string,
-  env: Record<string, string | undefined> = process.env,
-): string =>
-  new URL(path, env.AUTH_URL ?? new URL(request.url).origin).toString();
 
 export const resolveGoogleCallbackUrl = (
   request: Request,

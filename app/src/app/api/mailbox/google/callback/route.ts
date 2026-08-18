@@ -14,11 +14,11 @@ import {
   mailboxOutcomeQuery,
   type MailboxConnectionReason,
 } from "../../../../../lib/mailbox/connect-messages";
+import { publicAppUrl } from "../../../../../lib/mailbox/public-url";
 import {
   MAILBOX_OAUTH_COOKIE,
   MAILBOX_OAUTH_COOKIE_PATH,
   loadGoogleOAuthClient,
-  publicAppUrl,
   resolveGoogleCallbackUrl,
   verifyMailboxOAuthCookie,
 } from "../../../../../lib/mailbox/google-oauth";
