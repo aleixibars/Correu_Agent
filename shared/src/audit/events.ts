@@ -1,5 +1,6 @@
 // Audit trail for every non-bookkeeping action (context.md §7): classification,
-// draft generated/approved/discarded/regenerated and mail actually sent. The
+// draft generated/approved/discarded/regenerated, mail actually sent and the
+// auto-reply switches that let mail go out unapproved in the first place. The
 // question it has to answer for a real client is "why was this mail sent", so an
 // entry says who acted, on what, and what the state was either side of the act.
 
@@ -103,6 +104,24 @@ export type AutoReplySentEvent = EventBase & {
   sentMessageId: string;
 };
 
+/**
+ * Someone moved a category's auto-reply switch (context.md §2). Not attached to
+ * a thread — it is the act that lets *later* mail leave the mailbox with nobody
+ * approving it, so without it the trail of an auto-reply stops at "a rule was
+ * on" with no record of who turned it on.
+ */
+export type AutoReplyRuleChangedEvent = {
+  action: "auto_reply_rule_changed";
+  tenantId: string;
+  actor: UserActor;
+  category: TriageCategory;
+  enabled: boolean;
+  previousEnabled: boolean;
+  /** The guidance the rule now carries; null when the tenant gave none. */
+  instructions: string | null;
+  occurredAt?: Date;
+};
+
 export type AuditEvent =
   | MailReceivedEvent
   | ThreadClassifiedEvent
@@ -111,15 +130,17 @@ export type AuditEvent =
   | DraftDiscardedEvent
   | DraftRegeneratedEvent
   | DraftSentEvent
-  | AutoReplySentEvent;
+  | AutoReplySentEvent
+  | AutoReplyRuleChangedEvent;
 
 /** Derived from the events, so the union above is the single source of truth. */
 export type AuditAction = AuditEvent["action"];
 
 /**
- * The same actions as a value, in pipeline order — for dashboard filters and
- * for iterating them in tests. `satisfies` rejects an action no event declares;
- * a *missing* one is caught by the test that compares this list to the events.
+ * The same actions as a value, in pipeline order with the configuration act
+ * that permits an auto-reply last — for dashboard filters and for iterating
+ * them in tests. `satisfies` rejects an action no event declares; a *missing*
+ * one is caught by the test that compares this list to the events.
  */
 export const AUDIT_ACTIONS = [
   "mail_received",
@@ -130,6 +151,7 @@ export const AUDIT_ACTIONS = [
   "draft_regenerated",
   "draft_sent",
   "auto_reply_sent",
+  "auto_reply_rule_changed",
 ] as const satisfies readonly AuditAction[];
 
 type Transition = {
@@ -187,6 +209,12 @@ const transitionOf = (event: AuditEvent): Transition => {
         ...draftTransition("approved", "sent"),
         details: { sentMessageId: event.sentMessageId },
       };
+    case "auto_reply_rule_changed":
+      return {
+        before: { enabled: event.previousEnabled },
+        after: { enabled: event.enabled },
+        details: { category: event.category, instructions: event.instructions },
+      };
     case "auto_reply_sent":
       return {
         // An auto-reply is never approved, so it goes straight from pending to sent.
@@ -212,7 +240,7 @@ export const buildAuditLogEntry = (event: AuditEvent): NewAuditLogEntry => {
     actorType: event.actor.type,
     actorUserId: event.actor.type === "user" ? event.actor.userId : null,
     action: event.action,
-    threadId: event.threadId,
+    threadId: "threadId" in event ? event.threadId : null,
     draftId: "draftId" in event ? event.draftId : null,
     metadata: { ...(before ? { before } : {}), after, ...details },
     ...(event.occurredAt ? { createdAt: event.occurredAt } : {}),
