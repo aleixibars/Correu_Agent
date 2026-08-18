@@ -304,6 +304,13 @@ El codi de servidor (`app/` API routes, `worker/`) importa l'enviament des de
 `@correu-agent/shared/web-push`, no des del barrel arrel: `web-push` és un paquet
 només de Node i el barrel l'importa codi que acaba al navegador.
 
+El circuit complet: al tauler, «Activa les notificacions» registra el service
+worker (`app/public/sw.js`), subscriu el navegador i desa la subscripció a
+`push_subscriptions` via `POST /api/push`. Quan el triatge classifica un fil com
+a Urgent, el worker envia la notificació a totes les subscripcions del tenant i
+esborra les que el servei de push declara caducades. Cap altra categoria genera
+avís actiu: van al digest diari.
+
 ## Pipeline d'agents
 
 Les issues de GitHub amb l'etiqueta `agent:implement` són recollides automàticament per un agent implementador; la PR resultant passa per un agent revisor (`agent:review`) que fa merge automàtic (squash) si typecheck+test+build passen. Detalls a `context.md` §12 i `docs/agents/`.
