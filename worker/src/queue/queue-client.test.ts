@@ -36,7 +36,7 @@ const createBoss = (existingPolicy?: string) => {
 
 const handleMailboxPoll = vi.fn(async () => ({
   polled: [],
-  messages: [],
+  threads: [],
   failed: [],
 }));
 

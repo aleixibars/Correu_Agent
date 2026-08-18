@@ -10,6 +10,11 @@ const graphMessage = (overrides: Record<string, unknown> = {}) => ({
   subject: "Pressupost",
   receivedDateTime: "2026-01-01T09:00:00Z",
   isDraft: false,
+  from: { emailAddress: { address: "Client@Example.com" } },
+  toRecipients: [{ emailAddress: { address: "bustia@example.com" } }],
+  ccRecipients: [{ emailAddress: { address: "copia@example.com" } }],
+  bodyPreview: "Bon dia,",
+  body: { contentType: "html", content: "<p>Bon dia</p>" },
   ...overrides,
 });
 
@@ -53,17 +58,55 @@ describe("fetchMicrosoftNewMessages", () => {
     expect(decodeURIComponent(calls[1]!.url)).toContain(
       "receivedDateTime gt 2026-01-01T00:00:00.000Z",
     );
+    // The whole message comes back, body included: it is stored as it arrives
+    // and never fetched from Graph a second time (context.md §7).
     expect(sync).toEqual({
       deltaLink: "https://delta/1",
       messages: [
         {
           providerMessageId: "message-1",
           providerThreadId: "conversation-1",
+          direction: "inbound",
           messageIdHeader: "<message-1@example.com>",
+          inReplyTo: null,
+          references: null,
+          fromAddress: "client@example.com",
+          toAddresses: ["bustia@example.com"],
+          ccAddresses: ["copia@example.com"],
           subject: "Pressupost",
-          receivedAt: new Date("2026-01-01T09:00:00Z"),
+          snippet: "Bon dia,",
+          bodyText: null,
+          bodyHtml: "<p>Bon dia</p>",
+          sentAt: new Date("2026-01-01T09:00:00Z"),
         },
       ],
+    });
+  });
+
+  it("keeps a plain-text body out of the HTML column", async () => {
+    const { fetch } = stubFetch([
+      {
+        body: {
+          value: [
+            graphMessage({
+              body: { contentType: "text", content: "Bon dia" },
+            }),
+          ],
+          "@odata.deltaLink": "https://delta/2",
+        },
+      },
+    ]);
+
+    const sync = await fetchMicrosoftNewMessages({
+      accessToken: "access-token",
+      deltaLink: "https://delta/1",
+      since: CONNECTED_AT,
+      fetch,
+    });
+
+    expect(sync.messages[0]).toMatchObject({
+      bodyText: "Bon dia",
+      bodyHtml: null,
     });
   });
 

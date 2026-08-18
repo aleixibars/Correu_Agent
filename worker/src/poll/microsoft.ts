@@ -1,6 +1,7 @@
 // Polling one connected Microsoft 365 mailbox (context.md §8): renew the access
-// token if it is about to die, ask Graph what is new since the stored cursor,
-// and move the cursor on. Reading mail itself lives in the shared Graph client.
+// token if it is about to die and ask Graph what is new since the stored cursor.
+// Moving that cursor on is the caller's `commit`, once the mail is stored.
+// Reading mail itself lives in the shared Graph client.
 
 import { and, eq } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
@@ -9,7 +10,6 @@ import {
   fetchMicrosoftNewMessages,
   microsoftTenantFromIssuer,
   refreshMicrosoftAccessToken,
-  type MailboxMessageSummary,
   type MicrosoftTokenSet,
 } from "@correu-agent/shared/mailbox";
 import {
@@ -18,6 +18,7 @@ import {
   loadTokenEncryptionKey,
 } from "@correu-agent/shared/token-encryption";
 import type { PollableMailboxAccount } from "./accounts";
+import type { MailboxPoll } from "./types";
 
 /**
  * A token valid for less than this is treated as expired: one that dies halfway
@@ -58,12 +59,15 @@ export const loadMicrosoftPollConfig = (
 });
 
 /**
- * New mail in one Microsoft mailbox since its last poll.
+ * New mail in one Microsoft mailbox since its last poll, plus the `commit` that
+ * moves the cursor on once that mail is stored.
  *
- * The cursor is written after Graph answered, so a poll that dies mid-flight
- * repeats itself rather than skipping mail; the same message reaching the
- * pipeline twice is settled by the uniqueness of `(thread, provider message id)`
- * when it is persisted.
+ * The cursor is not written here: a poll that dies mid-flight has to repeat
+ * itself rather than skip mail, and the same message reaching the pipeline twice
+ * is settled by the uniqueness of `(thread, provider message id)` when it is
+ * persisted. Renewed tokens are the exception — Entra rotates the refresh token
+ * away on every use, so the new pair is stored as soon as it is minted or the
+ * mailbox is locked out.
  */
 export const pollMicrosoftMailbox = async <
   T extends PgQueryResultHKT,
@@ -79,7 +83,7 @@ export const pollMicrosoftMailbox = async <
     fetch = globalThis.fetch,
     now = () => new Date(),
   }: MicrosoftPollConfig,
-): Promise<MailboxMessageSummary[]> => {
+): Promise<MailboxPoll> => {
   if (!account.refreshTokenEncrypted) {
     throw new Error(
       `Mailbox ${account.emailAddress} has no refresh token — it has to be reconnected.`,
@@ -94,12 +98,11 @@ export const pollMicrosoftMailbox = async <
       ? account.accessTokenEncrypted
       : null;
 
-  let refreshed: MicrosoftTokenSet | null = null;
   let accessToken: string;
   if (stillValid) {
     accessToken = decryptToken(stillValid, encryptionKey);
   } else {
-    refreshed = await refreshMicrosoftAccessToken({
+    const refreshed: MicrosoftTokenSet = await refreshMicrosoftAccessToken({
       clientId,
       clientSecret,
       tenant,
@@ -108,6 +111,11 @@ export const pollMicrosoftMailbox = async <
       fetch,
     });
     accessToken = refreshed.accessToken;
+    await updateAccount(db, account, {
+      accessTokenEncrypted: encryptToken(refreshed.accessToken, encryptionKey),
+      refreshTokenEncrypted: encryptToken(refreshed.refreshToken, encryptionKey),
+      tokenExpiresAt: refreshed.expiresAt,
+    });
   }
 
   const sync = await fetchMicrosoftNewMessages({
@@ -119,31 +127,32 @@ export const pollMicrosoftMailbox = async <
     fetch,
   });
 
+  return {
+    messages: sync.messages,
+    commit: () =>
+      updateAccount(db, account, {
+        syncCursor: sync.deltaLink,
+        lastPolledAt: polledAt,
+      }),
+  };
+};
+
+/** Every write this poll makes is to its own mailbox row, and to its tenant's alone. */
+const updateAccount = async <
+  T extends PgQueryResultHKT,
+  TSchema extends Record<string, unknown> = Record<string, never>,
+>(
+  db: PgDatabase<T, TSchema>,
+  account: PollableMailboxAccount,
+  values: Partial<typeof mailboxAccounts.$inferInsert>,
+): Promise<void> => {
   await db
     .update(mailboxAccounts)
-    .set({
-      syncCursor: sync.deltaLink,
-      lastPolledAt: polledAt,
-      ...(refreshed
-        ? {
-            accessTokenEncrypted: encryptToken(
-              refreshed.accessToken,
-              encryptionKey,
-            ),
-            refreshTokenEncrypted: encryptToken(
-              refreshed.refreshToken,
-              encryptionKey,
-            ),
-            tokenExpiresAt: refreshed.expiresAt,
-          }
-        : {}),
-    })
+    .set(values)
     .where(
       and(
         eq(mailboxAccounts.id, account.id),
         eq(mailboxAccounts.tenantId, account.tenantId),
       ),
     );
-
-  return sync.messages;
 };

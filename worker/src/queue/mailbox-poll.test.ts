@@ -10,6 +10,7 @@ import {
 } from "./mailbox-poll";
 
 const TENANT_ID = "11111111-1111-1111-1111-111111111111";
+const THREAD_ID = "55555555-5555-5555-5555-555555555555";
 const OTHER_TENANT_ID = "44444444-4444-4444-4444-444444444444";
 const MAILBOX_ID = "22222222-2222-2222-2222-222222222222";
 const OTHER_MAILBOX_ID = "33333333-3333-3333-3333-333333333333";
@@ -36,12 +37,37 @@ const accountRow = (
   "2026-01-01T00:00:00.000Z",
 ];
 
-const createDb = (rowsBySelect: unknown[][][]) => {
+/** In the column order the thread upsert returns: id, category, triagedAt, created. */
+const threadRow = (triagedAt: string | null = null) => [
+  THREAD_ID,
+  triagedAt ? "comercial" : null,
+  triagedAt,
+  triagedAt === null,
+];
+
+const createDb = (
+  rowsBySelect: unknown[][][],
+  thread: unknown[] = threadRow(),
+) => {
   let selects = 0;
   return drizzle(async (sql) => {
-    if (!sql.startsWith("select")) return { rows: [] };
-    return { rows: rowsBySelect[selects++] ?? [] };
+    if (sql.startsWith("select")) return { rows: rowsBySelect[selects++] ?? [] };
+    // The poll persists what it found (`persistPolledMessages`); the thread
+    // upsert and the message insert both report back what they wrote.
+    if (sql.includes('insert into "threads"')) return { rows: [thread] };
+    if (sql.includes('insert into "messages"')) return { rows: [["message-1"]] };
+    return { rows: [] };
   });
+};
+
+/** Names the step a statement belongs to, so a test can assert on their order. */
+const shape = (sql: string): string => {
+  if (sql.startsWith("select")) return "load account";
+  if (sql.includes('insert into "threads"')) return "thread";
+  if (sql.includes('insert into "messages"')) return "message";
+  if (sql.includes('insert into "audit_log_entries"')) return "audit";
+  if (sql.includes('update "mailbox_accounts"')) return "cursor";
+  return "other";
 };
 
 const graphPage = (messageId: string) => ({
@@ -160,14 +186,96 @@ describe("createMailboxPollHandler", () => {
     expect(result.polled).toHaveLength(2);
     expect(result.failed).toEqual([]);
     expect(
-      result.messages.map(({ mailboxAccountId, message }) => [
+      result.threads.map(({ mailboxAccountId, providerThreadId }) => [
         mailboxAccountId,
-        message.providerMessageId,
+        providerThreadId,
       ]),
     ).toEqual([
-      [MAILBOX_ID, "message-1"],
-      [OTHER_MAILBOX_ID, "message-2"],
+      [MAILBOX_ID, "conversation-message-1"],
+      [OTHER_MAILBOX_ID, "conversation-message-2"],
     ]);
+  });
+
+  it("stores the mail it found and hands the thread on for triage", async () => {
+    const statements: string[] = [];
+    const db = drizzle(async (sql) => {
+      statements.push(sql);
+      if (sql.startsWith("select")) return { rows: [accountRow(MAILBOX_ID, TENANT_ID)] };
+      if (sql.includes('insert into "threads"')) return { rows: [threadRow()] };
+      if (sql.includes('insert into "messages"')) return { rows: [["message-1"]] };
+      return { rows: [] };
+    });
+    const { fetch } = stubFetch(() => graphPage("message-1"));
+
+    const result = await createMailboxPollHandler(deps(db, fetch))([
+      job({ tenantId: TENANT_ID, mailboxAccountId: MAILBOX_ID }),
+    ]);
+
+    // Ordering, not just presence: the cursor is the mailbox's memory of what it
+    // has been shown, so it only moves once the mail is on disk. Advancing it
+    // first would lose the batch of a poll that died in between — Graph never
+    // replays a spent delta link.
+    expect(statements.map(shape).filter((step) => step !== "other")).toEqual([
+      "load account",
+      "thread",
+      "message",
+      "audit",
+      "cursor",
+    ]);
+    expect(result.threads).toEqual([
+      {
+        tenantId: TENANT_ID,
+        mailboxAccountId: MAILBOX_ID,
+        threadId: THREAD_ID,
+        providerThreadId: "conversation-message-1",
+        needsTriage: true,
+        newMessages: 1,
+      },
+    ]);
+  });
+
+  it("leaves the cursor alone when the mail it found could not be stored", async () => {
+    const statements: string[] = [];
+    const db = drizzle(async (sql) => {
+      statements.push(sql);
+      if (sql.startsWith("select")) return { rows: [accountRow(MAILBOX_ID, TENANT_ID)] };
+      if (sql.includes('insert into "threads"')) return { rows: [threadRow()] };
+      if (sql.includes('insert into "messages"')) throw new Error("Neon is down");
+      return { rows: [] };
+    });
+    const { fetch } = stubFetch(() => graphPage("message-1"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      createMailboxPollHandler(deps(db, fetch))([
+        job({ tenantId: TENANT_ID, mailboxAccountId: MAILBOX_ID }),
+      ]),
+    ).rejects.toThrow(/Every mailbox in the batch failed/);
+
+    // The mailbox stays where it was, so pg-boss's retry is offered the same
+    // mail again instead of the provider silently skipping past it.
+    expect(statements.map(shape)).not.toContain("cursor");
+    error.mockRestore();
+  });
+
+  it("does not send a thread that was already triaged back through triage", async () => {
+    const db = createDb(
+      [[accountRow(MAILBOX_ID, TENANT_ID)]],
+      threadRow("2026-01-01T08:00:00.000Z"),
+    );
+    const { fetch } = stubFetch(() => graphPage("message-1"));
+
+    const result = await createMailboxPollHandler(deps(db, fetch))([
+      job({ tenantId: TENANT_ID, mailboxAccountId: MAILBOX_ID }),
+    ]);
+
+    // A reply inside a triaged thread is stored, but the thread keeps the
+    // category it already has (context.md §4).
+    expect(result.threads[0]).toMatchObject({
+      threadId: THREAD_ID,
+      needsTriage: false,
+      newMessages: 1,
+    });
   });
 
   it("polls a mailbox once per batch even if queued more than once", async () => {
@@ -195,7 +303,7 @@ describe("createMailboxPollHandler", () => {
     ]);
 
     expect(urls).toEqual([]);
-    expect(result).toEqual({ polled: [], messages: [], failed: [] });
+    expect(result).toEqual({ polled: [], threads: [], failed: [] });
   });
 
   it("keeps polling the rest of the batch when one mailbox fails", async () => {
@@ -226,7 +334,7 @@ describe("createMailboxPollHandler", () => {
         error: "Graph is down",
       },
     ]);
-    expect(result.messages).toHaveLength(1);
+    expect(result.threads).toHaveLength(1);
     // A permanently broken mailbox has to be visible in the log too: the job
     // result of a batch that otherwise succeeded is nobody's alarm.
     expect(error).toHaveBeenCalledWith(
@@ -263,8 +371,8 @@ describe("createMailboxPollHandler", () => {
 
     // Which provider a mailbox belongs to is read from its row, not from the
     // job payload: the queue carries one kind of poll job for both providers.
-    expect(result.messages.map(({ message }) => message.providerMessageId)).toEqual([
-      "gmail-1",
+    expect(result.threads.map(({ providerThreadId }) => providerThreadId)).toEqual([
+      "thread-1",
     ]);
     expect(result.failed).toEqual([]);
   });
@@ -275,6 +383,6 @@ describe("createMailboxPollHandler", () => {
 
     await expect(
       createMailboxPollHandler(deps(db, fetch))([]),
-    ).resolves.toEqual({ polled: [], messages: [], failed: [] });
+    ).resolves.toEqual({ polled: [], threads: [], failed: [] });
   });
 });

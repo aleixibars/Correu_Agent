@@ -34,6 +34,9 @@ const DELTA_PAGE = {
       subject: "Pressupost",
       receivedDateTime: "2026-01-01T08:00:00Z",
       isDraft: false,
+      from: { emailAddress: { address: "client@example.com" } },
+      toRecipients: [{ emailAddress: { address: "bustia@example.com" } }],
+      body: { contentType: "text", content: "Bon dia" },
     },
   ],
   "@odata.deltaLink": "https://delta/2",
@@ -83,7 +86,8 @@ describe("pollMicrosoftMailbox", () => {
     const { db, queries } = createRecordingDb();
     const { fetch, calls } = stubFetch([DELTA_PAGE]);
 
-    const messages = await pollMicrosoftMailbox(db, account(), config(fetch));
+    const poll = await pollMicrosoftMailbox(db, account(), config(fetch));
+    const messages = poll.messages;
 
     // A token that is still valid is reused: refreshing on every poll would
     // mean 720 pointless token requests a day per mailbox (context.md §8).
@@ -92,15 +96,26 @@ describe("pollMicrosoftMailbox", () => {
     expect(calls[0]!.headers.get("authorization")).toBe(
       "Bearer stored-access-token",
     );
-    expect(messages).toEqual([
-      {
-        providerMessageId: "message-1",
-        providerThreadId: "conversation-1",
-        messageIdHeader: "<message-1@example.com>",
-        subject: "Pressupost",
-        receivedAt: new Date("2026-01-01T08:00:00Z"),
-      },
-    ]);
+    expect(messages).toHaveLength(1);
+    // The whole message, body included: it is stored as it arrives and never
+    // fetched from Graph a second time (context.md §7).
+    expect(messages[0]).toMatchObject({
+      providerMessageId: "message-1",
+      providerThreadId: "conversation-1",
+      direction: "inbound",
+      messageIdHeader: "<message-1@example.com>",
+      fromAddress: "client@example.com",
+      toAddresses: ["bustia@example.com"],
+      subject: "Pressupost",
+      bodyText: "Bon dia",
+      sentAt: new Date("2026-01-01T08:00:00Z"),
+    });
+    // The cursor is the mailbox's memory of what it has been shown: moving it
+    // before the mail is stored would lose whatever a crash caught in between,
+    // because a Graph delta link is spent once it has been followed.
+    expect(queries).toEqual([]);
+    await poll.commit();
+
     expect(queries).toHaveLength(1);
     expect(queries[0]!.sql).toContain('update "mailbox_accounts"');
     expect(queries[0]!.params).toContain("https://delta/2");
@@ -112,7 +127,8 @@ describe("pollMicrosoftMailbox", () => {
     const { db, queries } = createRecordingDb();
     const { fetch } = stubFetch([DELTA_PAGE]);
 
-    await pollMicrosoftMailbox(db, account(), config(fetch));
+    const { commit } = await pollMicrosoftMailbox(db, account(), config(fetch));
+    await commit();
 
     expect(queries[0]!.params).toContain(TENANT_ID);
     expect(queries[0]!.params).toContain(MAILBOX_ID);
@@ -134,6 +150,10 @@ describe("pollMicrosoftMailbox", () => {
       "Bearer fresh-access-token",
     );
 
+    // Stored straight away rather than on `commit`: Entra rotates the refresh
+    // token away on use, so a poll that fails after refreshing must not leave
+    // the mailbox holding a token that no longer works.
+    expect(queries).toHaveLength(1);
     const params = queries[0]!.params as string[];
     expect(params).not.toContain("fresh-access-token");
     expect(params).not.toContain("fresh-refresh-token");

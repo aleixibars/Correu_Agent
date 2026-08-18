@@ -116,18 +116,24 @@ describe("pollGmailMailbox", () => {
     const fetchMock = googleResponds();
     const { db } = recordingDatabase();
 
-    const messages = await pollGmailMailbox(db, account(), {
+    const { messages } = await pollGmailMailbox(db, account(), {
       credentials: CREDENTIALS,
       encryptionKey,
     });
 
     expect(messages).toHaveLength(1);
-    expect(messages[0]).toEqual({
+    // The whole message, body included: it is stored as it arrives and never
+    // fetched from Gmail a second time (context.md §7).
+    expect(messages[0]).toMatchObject({
       providerMessageId: "msg-1",
       providerThreadId: "thread-1",
+      direction: "inbound",
       messageIdHeader: "<msg-1@example.com>",
+      fromAddress: "client@example.com",
+      toAddresses: ["bustia@example.com"],
       subject: "Pressupost",
-      receivedAt: new Date(1700000000000),
+      bodyText: "Bon dia",
+      sentAt: new Date(1700000000000),
     });
 
     // Only new mail is polled (context.md §4): history resumes from the cursor.
@@ -137,14 +143,20 @@ describe("pollGmailMailbox", () => {
     expect(String(history![0])).toContain("startHistoryId=1000");
   });
 
-  it("moves the cursor forward so the next poll does not repeat the mail", async () => {
+  it("moves the cursor forward only once the caller has stored the mail", async () => {
     googleResponds();
     const { db, statements } = recordingDatabase();
 
-    await pollGmailMailbox(db, account(), {
+    const { commit } = await pollGmailMailbox(db, account(), {
       credentials: CREDENTIALS,
       encryptionKey,
     });
+
+    // The cursor is the mailbox's memory of what it has been shown: moving it
+    // before the mail is stored would lose whatever a crash caught in between,
+    // because Gmail never offers the same history twice.
+    expect(updates(statements)).toEqual([]);
+    await commit();
 
     const [update] = updates(statements);
     expect(update!.sql).toContain('"mailbox_accounts"');
@@ -240,7 +252,7 @@ describe("pollGmailMailbox", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { db } = recordingDatabase();
 
-    const messages = await pollGmailMailbox(db, account(), {
+    const { messages } = await pollGmailMailbox(db, account(), {
       credentials: CREDENTIALS,
       encryptionKey,
     });
@@ -261,10 +273,12 @@ describe("pollGmailMailbox", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { db, statements } = recordingDatabase();
 
-    const messages = await pollGmailMailbox(db, account({ syncCursor: null }), {
-      credentials: CREDENTIALS,
-      encryptionKey,
-    });
+    const { messages, commit } = await pollGmailMailbox(
+      db,
+      account({ syncCursor: null }),
+      { credentials: CREDENTIALS, encryptionKey },
+    );
+    await commit();
 
     expect(messages).toEqual([]);
     expect(warn).not.toHaveBeenCalled();

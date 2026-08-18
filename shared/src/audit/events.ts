@@ -20,6 +20,20 @@ type EventBase = {
   occurredAt?: Date;
 };
 
+/**
+ * New mail landed in a thread. Persisting is bookkeeping on its own, but it is
+ * the first link of the chain the audit trail has to answer for ("why was this
+ * mail sent"): without it a classification has no arrival to point back to.
+ */
+export type MailReceivedEvent = EventBase & {
+  action: "mail_received";
+  actor: SystemActor;
+  /** Provider ids of the messages this poll stored; mail already stored is not repeated. */
+  providerMessageIds: string[];
+  /** True when the poll created the thread rather than appending to an open one. */
+  threadCreated: boolean;
+};
+
 export type ThreadClassifiedEvent = EventBase & {
   action: "thread_classified";
   actor: SystemActor;
@@ -84,6 +98,7 @@ export type AutoReplySentEvent = EventBase & {
 };
 
 export type AuditEvent =
+  | MailReceivedEvent
   | ThreadClassifiedEvent
   | DraftGeneratedEvent
   | DraftApprovedEvent
@@ -101,6 +116,7 @@ export type AuditAction = AuditEvent["action"];
  * a *missing* one is caught by the test that compares this list to the events.
  */
 export const AUDIT_ACTIONS = [
+  "mail_received",
   "thread_classified",
   "draft_generated",
   "draft_approved",
@@ -128,6 +144,11 @@ const draftTransition = (
 
 const transitionOf = (event: AuditEvent): Transition => {
   switch (event.action) {
+    case "mail_received":
+      return {
+        after: { providerMessageIds: event.providerMessageIds },
+        details: { threadCreated: event.threadCreated },
+      };
     case "thread_classified":
       return {
         before: { category: event.previousCategory },
