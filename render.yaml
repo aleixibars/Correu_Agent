@@ -1,0 +1,82 @@
+# Render Blueprint (context.md §10): app/ as a Web Service, worker/ as a
+# Background Worker, both against the same Neon Postgres (EU region). Apply
+# via the Render dashboard: New -> Blueprint -> connect this repo.
+#
+# Vars marked `sync: false` are secrets — Render prompts for them once at
+# apply time and never reads their value back from this file.
+
+services:
+  - type: web
+    name: correu-agent-app
+    runtime: node
+    region: frankfurt
+    plan: free
+    autoDeploy: true
+    buildCommand: npm ci && npm run build -w @correu-agent/app
+    startCommand: npm run start -w @correu-agent/app
+    healthCheckPath: /login
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: AUTH_URL
+        value: https://correu-agent-app.onrender.com
+      - key: AUTH_ALLOWED_EMAILS
+        value: aleix7172@gmail.com
+      - key: DATABASE_URL
+        sync: false
+      - key: AUTH_SECRET
+        sync: false
+      - key: AUTH_GOOGLE_ID
+        sync: false
+      - key: AUTH_GOOGLE_SECRET
+        sync: false
+      - key: AUTH_MICROSOFT_ENTRA_ID_ID
+        sync: false
+      - key: AUTH_MICROSOFT_ENTRA_ID_SECRET
+        sync: false
+      - key: AUTH_MICROSOFT_ENTRA_ID_ISSUER
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false
+      - key: TOKEN_ENCRYPTION_KEY
+        sync: false
+
+  - type: worker
+    name: correu-agent-worker
+    runtime: node
+    region: frankfurt
+    plan: starter # Render has no free tier for Background Workers.
+    autoDeploy: true
+    buildCommand: npm ci && npm run build -w @correu-agent/worker
+    startCommand: npm run start -w @correu-agent/worker
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        sync: false
+      - key: AUTH_GOOGLE_ID
+        sync: false
+      - key: AUTH_GOOGLE_SECRET
+        sync: false
+      - key: AUTH_MICROSOFT_ENTRA_ID_ID
+        sync: false
+      - key: AUTH_MICROSOFT_ENTRA_ID_SECRET
+        sync: false
+      - key: AUTH_MICROSOFT_ENTRA_ID_ISSUER
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false
+      - key: TOKEN_ENCRYPTION_KEY
+        sync: false
