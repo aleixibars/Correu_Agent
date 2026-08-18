@@ -413,6 +413,19 @@ const sentMime = (fetchMock: ReturnType<typeof gmailAccepts>) => {
   };
 };
 
+/** Undoes RFC 5322 folding, the way a receiving client does before reading a header. */
+const unfold = (headers: string): string => headers.replace(/\r\n(?=[ \t])/g, "");
+
+const decodeEncodedWords = (value: string): string =>
+  value
+    .split(/\s+/)
+    .map((word) => {
+      const match = /^=\?UTF-8\?B\?(.*)\?=$/.exec(word);
+      return match ? Buffer.from(match[1]!, "base64") : Buffer.from(word, "utf8");
+    })
+    .reduce((decoded, part) => Buffer.concat([decoded, part]), Buffer.alloc(0))
+    .toString("utf8");
+
 describe("createGmailSender", () => {
   it("sends the reply into the thread it answers", async () => {
     const fetchMock = gmailAccepts({ id: "sent-1", threadId: "thread-1" });
@@ -429,7 +442,8 @@ describe("createGmailSender", () => {
     expect(headers).toContain(
       "References: <msg-0@example.com> <msg-1@example.com>",
     );
-    expect(body).toBe("Bon dia,\n\nUs enviem el pressupost.");
+    // RFC 2045 §6.8: the canonical form of a text body ends its lines with CRLF.
+    expect(body).toBe("Bon dia,\r\n\r\nUs enviem el pressupost.");
     expect(result).toEqual({ providerMessageId: "sent-1", messageIdHeader: null });
   });
 
@@ -466,6 +480,43 @@ describe("createGmailSender", () => {
     const { headers } = sentMime(fetchMock);
     expect(headers).not.toContain("In-Reply-To:");
     expect(headers).not.toContain("References:");
+  });
+
+  it("folds a References chain too long to be one line", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+    // A thread grows its chain by one id per mail, so a long conversation runs
+    // past the line limit on its own.
+    const chain = Array.from(
+      { length: 30 },
+      (_, index) => `<msg-${index}@mail.example.com>`,
+    ).join(" ");
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(
+      outgoingReply({ references: chain }),
+    );
+
+    const { headers } = sentMime(fetchMock);
+    const lines = headers.split("\r\n");
+    expect(lines.filter((line) => line.startsWith(" <msg-")).length).toBeGreaterThan(0);
+    expect(lines.every((line) => line.length <= 78)).toBe(true);
+    // Folding is whitespace only: unfolding gives the chain back untouched.
+    expect(unfold(headers)).toContain(`References: ${chain}`);
+  });
+
+  it("splits a long accented subject into encoded words a decoder can rejoin", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+    const subject = `Re: ${"Pressupost de l\u2019any per a la reuni\u00f3 ".repeat(4)}`.trim();
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(outgoingReply({ subject }));
+
+    const { headers } = sentMime(fetchMock);
+    const encoded = unfold(headers)
+      .split("\r\n")
+      .find((line) => line.startsWith("Subject: "))!
+      .slice("Subject: ".length);
+    // RFC 2047 §2 caps an encoded word at 75 characters, wrapping included.
+    for (const word of encoded.split(" ")) expect(word.length).toBeLessThanOrEqual(75);
+    expect(decodeEncodedWords(encoded)).toBe(subject);
   });
 
   it("fails loudly when Gmail refuses the send", async () => {

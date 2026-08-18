@@ -20,11 +20,12 @@ const draftRow = ({
   parentProviderMessageId = "provider-message-1" as string | null,
   parentFromAddress = "client@example.com" as string | null,
   references = null as string | null,
+  threadSubject = "Pressupost" as string | null,
 } = {}) => [
   status,
   body,
   THREAD_ID,
-  "Pressupost",
+  threadSubject,
   "provider-thread-1",
   "bustia@example.com",
   parentProviderMessageId,
@@ -206,6 +207,37 @@ describe("approveAndSendDraft", () => {
         now: NOW,
       }),
     ).rejects.toThrow(/no message to reply to/);
+    expect(sendReply).not.toHaveBeenCalled();
+  });
+
+  it("takes the subject from the mail being answered when the thread has none", async () => {
+    const { db } = createDb({ draft: draftRow({ threadSubject: "" }) });
+    const { sender, sendReply } = createSender();
+
+    await approveAndSendDraft(db, sender, {
+      tenantId: TENANT_ID,
+      draftId: DRAFT_ID,
+      actorUserId: USER_ID,
+      now: NOW,
+    });
+
+    expect(sendReply.mock.calls[0]![0].subject).toBe("Re: Pressupost");
+  });
+
+  it("refuses to send an empty reply the user blanked out", async () => {
+    const { db } = createDb();
+    const { sender, sendReply } = createSender();
+
+    await expect(
+      approveAndSendDraft(db, sender, {
+        tenantId: TENANT_ID,
+        draftId: DRAFT_ID,
+        actorUserId: USER_ID,
+        body: "   \n  ",
+        now: NOW,
+      }),
+    ).rejects.toThrow(/empty body/);
+    // Refused before the claim, so the draft stays pending and editable.
     expect(sendReply).not.toHaveBeenCalled();
   });
 

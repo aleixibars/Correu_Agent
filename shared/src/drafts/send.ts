@@ -122,7 +122,9 @@ export const approveAndSendDraft = async <
     inReplyTo: draft.parentInReplyTo,
     references: draft.parentReferences,
   });
-  const subject = replySubject(draft.threadSubject ?? draft.parentSubject);
+  // `||`, not `??`: a thread whose subject was stored as an empty string falls
+  // back to the mail being answered just as a null one does.
+  const subject = replySubject(draft.threadSubject || draft.parentSubject);
   // A reply, never a reply-all: the mail answers whoever wrote, and the PoC
   // sends without anyone checking the recipient list afterwards.
   const toAddresses = [draft.parentFromAddress];
