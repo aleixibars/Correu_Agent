@@ -16,9 +16,6 @@ export interface LatestDailyDigest {
   updatedAt: Date;
 }
 
-// `thread_count` is deliberately left unread: the page regroups the day's
-// threads to list them, and a stored count taken before a correction would
-// then contradict the sections printed right under it.
 export interface LatestDailyDigestOptions {
   tenantId: string;
 }
@@ -38,6 +35,9 @@ export const latestDailyDigest = async <
   db: PgDatabase<TResult, TFullSchema, TSchema>,
   { tenantId }: LatestDailyDigestOptions,
 ): Promise<LatestDailyDigest | null> => {
+  // `thread_count` is deliberately left unread: the page regroups the day's
+  // threads to list them, and a stored count taken before a correction would
+  // then contradict the sections printed right under it.
   const [digest] = await db
     .select({
       day: dailyDigests.digestDate,

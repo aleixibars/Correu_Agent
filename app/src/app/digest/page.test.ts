@@ -114,6 +114,20 @@ describe("DigestPage", () => {
     expect(markup).toContain("<p>Res urgent avui.</p>");
   });
 
+  // The model is asked for a short section per category and often answers with
+  // one line each; joined into a single paragraph they would read as a run-on.
+  it("keeps a summary line per category on its own line", async () => {
+    signedIn();
+    latestDailyDigest.mockResolvedValue(
+      digest({ summary: "- Urgent: cap.\n- Comercial: dos pressupostos." }),
+    );
+
+    const markup = await render();
+
+    expect(markup).toContain("<p>- Urgent: cap.</p>");
+    expect(markup).toContain("<p>- Comercial: dos pressupostos.</p>");
+  });
+
   it("groups the day's threads under their Catalan category", async () => {
     withDigest();
 
@@ -161,6 +175,33 @@ describe("DigestPage", () => {
     expect(markup).toContain(`${CATEGORY_LABELS.comercial} (3)`);
   });
 
+  it("counts a single thread without pluralising it", async () => {
+    signedIn();
+    latestDailyDigest.mockResolvedValue(digest());
+    collectDailyDigest.mockResolvedValue({
+      day: DAY,
+      threadCount: 1,
+      sections: [
+        {
+          category: "urgent",
+          threads: [
+            {
+              id: "thread-1",
+              subject: "Servidor caigut",
+              category: "urgent" as const,
+              lastMessageAt: null,
+            },
+          ],
+        },
+      ],
+    });
+
+    const markup = await render();
+
+    expect(markup).toContain("1 fil processat");
+    expect(markup).not.toContain("1 fils");
+  });
+
   it("dates the day in Catalan and machine-readably", async () => {
     withDigest();
 
@@ -181,17 +222,28 @@ describe("DigestPage", () => {
     expect(markup).toContain("18/8/26 8:00");
   });
 
-  it("names a thread that arrived without a subject", async () => {
+  const withOnlySubject = (subject: string | null): void => {
     const content = contentPerCategory();
     withDigest({
       ...content,
       sections: [
         {
           ...content.sections[0]!,
-          threads: [{ ...content.sections[0]!.threads[0]!, subject: "   " }],
+          threads: [{ ...content.sections[0]!.threads[0]!, subject }],
         },
       ],
     });
+  };
+
+  it("names a thread that arrived without a subject", async () => {
+    withOnlySubject(null);
+
+    expect(await render()).toContain("(Sense assumpte)");
+  });
+
+  // Both providers report a missing subject as an empty header, not as a null.
+  it("names a thread whose subject is blank", async () => {
+    withOnlySubject("   ");
 
     expect(await render()).toContain("(Sense assumpte)");
   });

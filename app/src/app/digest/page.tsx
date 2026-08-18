@@ -7,6 +7,7 @@ import { DASHBOARD_PATH, LOGIN_PATH } from "../../lib/auth/config";
 import { categoryLabel } from "../../lib/category-labels";
 import { db } from "../../lib/db";
 import { latestDailyDigest } from "../../lib/digest/latest-digest";
+import { subjectLabel } from "../../lib/subject-label";
 
 export const metadata = {
   title: `Digest diari · ${APP_NAME}`,
@@ -35,15 +36,14 @@ const writtenAtFormat = new Intl.DateTimeFormat("ca-ES", {
   timeZone: "Europe/Madrid",
 });
 
-const subjectLabel = (subject: string | null): string =>
-  subject !== null && subject.trim() !== "" ? subject : "(Sense assumpte)";
-
-// El resum arriba com a prosa amb paràgrafs separats per una línia en blanc
-// (context.md §6). Es parteix i es pinta com a text — mai com a HTML: ve d'un
-// model que ha llegit correu de tercers.
+// El resum arriba com a prosa (context.md §6). Es parteix per qualsevol salt de
+// línia, no només per línia en blanc: al model se li demana una secció curta per
+// categoria i sovint respon amb una línia per categoria, i unir-les donaria un
+// sol paràgraf corregut. Es pinta com a text — mai com a HTML: ve d'un model
+// que ha llegit correu de tercers.
 const paragraphs = (summary: string): string[] =>
   summary
-    .split(/\n{2,}/)
+    .split(/\n+/)
     .map((paragraph) => paragraph.trim())
     .filter((paragraph) => paragraph !== "");
 
@@ -82,7 +82,9 @@ export default async function DigestPage() {
           {dayFormat.format(new Date(digest.day))}
         </time>
         {" · "}
-        {content.threadCount} fils processats
+        {content.threadCount === 1
+          ? "1 fil processat"
+          : `${content.threadCount} fils processats`}
       </p>
       <p>
         Generat el{" "}
