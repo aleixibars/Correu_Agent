@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "drafts_thread_pending_idx" ON "drafts" USING btree ("thread_id") WHERE "drafts"."status" = 'pending';
