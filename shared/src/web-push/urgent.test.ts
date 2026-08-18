@@ -92,6 +92,18 @@ describe("notifyUrgentThread", () => {
     );
   });
 
+  // The notification names who wrote in, so a reply this product sent must not
+  // be picked, and neither must a message the provider gave no date for.
+  it("reads the newest inbound mail of the thread", async () => {
+    const { db, queries } = createDb();
+
+    await notify(db, createSender());
+
+    const threadQuery = queries.find(({ sql }) => sql.includes('from "threads"'))!;
+    expect(threadQuery.sql).toContain('"direction" =');
+    expect(threadQuery.sql).toContain("desc nulls last");
+  });
+
   it("does not read the thread when nobody is subscribed", async () => {
     const { db, queries } = createDb({ subscriptions: [] });
     const sender = createSender();

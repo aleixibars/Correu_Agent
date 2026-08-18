@@ -3,7 +3,7 @@
 // Everything else waits for the daily digest, and nothing is ever mailed back
 // into the mailbox being watched.
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { messages, threads } from "../db/schema";
 import type { WebPushNotification } from "./send";
@@ -57,11 +57,17 @@ export const notifyUrgentThread = async <
     .select({ subject: threads.subject, fromAddress: messages.fromAddress })
     .from(threads)
     // Left join: a thread whose mail is not stored yet still gets notified, on
-    // its subject alone.
-    .leftJoin(messages, eq(messages.threadId, threads.id))
+    // its subject alone. Inbound only — the notification names who wrote in,
+    // and a reply this product sent is not that.
+    .leftJoin(
+      messages,
+      and(eq(messages.threadId, threads.id), eq(messages.direction, "inbound")),
+    )
     .where(and(eq(threads.id, threadId), eq(threads.tenantId, tenantId)))
-    // The newest mail is what made the thread urgent.
-    .orderBy(desc(messages.sentAt))
+    // The newest mail is what made the thread urgent. Spelled out rather than
+    // `desc()`: Postgres sorts nulls first on a descending order, which would
+    // pick a message the provider gave no date for over the real newest one.
+    .orderBy(sql`${messages.sentAt} desc nulls last`)
     .limit(1);
 
   if (!thread) return NOTHING_TO_SEND;

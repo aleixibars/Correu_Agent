@@ -13,10 +13,21 @@ export const PUSH_SUBSCRIPTION_PATH = "/api/push";
 /** Served from `app/public/`, so it controls the whole dashboard scope. */
 const SERVICE_WORKER_PATH = "/sw.js";
 
-type State = "loading" | "unsupported" | "blocked" | "off" | "on" | "failed";
+type State =
+  | "loading"
+  | "unconfigured"
+  | "unsupported"
+  | "blocked"
+  | "off"
+  | "on"
+  | "failed";
 
 const MESSAGES: Record<Exclude<State, "off" | "on">, string> = {
   loading: "Comprovant les notificacions…",
+  // Told apart from an old browser: without a VAPID key nothing the visitor
+  // does here can help, and saying "your browser" would send them looking.
+  unconfigured:
+    "Les notificacions no estan configurades en aquest desplegament.",
   unsupported: "Aquest navegador no admet notificacions push.",
   blocked:
     "Heu blocat les notificacions en aquest navegador. Permeteu-les a la configuració del lloc per rebre avisos de correu urgent.",
@@ -42,7 +53,11 @@ export const UrgentPushToggle = ({
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (publicKey === "" || !isSupported()) {
+    if (publicKey === "") {
+      setState("unconfigured");
+      return;
+    }
+    if (!isSupported()) {
       setState("unsupported");
       return;
     }

@@ -11,15 +11,17 @@ import {
 import { auth } from "../../../auth";
 import { db } from "../../../lib/db";
 
-const UNAUTHORISED = NextResponse.json(
-  { error: "Cal iniciar la sessió." },
-  { status: 401 },
-);
+// Built per request rather than once at module load: a response body is a
+// stream that is consumed when it is sent, so a single shared instance answers
+// the first caller and is already drained for every one after it.
+const unauthorised = (): NextResponse =>
+  NextResponse.json({ error: "Cal iniciar la sessió." }, { status: 401 });
 
-const INVALID = NextResponse.json(
-  { error: "La subscripció de notificacions no és vàlida." },
-  { status: 400 },
-);
+const invalid = (): NextResponse =>
+  NextResponse.json(
+    { error: "La subscripció de notificacions no és vàlida." },
+    { status: 400 },
+  );
 
 const readJson = async (request: NextRequest): Promise<unknown> => {
   try {
@@ -31,13 +33,13 @@ const readJson = async (request: NextRequest): Promise<unknown> => {
 
 export const POST = async (request: NextRequest): Promise<NextResponse> => {
   const session = await auth();
-  if (!session) return UNAUTHORISED;
+  if (!session) return unauthorised();
 
   let subscription;
   try {
     subscription = parsePushSubscription(await readJson(request));
   } catch {
-    return INVALID;
+    return invalid();
   }
 
   await savePushSubscription(db, {
@@ -50,14 +52,14 @@ export const POST = async (request: NextRequest): Promise<NextResponse> => {
 
 export const DELETE = async (request: NextRequest): Promise<NextResponse> => {
   const session = await auth();
-  if (!session) return UNAUTHORISED;
+  if (!session) return unauthorised();
 
   const body = await readJson(request);
   const endpoint =
     typeof body === "object" && body !== null
       ? (body as { endpoint?: unknown }).endpoint
       : undefined;
-  if (typeof endpoint !== "string" || endpoint.trim() === "") return INVALID;
+  if (typeof endpoint !== "string" || endpoint.trim() === "") return invalid();
 
   // Tenant-scoped: an endpoint is unguessable, but the delete still must not be
   // able to reach another tenant's row.
