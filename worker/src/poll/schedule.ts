@@ -29,7 +29,8 @@ export const queueMailboxPolls = async <
     };
     // A poll that outlives its tick (a big first sync, a slow Graph) must not
     // leave a queue of duplicate polls waiting behind it, so the mailbox is the
-    // singleton key — enforced by the queue's `short` policy (`queue-client.ts`).
+    // singleton key — enforced by the queue's single-flight policy
+    // (`queue-client.ts`).
     // A dropped duplicate comes back as a null id and is a normal tick, not a
     // failure: the poll it would have repeated is still waiting.
     const jobId = await boss.send(MAILBOX_POLL_QUEUE, data, {

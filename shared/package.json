@@ -12,6 +12,7 @@
     "./mail": "./src/mail/index.ts",
     "./audit": "./src/audit/index.ts",
     "./mailbox": "./src/mailbox/index.ts",
+    "./retention": "./src/retention/index.ts",
     "./triage": "./src/triage/index.ts",
     "./web-push": "./src/web-push/index.ts",
     "./package.json": "./package.json"
