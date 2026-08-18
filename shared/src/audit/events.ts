@@ -119,6 +119,8 @@ export type AutoReplyRuleChangedEvent = {
   previousEnabled: boolean;
   /** The guidance the rule now carries; null when the tenant gave none. */
   instructions: string | null;
+  /** The guidance it carried before — rewriting it changes what auto-replies say. */
+  previousInstructions: string | null;
   occurredAt?: Date;
 };
 
@@ -211,9 +213,15 @@ const transitionOf = (event: AuditEvent): Transition => {
       };
     case "auto_reply_rule_changed":
       return {
-        before: { enabled: event.previousEnabled },
-        after: { enabled: event.enabled },
-        details: { category: event.category, instructions: event.instructions },
+        // The guidance rides in the transition rather than in the details: a
+        // rewrite with the switch left on is a real change to what goes out
+        // unapproved, and a bare `enabled: true -> true` would hide it.
+        before: {
+          enabled: event.previousEnabled,
+          instructions: event.previousInstructions,
+        },
+        after: { enabled: event.enabled, instructions: event.instructions },
+        details: { category: event.category },
       };
     case "auto_reply_sent":
       return {

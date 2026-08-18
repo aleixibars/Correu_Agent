@@ -95,6 +95,7 @@ const EVENTS: { [A in AuditAction]: Extract<AuditEvent, { action: A }> } = {
     previousEnabled: false,
     enabled: true,
     instructions: null,
+    previousInstructions: null,
   },
 };
 
@@ -135,8 +136,8 @@ const TRANSITIONS: Record<
     after: { status: "sent" },
   },
   auto_reply_rule_changed: {
-    before: { enabled: false },
-    after: { enabled: true },
+    before: { enabled: false, instructions: null },
+    after: { enabled: true, instructions: null },
   },
 };
 
@@ -253,9 +254,32 @@ describe("buildAuditLogEntry", () => {
     });
 
     expect(metadata.category).toBe("comercial");
-    expect(metadata.instructions).toBe("Respon en to proper.");
-    expect(metadata.before).toEqual({ enabled: false });
-    expect(metadata.after).toEqual({ enabled: true });
+    expect(metadata.before).toEqual({ enabled: false, instructions: null });
+    expect(metadata.after).toEqual({
+      enabled: true,
+      instructions: "Respon en to proper.",
+    });
+  });
+
+  it("records a rewrite of the guidance with the switch left alone", () => {
+    // The switch stays on either side, so the guidance is the only thing that
+    // says what changed about the mail this rule sends unapproved.
+    const metadata = metadataOf({
+      ...EVENTS.auto_reply_rule_changed,
+      previousEnabled: true,
+      enabled: true,
+      previousInstructions: "Respon en to proper.",
+      instructions: "Ofereix sempre un descompte.",
+    });
+
+    expect(metadata.before).toEqual({
+      enabled: true,
+      instructions: "Respon en to proper.",
+    });
+    expect(metadata.after).toEqual({
+      enabled: true,
+      instructions: "Ofereix sempre un descompte.",
+    });
   });
 
   it("records which category's rule fired an auto-reply", () => {

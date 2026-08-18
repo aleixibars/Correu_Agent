@@ -14,8 +14,12 @@ import {
   type TriageCategory,
 } from "../triage/taxonomy";
 
-/** One category's switch, as the dashboard shows it and the sender reads it. */
-export interface AutoReplyRule {
+/**
+ * One category's switch, as the dashboard shows it and the sender reads it.
+ * Named apart from the `AutoReplyRule` row type in `db/schema` because it is
+ * the three fields that decide behaviour, not the stored row.
+ */
+export interface AutoReplyRuleState {
   category: TriageCategory;
   enabled: boolean;
   /** Extra guidance for replies this rule fires; null when the tenant gave none. */
@@ -43,11 +47,15 @@ const ruleColumns = {
   instructions: autoReplyRules.instructions,
 };
 
+/** A blank textarea is not guidance: it reads back as none, never as "". */
+const normalizeInstructions = (instructions: string | null): string | null =>
+  instructions?.trim() || null;
+
 export interface SetAutoReplyRuleInput {
   tenantId: string;
   category: TriageCategory;
   enabled: boolean;
-  /** Replaces whatever guidance the rule carried; omit to clear it. */
+  /** Replaces whatever guidance the rule carried; omit or blank it to clear. */
   instructions?: string | null;
   /** Who moved the switch — the audit trail's accountability anchor. */
   actor: UserActor;
@@ -76,8 +84,10 @@ export const setAutoReplyRule = async <
     actor,
     now = new Date(),
   }: SetAutoReplyRuleInput,
-): Promise<AutoReplyRule> => {
+): Promise<AutoReplyRuleState> => {
   if (!isAutoReplyEligible(category)) throw new AutoReplyCategoryError(category);
+
+  const guidance = normalizeInstructions(instructions);
 
   const [previous] = await db
     .select(ruleColumns)
@@ -92,11 +102,17 @@ export const setAutoReplyRule = async <
 
   const [stored] = await db
     .insert(autoReplyRules)
-    .values({ tenantId, category, enabled, instructions, updatedAt: now })
+    .values({
+      tenantId,
+      category,
+      enabled,
+      instructions: guidance,
+      updatedAt: now,
+    })
     .onConflictDoUpdate({
       target: [autoReplyRules.tenantId, autoReplyRules.category],
       // `$onUpdate` does not fire on a conflict path, so the stamp is explicit.
-      set: { enabled, instructions, updatedAt: now },
+      set: { enabled, instructions: guidance, updatedAt: now },
     })
     .returning(ruleColumns);
 
@@ -106,9 +122,10 @@ export const setAutoReplyRule = async <
 
   // A category with no rule yet is off: pressing "off" on one is not a change.
   const previousEnabled = previous?.enabled ?? false;
+  const previousInstructions = previous?.instructions ?? null;
   const unchanged =
     previousEnabled === stored.enabled &&
-    (previous?.instructions ?? null) === stored.instructions;
+    previousInstructions === stored.instructions;
 
   if (!unchanged) {
     await recordAuditLogEntry(db, {
@@ -118,6 +135,7 @@ export const setAutoReplyRule = async <
       category,
       previousEnabled,
       enabled: stored.enabled,
+      previousInstructions,
       instructions: stored.instructions,
       occurredAt: now,
     });
@@ -137,7 +155,7 @@ export const listAutoReplyRules = async <
 >(
   db: PgDatabase<T, TSchema>,
   tenantId: string,
-): Promise<AutoReplyRule[]> => {
+): Promise<AutoReplyRuleState[]> => {
   const stored = await db
     .select(ruleColumns)
     .from(autoReplyRules)
@@ -176,7 +194,7 @@ export const findEnabledAutoReplyRule = async <
 >(
   db: PgDatabase<T, TSchema>,
   { tenantId, category }: AutoReplyRuleLookup,
-): Promise<AutoReplyRule | null> => {
+): Promise<AutoReplyRuleState | null> => {
   if (!isAutoReplyEligible(category)) return null;
 
   const [rule] = await db

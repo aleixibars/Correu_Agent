@@ -1,9 +1,6 @@
 import { drizzle } from "drizzle-orm/pg-proxy";
 import { describe, expect, it } from "vitest";
-import {
-  TRIAGE_CATEGORIES,
-  isAutoReplyEligible,
-} from "../triage/taxonomy";
+import { TRIAGE_CATEGORIES, isAutoReplyEligible } from "../triage/taxonomy";
 import {
   AutoReplyCategoryError,
   findEnabledAutoReplyRule,
@@ -141,6 +138,73 @@ describe("setAutoReplyRule", () => {
     );
   });
 
+  it("records a rewrite of the guidance with the switch left on", async () => {
+    const { db, queries } = createDb([
+      [ruleRow(true, "Respon en to proper.")],
+      [ruleRow(true, "Ofereix sempre un descompte.")],
+      [],
+    ]);
+
+    await setAutoReplyRule(db, {
+      tenantId: TENANT_ID,
+      category: "comercial",
+      enabled: true,
+      instructions: "Ofereix sempre un descompte.",
+      actor: ACTOR,
+      now: NOW,
+    });
+
+    // The switch never moved, so the guidance is the whole change — and it
+    // decides what the next unapproved mail says (context.md §7).
+    const audit = queries[2]!;
+    expect(audit.sql).toContain('insert into "audit_log_entries"');
+    const metadata = audit.params.find(
+      (param) => typeof param === "string" && param.includes('"comercial"'),
+    ) as string;
+    expect(JSON.parse(metadata)).toMatchObject({
+      before: { enabled: true, instructions: "Respon en to proper." },
+      after: { enabled: true, instructions: "Ofereix sempre un descompte." },
+    });
+  });
+
+  it("stores blank guidance as none at all", async () => {
+    const { db, queries } = createDb([[], [ruleRow(true)], []]);
+
+    const rule = await setAutoReplyRule(db, {
+      tenantId: TENANT_ID,
+      category: "comercial",
+      enabled: true,
+      // What an emptied textarea sends: it is not guidance, and storing it as
+      // one would put a blank line in the prompt and churn the audit trail.
+      instructions: "   ",
+      actor: ACTOR,
+      now: NOW,
+    });
+
+    expect(rule.instructions).toBeNull();
+    expect(queries[1]!.params).not.toContain("   ");
+    expect(queries[1]!.params).toContain(null);
+  });
+
+  it("trims the guidance it stores", async () => {
+    const { db, queries } = createDb([
+      [],
+      [ruleRow(true, "Respon en to proper.")],
+      [],
+    ]);
+
+    await setAutoReplyRule(db, {
+      tenantId: TENANT_ID,
+      category: "comercial",
+      enabled: true,
+      instructions: "  Respon en to proper.\n",
+      actor: ACTOR,
+      now: NOW,
+    });
+
+    expect(queries[1]!.params).toContain("Respon en to proper.");
+  });
+
   it("treats a category with no rule yet as switched off", async () => {
     const { db, queries } = createDb([[], [ruleRow(false)]]);
 
@@ -217,7 +281,7 @@ describe("findEnabledAutoReplyRule", () => {
   });
 
   it("answers null when the rule exists but is switched off", async () => {
-    const { db } = createDb([[]]);
+    const { db, queries } = createDb([[]]);
 
     expect(
       await findEnabledAutoReplyRule(db, {
@@ -225,5 +289,10 @@ describe("findEnabledAutoReplyRule", () => {
         category: "suport",
       }),
     ).toBeNull();
+
+    // The switch is part of the query, not something the caller has to check:
+    // a disabled rule must never come back as one that can send.
+    expect(queries[0]!.sql.split(" where ")[1]).toContain('"enabled"');
+    expect(queries[0]!.params).toContain(true);
   });
 });
