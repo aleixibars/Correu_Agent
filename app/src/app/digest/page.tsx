@@ -1,13 +1,14 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { APP_NAME } from "@correu-agent/shared";
 import { collectDailyDigest } from "@correu-agent/shared/digest";
 import { auth } from "../../auth";
-import { DASHBOARD_PATH, LOGIN_PATH } from "../../lib/auth/config";
+import { DIGEST_PATH, LOGIN_PATH } from "../../lib/auth/config";
 import { categoryLabel } from "../../lib/category-labels";
+import { CATEGORY_COLOR_VARS } from "../../lib/category-colors";
 import { db } from "../../lib/db";
 import { latestDailyDigest } from "../../lib/digest/latest-digest";
 import { subjectLabel } from "../../lib/subject-label";
+import { AppHeader } from "../../components/AppHeader";
 
 export const metadata = {
   title: `Digest diari · ${APP_NAME}`,
@@ -56,16 +57,15 @@ export default async function DigestPage() {
 
   if (digest === null) {
     return (
-      <main>
+      <div className="app-shell">
+        <div className="airmail-stripe" />
+        <AppHeader email={session.user.email ?? ""} active={DIGEST_PATH} />
         <h1>Digest diari</h1>
         <p>
           Encara no hi ha cap digest. Se'n genera un cada dia amb els fils
           processats.
         </p>
-        <p>
-          <Link href={DASHBOARD_PATH}>Torna al tauler</Link>
-        </p>
-      </main>
+      </div>
     );
   }
 
@@ -75,29 +75,31 @@ export default async function DigestPage() {
   const content = await collectDailyDigest(db, { tenantId, day: digest.day });
 
   return (
-    <main>
+    <div className="app-shell">
+      <div className="airmail-stripe" />
+      <AppHeader email={session.user.email ?? ""} active={DIGEST_PATH} />
       <h1>Digest diari</h1>
-      <p>
-        <time dateTime={digest.day}>
-          {dayFormat.format(new Date(digest.day))}
-        </time>
+      <p className="meta">
+        <time dateTime={digest.day}>{dayFormat.format(new Date(digest.day))}</time>
         {" · "}
         {content.threadCount === 1
           ? "1 fil processat"
           : `${content.threadCount} fils processats`}
-      </p>
-      <p>
-        Generat el{" "}
+        {" · Generat el "}
         <time dateTime={digest.updatedAt.toISOString()}>
           {writtenAtFormat.format(digest.updatedAt)}
         </time>
       </p>
-      {paragraphs(digest.summary).map((paragraph, index) => (
-        <p key={index}>{paragraph}</p>
-      ))}
+
+      <div className="card digest-summary">
+        {paragraphs(digest.summary).map((paragraph, index) => (
+          <p key={index}>{paragraph}</p>
+        ))}
+      </div>
+
       {content.sections.map(({ category, threads }) => (
-        <section key={category}>
-          <h2>
+        <section key={category} className="card">
+          <h2 style={{ color: CATEGORY_COLOR_VARS[category] }}>
             {categoryLabel(category)} ({threads.length})
           </h2>
           <ul>
@@ -107,7 +109,10 @@ export default async function DigestPage() {
                 {lastMessageAt !== null && (
                   <>
                     {" — "}
-                    <time dateTime={lastMessageAt.toISOString()}>
+                    <time
+                      className="meta"
+                      dateTime={lastMessageAt.toISOString()}
+                    >
                       {timeFormat.format(lastMessageAt)}
                     </time>
                   </>
@@ -117,9 +122,6 @@ export default async function DigestPage() {
           </ul>
         </section>
       ))}
-      <p>
-        <Link href={DASHBOARD_PATH}>Torna al tauler</Link>
-      </p>
-    </main>
+    </div>
   );
 }

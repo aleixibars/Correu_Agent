@@ -3,11 +3,12 @@ import { notFound, redirect } from "next/navigation";
 import { APP_NAME } from "@correu-agent/shared";
 import { auth } from "../../../auth";
 import { LOGIN_PATH, THREADS_PATH } from "../../../lib/auth/config";
-import { categoryLabel } from "../../../lib/category-labels";
 import { db } from "../../../lib/db";
 import { subjectLabel } from "../../../lib/subject-label";
 import { loadThreadDetail } from "../../../lib/threads/thread-detail";
 import { threadStatusLabel } from "../../../lib/threads/thread-status";
+import { AppHeader } from "../../../components/AppHeader";
+import { CategoryStamp } from "../../../components/CategoryStamp";
 import {
   approveDraft,
   regenerateDraftWithFeedback,
@@ -46,41 +47,52 @@ export default async function ThreadPage({
   const { draft } = thread;
 
   return (
-    <main>
+    <div className="app-shell">
+      <div className="airmail-stripe" />
+      <AppHeader email={session.user.email ?? ""} active={THREADS_PATH} />
+      <p>
+        <Link href={THREADS_PATH}>← Torna als fils</Link>
+      </p>
+
       <h1>{subjectLabel(thread.subject)}</h1>
       <p>
         {/* Un fil sense categoria és un fil que el triatge encara no ha tocat;
             l'estat ho diu, així que aquí no es repeteix el motiu. */}
-        Categoria:{" "}
-        {thread.category === null ? "—" : categoryLabel(thread.category)} ·
-        Estat: {threadStatusLabel(thread.status)}
+        {thread.category !== null && <CategoryStamp category={thread.category} />}{" "}
+        <span className="status">{threadStatusLabel(thread.status)}</span>
       </p>
 
       <section>
         <h2>Correu del fil</h2>
         {thread.messages.map((message) => (
-          <article key={message.id}>
-            <h3>
+          <article
+            key={message.id}
+            className={`message${message.direction === "outbound" ? " message--outbound" : ""}`}
+          >
+            <p className="message__from">
               {message.direction === "inbound" ? "De" : "Enviat a"}:{" "}
               {message.direction === "inbound"
                 ? message.fromAddress
                 : message.toAddresses.join(", ")}
-            </h3>
-            {message.sentAt !== null && (
-              <p>
-                <time dateTime={message.sentAt.toISOString()}>
-                  {dateFormat.format(message.sentAt)}
-                </time>
-              </p>
-            )}
+              {message.sentAt !== null && (
+                <>
+                  {" · "}
+                  <time dateTime={message.sentAt.toISOString()}>
+                    {dateFormat.format(message.sentAt)}
+                  </time>
+                </>
+              )}
+            </p>
             {/* El cos es buida als 90 dies de retenció (context.md §7) i només
                 en queda el fragment; sense això l'article es veuria buit. */}
-            <p>{message.bodyText ?? message.snippet ?? "(Sense contingut)"}</p>
+            <p className="message__body">
+              {message.bodyText ?? message.snippet ?? "(Sense contingut)"}
+            </p>
           </article>
         ))}
       </section>
 
-      <section>
+      <section className="card">
         <h2>Esborrany de resposta</h2>
         {draft === null ? (
           <p>Cap esborrany per revisar en aquest fil.</p>
@@ -92,7 +104,7 @@ export default async function ThreadPage({
             </p>
             <form action={approveDraft}>
               <input type="hidden" name="draftId" value={draft.id} />
-              <p>
+              <div className="field">
                 <label htmlFor="body">Text de la resposta</label>
                 <textarea
                   id="body"
@@ -101,35 +113,35 @@ export default async function ThreadPage({
                   required
                   defaultValue={draft.body}
                 />
-              </p>
-              <button type="submit">Aprova i envia</button>
+              </div>
+              <button type="submit" className="btn-primary">
+                Aprova i envia
+              </button>
             </form>
             {/* Formularis germans i no imbricats: l'HTML no permet imbricar-los,
                 i cada botó envia només el seu camp. */}
-            <form action={rejectDraft}>
+            <form action={rejectDraft} style={{ marginTop: 14 }}>
               <input type="hidden" name="draftId" value={draft.id} />
-              <button type="submit">Descarta sense respondre</button>
+              <button type="submit" className="btn-ghost">
+                Descarta sense respondre
+              </button>
             </form>
-            <form action={regenerateDraftWithFeedback}>
+            <form action={regenerateDraftWithFeedback} style={{ marginTop: 14 }}>
               <input type="hidden" name="draftId" value={draft.id} />
-              <p>
+              <div className="field">
                 <label htmlFor="feedback">Què vols canviar de l'esborrany</label>
                 <textarea id="feedback" name="feedback" rows={3} required />
-              </p>
+              </div>
               <button type="submit">Regenera amb aquest comentari</button>
             </form>
           </>
         ) : (
           <>
-            <p>{threadStatusLabel(thread.status)}</p>
-            <p>{draft.body}</p>
+            <p className="status">{threadStatusLabel(thread.status)}</p>
+            <p className="message__body">{draft.body}</p>
           </>
         )}
       </section>
-
-      <p>
-        <Link href={THREADS_PATH}>Torna als fils</Link>
-      </p>
-    </main>
+    </div>
   );
 }

@@ -30,21 +30,24 @@ export default async function LoginPage({
   if (message === null && (await auth())) redirect(DASHBOARD_PATH);
 
   return (
-    <main>
-      <h1>{APP_NAME}</h1>
-      <p>Inicia la sessió per accedir al tauler.</p>
-      {message !== null && <p role="alert">{message}</p>}
-      {PROVIDERS.map(({ id, label }) => (
-        <form
-          key={id}
-          action={async () => {
-            "use server";
-            await signIn(id, { redirectTo: DASHBOARD_PATH });
-          }}
-        >
-          <button type="submit">{label}</button>
-        </form>
-      ))}
-    </main>
+    <div className="auth-screen">
+      <div className="auth-card">
+        <div className="airmail-stripe" style={{ margin: "-32px -30px 24px" }} />
+        <span className="app-header__wordmark">{APP_NAME}</span>
+        <p>Inicia la sessió per accedir al tauler.</p>
+        {message !== null && <p role="alert">{message}</p>}
+        {PROVIDERS.map(({ id, label }) => (
+          <form
+            key={id}
+            action={async () => {
+              "use server";
+              await signIn(id, { redirectTo: DASHBOARD_PATH });
+            }}
+          >
+            <button type="submit">{label}</button>
+          </form>
+        ))}
+      </div>
+    </div>
   );
 }

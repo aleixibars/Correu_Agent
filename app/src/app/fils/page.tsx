@@ -2,12 +2,13 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { APP_NAME } from "@correu-agent/shared";
 import { auth } from "../../auth";
-import { DASHBOARD_PATH, LOGIN_PATH, threadPath } from "../../lib/auth/config";
-import { categoryLabel } from "../../lib/category-labels";
+import { LOGIN_PATH, THREADS_PATH, threadPath } from "../../lib/auth/config";
 import { db } from "../../lib/db";
 import { subjectLabel } from "../../lib/subject-label";
 import { listThreads } from "../../lib/threads/list-threads";
 import { threadStatusLabel } from "../../lib/threads/thread-status";
+import { AppHeader } from "../../components/AppHeader";
+import { CategoryStamp } from "../../components/CategoryStamp";
 
 export const metadata = {
   title: `Fils · ${APP_NAME}`,
@@ -28,12 +29,14 @@ export default async function ThreadsPage() {
   const threads = await listThreads(db, { tenantId: session.user.tenantId });
 
   return (
-    <main>
+    <div className="app-shell">
+      <div className="airmail-stripe" />
+      <AppHeader email={session.user.email ?? ""} active={THREADS_PATH} />
       <h1>Fils</h1>
       {threads.length === 0 ? (
         <p>Encara no hi ha cap fil processat.</p>
       ) : (
-        <table>
+        <table className="thread-table">
           <thead>
             <tr>
               <th scope="col">Assumpte</th>
@@ -53,9 +56,15 @@ export default async function ThreadsPage() {
                 {/* Un fil sense categoria és un fil que el triatge encara no ha
                     tocat; l'estat ja ho diu, així que la cel·la no repeteix el
                     motiu. */}
-                <td>{category === null ? "—" : categoryLabel(category)}</td>
-                <td>{threadStatusLabel(status)}</td>
                 <td>
+                  {category === null ? (
+                    <span className="meta">—</span>
+                  ) : (
+                    <CategoryStamp category={category} />
+                  )}
+                </td>
+                <td className="status">{threadStatusLabel(status)}</td>
+                <td className="meta">
                   {lastMessageAt === null ? (
                     "—"
                   ) : (
@@ -69,9 +78,6 @@ export default async function ThreadsPage() {
           </tbody>
         </table>
       )}
-      <p>
-        <Link href={DASHBOARD_PATH}>Torna al tauler</Link>
-      </p>
-    </main>
+    </div>
   );
 }

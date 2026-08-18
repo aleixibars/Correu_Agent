@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { APP_NAME } from "@correu-agent/shared";
-import { auth, signOut } from "../auth";
+import { AppHeader } from "../components/AppHeader";
+import { auth } from "../auth";
 import {
   AUTO_REPLY_PATH,
+  DASHBOARD_PATH,
   DIGEST_PATH,
   LOGIN_PATH,
   THREADS_PATH,
@@ -26,12 +28,15 @@ export default async function HomePage({
 
   if (!session) {
     return (
-      <main>
-        <h1>{APP_NAME}</h1>
-        <p>
-          <Link href={LOGIN_PATH}>Inicia la sessió</Link> per accedir al tauler.
-        </p>
-      </main>
+      <div className="auth-screen">
+        <div className="auth-card">
+          <span className="app-header__wordmark">{APP_NAME}</span>
+          <p>
+            <Link href={LOGIN_PATH}>Inicia la sessió</Link> per accedir al
+            tauler.
+          </p>
+        </div>
+      </div>
     );
   }
 
@@ -42,45 +47,45 @@ export default async function HomePage({
   );
 
   return (
-    <main>
-      <h1>{APP_NAME}</h1>
-      <p>Sessió iniciada com a {session.user.email}. Tauler en construcció.</p>
-      <p>
-        <Link href={THREADS_PATH}>Fils processats</Link>
-      </p>
-      <p>
-        <Link href={DIGEST_PATH}>Digest diari</Link>
-      </p>
-      <p>
-        <Link href={AUTO_REPLY_PATH}>Resposta automàtica</Link>
-      </p>
+    <div className="app-shell">
+      <div className="airmail-stripe" />
+      <AppHeader email={session.user.email ?? ""} active={DASHBOARD_PATH} />
+
       {notice !== null && (
         <p role={notice.ok ? "status" : "alert"}>{notice.text}</p>
       )}
-      <p>
-        {/* Plain anchors, not `next/link`: the targets are route handlers that
-            redirect off-site to the provider, and a client-side navigation
-            would run them twice — once for the RSC fetch that cannot follow the
-            cross-origin redirect, once for the hard navigation that replaces
-            it. */}
-        <a href={GOOGLE_CONNECT_PATH}>Connecta una bústia de Gmail</a>
-      </p>
-      <p>
-        <a href={MICROSOFT_MAILBOX_CONNECT_PATH}>
-          Connecta una bústia de Microsoft 365/Outlook
-        </a>
-      </p>
-      {/* Read here rather than in the client component: the key is public, but
-          only a Server Component can reach the environment it lives in. */}
-      <UrgentPushToggle publicKey={process.env.VAPID_PUBLIC_KEY ?? ""} />
-      <form
-        action={async () => {
-          "use server";
-          await signOut({ redirectTo: LOGIN_PATH });
-        }}
-      >
-        <button type="submit">Tanca la sessió</button>
-      </form>
-    </main>
+
+      <section className="card">
+        <h2>Accedeix-hi</h2>
+        <p>
+          <Link href={THREADS_PATH}>Fils processats</Link> —{" "}
+          <Link href={DIGEST_PATH}>digest diari</Link> —{" "}
+          <Link href={AUTO_REPLY_PATH}>resposta automàtica</Link>
+        </p>
+      </section>
+
+      <section className="card">
+        <h2>Bústies connectades</h2>
+        <p>
+          {/* Plain anchors, not `next/link`: the targets are route handlers that
+              redirect off-site to the provider, and a client-side navigation
+              would run them twice — once for the RSC fetch that cannot follow the
+              cross-origin redirect, once for the hard navigation that replaces
+              it. */}
+          <a href={GOOGLE_CONNECT_PATH} className="btn">
+            Connecta una bústia de Gmail
+          </a>{" "}
+          <a href={MICROSOFT_MAILBOX_CONNECT_PATH} className="btn">
+            Connecta una bústia de Microsoft 365/Outlook
+          </a>
+        </p>
+      </section>
+
+      <section className="card">
+        {/* Read here rather than in the client component: the key is public, but
+            only a Server Component can reach the environment it lives in. */}
+        <UrgentPushToggle publicKey={process.env.VAPID_PUBLIC_KEY ?? ""} />
+      </section>
+    </div>
   );
 }

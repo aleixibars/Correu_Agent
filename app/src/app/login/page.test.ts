@@ -21,12 +21,19 @@ const page = async (error?: string | string[]) =>
 const render = async (error?: string | string[]): Promise<string> =>
   renderToStaticMarkup(await page(error));
 
-/** The one sign-in form per provider, in the order the page lists them. */
-const signInForms = async (): Promise<ReactElement[]> =>
-  Children.toArray((await page()).props.children).filter(
+/**
+ * The one sign-in form per provider, in the order the page lists them.
+ * The page nests its content one level inside `.auth-card` (design), so this
+ * walks that wrapper rather than the root `.auth-screen` element.
+ */
+const signInForms = async (): Promise<ReactElement[]> => {
+  const root = await page();
+  const card = root.props.children as ReactElement;
+  return Children.toArray(card.props.children).filter(
     (child): child is ReactElement =>
       isValidElement(child) && child.type === "form",
   );
+};
 
 const signedIn = (): void => {
   auth.mockResolvedValue({

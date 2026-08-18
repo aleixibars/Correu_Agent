@@ -1,0 +1,540 @@
+/* Correu Agent — design tokens and base styles.
+   Signature: an "airmail stripe" (the diagonal red/white/blue trim of a
+   classic airmail envelope) marks the top of the app shell and highlights
+   what needs attention now; each triage category gets its own ink-stamp
+   badge color, used consistently everywhere the category appears. */
+
+:root {
+  /* Paper + ink */
+  --paper: #f7f4ee;
+  --paper-raised: #ffffff;
+  --ink: #1f2a2e;
+  --ink-soft: #5b6b6e;
+  --ink-faint: #8a9194;
+  --line: #ddd6c8;
+  --line-strong: #c7bea9;
+
+  /* Airmail stripe */
+  --airmail-red: #c13b33;
+  --airmail-blue: #2a4b7c;
+
+  /* Category ink colors */
+  --cat-urgent: #c13b33;
+  --cat-comercial: #2f7d5c;
+  --cat-suport: #2a4b7c;
+  --cat-facturacio: #b8862b;
+  --cat-newsletter: #8a8578;
+  --cat-personal: #8b5a8f;
+
+  /* Semantic */
+  --ok: #2f7d5c;
+  --danger: #c13b33;
+
+  --radius: 6px;
+  --radius-sm: 4px;
+  --shadow-card: 0 1px 2px rgba(31, 42, 46, 0.06), 0 1px 1px rgba(31, 42, 46, 0.04);
+
+  --font-display: var(--font-space-grotesk), "Arial Narrow", sans-serif;
+  --font-body: var(--font-source-sans), system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, "SFMono-Regular", monospace;
+
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin: 0 0 0.5em;
+}
+
+h1 {
+  font-size: 1.5rem;
+}
+
+h2 {
+  font-size: 1.05rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
+p {
+  margin: 0 0 0.9em;
+}
+
+a {
+  color: var(--airmail-blue);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+a:hover {
+  text-decoration-thickness: 2px;
+}
+
+/* Visible keyboard focus everywhere, including native controls. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--airmail-blue);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* ── App shell ─────────────────────────────────────────────────────────── */
+
+.app-shell {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 20px 64px;
+}
+
+/* The airmail stripe: the one recurring signature device of this product. */
+.airmail-stripe {
+  height: 5px;
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--airmail-red) 0 10px,
+    var(--paper) 10px 16px,
+    var(--airmail-blue) 16px 26px,
+    var(--paper) 26px 32px
+  );
+}
+
+.app-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  padding: 18px 0 14px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 28px;
+}
+
+.app-header__brand {
+  display: flex;
+  align-items: baseline;
+  gap: 20px;
+}
+
+.app-header__wordmark {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.15rem;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.app-header__nav {
+  display: flex;
+  gap: 18px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.app-header__nav a {
+  color: var(--ink-soft);
+  text-decoration: none;
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+  font-weight: 500;
+  padding-bottom: 2px;
+}
+
+.app-header__nav a[aria-current="page"] {
+  color: var(--ink);
+  border-bottom: 2px solid var(--airmail-red);
+}
+
+.app-header__nav a:hover {
+  color: var(--ink);
+}
+
+.app-header__user {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+
+.app-header__user form button {
+  font-size: 0.85rem;
+  padding: 4px 10px;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────── */
+
+button,
+.btn {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.9rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line-strong);
+  background: var(--paper-raised);
+  color: var(--ink);
+  padding: 9px 16px;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, transform 80ms ease;
+}
+
+button:hover {
+  border-color: var(--ink-soft);
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper-raised);
+}
+
+.btn-primary:hover {
+  background: #0f1618;
+  border-color: #0f1618;
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--ink-soft);
+}
+
+.btn-ghost:hover {
+  color: var(--danger);
+  border-color: transparent;
+  background: transparent;
+}
+
+/* ── Cards, tables, forms ─────────────────────────────────────────────── */
+
+.card {
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  padding: 20px 22px;
+  margin-bottom: 20px;
+}
+
+.thread-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.thread-table th {
+  text-align: left;
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+  font-weight: 600;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.thread-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+  font-size: 0.92rem;
+}
+
+.thread-table tr:last-child td {
+  border-bottom: none;
+}
+
+.thread-table tr:hover td {
+  background: var(--paper);
+}
+
+.thread-table a {
+  color: var(--ink);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.thread-table a:hover {
+  color: var(--airmail-blue);
+  text-decoration: underline;
+}
+
+.meta {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+}
+
+label {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  margin-bottom: 6px;
+}
+
+textarea,
+input[type="text"] {
+  width: 100%;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+textarea:focus,
+input[type="text"]:focus {
+  outline: none;
+  border-color: var(--airmail-blue);
+}
+
+.field {
+  margin-bottom: 16px;
+}
+
+/* Checkbox rendered as a settings switch. */
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.switch-row input[type="checkbox"] {
+  width: 34px;
+  height: 20px;
+  appearance: none;
+  background: var(--line-strong);
+  border-radius: 999px;
+  position: relative;
+  cursor: pointer;
+  margin: 0;
+  flex: none;
+  transition: background-color 120ms ease;
+}
+
+.switch-row input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--paper-raised);
+  transition: transform 120ms ease;
+}
+
+.switch-row input[type="checkbox"]:checked {
+  background: var(--ok);
+}
+
+.switch-row input[type="checkbox"]:checked::after {
+  transform: translateX(14px);
+}
+
+.switch-row label {
+  margin: 0;
+  font-family: var(--font-body);
+  font-weight: 400;
+  color: var(--ink);
+  font-size: 0.92rem;
+}
+
+/* ── Category stamps ──────────────────────────────────────────────────── */
+
+.stamp {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 3px 9px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--stamp-color, var(--ink-faint));
+  color: var(--stamp-color, var(--ink-soft));
+  background: color-mix(in srgb, var(--stamp-color, var(--ink-faint)) 9%, var(--paper-raised));
+  transform: rotate(-1.5deg);
+  white-space: nowrap;
+}
+
+.stamp--muted {
+  transform: none;
+  opacity: 0.8;
+}
+
+/* ── Status pills ─────────────────────────────────────────────────────── */
+
+.status {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+}
+
+.status--action {
+  color: var(--airmail-red);
+  font-weight: 600;
+}
+
+.status--done {
+  color: var(--ok);
+}
+
+/* ── Alerts / notices ─────────────────────────────────────────────────── */
+
+[role="alert"] {
+  background: color-mix(in srgb, var(--danger) 8%, var(--paper-raised));
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--paper-raised));
+  color: var(--danger);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  font-size: 0.9rem;
+}
+
+[role="status"] {
+  background: color-mix(in srgb, var(--ok) 8%, var(--paper-raised));
+  border: 1px solid color-mix(in srgb, var(--ok) 30%, var(--paper-raised));
+  color: var(--ok);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  font-size: 0.9rem;
+}
+
+/* ── Login screen ─────────────────────────────────────────────────────── */
+
+.auth-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  padding: 32px 30px;
+  text-align: center;
+}
+
+.auth-card .app-header__wordmark {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.auth-card form {
+  margin-top: 10px;
+}
+
+.auth-card button {
+  width: 100%;
+  padding: 11px 16px;
+}
+
+/* ── Messages (thread reading pane) ───────────────────────────────────── */
+
+.message {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  background: var(--paper-raised);
+}
+
+.message--outbound {
+  background: color-mix(in srgb, var(--airmail-blue) 5%, var(--paper-raised));
+  border-color: color-mix(in srgb, var(--airmail-blue) 25%, var(--line));
+}
+
+.message__from {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  margin: 0 0 6px;
+}
+
+.message__body {
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+/* ── Digest ────────────────────────────────────────────────────────────── */
+
+.digest-summary p {
+  font-size: 1rem;
+  color: var(--ink);
+}
+
+.digest-summary p:first-child {
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+@media (max-width: 560px) {
+  .app-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
