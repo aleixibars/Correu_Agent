@@ -223,6 +223,32 @@ pipeline.
   `TOKEN_ENCRYPTION_KEY`. Es llegeixen en arrencar: si en falta cap, el worker no
   arrenca, en lloc de fallar una bústia cada dos minuts.
 
+## Retenció de correu (90 dies)
+
+El cos complet dels missatges es desa a la base de dades, però només durant **90
+dies** (`context.md` §7). Passada la finestra, el worker el substitueix per una
+versió esquemàtica en lloc d'esborrar la fila: metadades (remitent, destinataris,
+assumpte, dates, capçaleres del fil), la categoria del fil i un resum. La fila ha
+de sobreviure perquè l'audit log i el digest hi apunten.
+
+- La purga viu a `shared/src/retention/purge.ts`
+  (`@correu-agent/shared/retention`): buida `body_text` i `body_html`, marca
+  `body_purged_at` i deixa la resta de columnes intactes.
+- El resum que queda és el `snippet` del proveïdor; per al correu que no en va
+  portar cap, la purga n'omple un amb l'inici del cos abans de buidar-lo — del
+  text pla si n'hi ha i, si el missatge només porta HTML (el cas normal de
+  Graph), del mateix HTML sense etiquetes. Així cap missatge purgat queda sense
+  resum consultable.
+- L'edat es mesura per la data del proveïdor (`sent_at`) i, si no n'hi ha, per
+  quan es va desar la fila (`created_at`): cap missatge pot quedar-se fora de la
+  finestra per sempre.
+- `body_purged_at` és alhora la marca i el filtre, així que la feina és
+  idempotent: repetir-la no torna a purgar res ni sobreescriu el resum ja desat.
+- La feina (`worker/src/queue/retention-purge.ts`) va per la cua
+  `retention-purge`, programada pel cron de pg-boss un cop al dia a les 03:00 UTC.
+  El cron és de pg-boss i no del worker: un desplegament no ha de reiniciar el
+  rellotge d'una feina diària, ni dos workers l'han de disparar cadascun.
+
 ## Notificacions Web Push (VAPID)
 
 Les notificacions de correu Urgent van per Web Push (`context.md` §5). Cal un parell
