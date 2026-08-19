@@ -1,6 +1,14 @@
-# Render Blueprint (context.md §10): app/ as a Web Service, worker/ as a
-# Background Worker, both against the same Neon Postgres (EU region). Apply
-# via the Render dashboard: New -> Blueprint -> connect this repo.
+# Render Blueprint (context.md §10): both app/ and worker/ as free Web
+# Services, against the same Neon Postgres (EU region). Apply via the Render
+# dashboard: New -> Blueprint -> connect this repo.
+#
+# worker/ runs as a Web Service, not a Background Worker, because Render has
+# no free tier for Background Workers: it binds $PORT and answers a bare
+# health check purely to satisfy Render (worker/src/index.ts), and needs an
+# external pinger (e.g. cron-job.org) hitting it every ~10 minutes so
+# Render's free-tier 15-minute idle spin-down doesn't stop it polling
+# mailboxes. Move it back to `type: worker` + a paid plan if that proves
+# unreliable.
 #
 # Vars marked `sync: false` are secrets — Render prompts for them once at
 # apply time and never reads their value back from this file.
@@ -47,14 +55,15 @@ services:
       - key: TOKEN_ENCRYPTION_KEY
         sync: false
 
-  - type: worker
+  - type: web
     name: correu-agent-worker
     runtime: node
     region: frankfurt
-    plan: starter # Render has no free tier for Background Workers.
+    plan: free
     autoDeploy: true
     buildCommand: npm ci && npm run build -w @correu-agent/worker
     startCommand: npm run start -w @correu-agent/worker
+    healthCheckPath: /
     envVars:
       - key: NODE_VERSION
         value: "22"

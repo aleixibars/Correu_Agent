@@ -1,3 +1,4 @@
+import { createServer } from "node:http";
 import { APP_NAME } from "@correu-agent/shared";
 import { createAnthropicClient } from "@correu-agent/shared/triage";
 import {
@@ -36,6 +37,13 @@ import {
 // category and one per triaged thread still waiting for a reply draft, the queue
 // workers that poll, classify and answer them, the daily 90-day retention purge
 // (context.md §7) and the daily digest (context.md §2).
+//
+// Deployed as a free Render Web Service rather than a paid Background Worker
+// (context.md §10): Render requires every Web Service to bind $PORT and
+// answer HTTP, so this listens purely to satisfy that health check — an
+// external pinger (e.g. cron-job.org) hits it every ~10 minutes to keep the
+// free tier from spinning down after 15 minutes idle, since a sleeping
+// worker stops polling mailboxes until something wakes it.
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -58,6 +66,17 @@ boss.on("error", (error) => {
   console.error("Queue error:", error);
 });
 
+// A ping only proves the process is alive, not that the queue is healthy —
+// this endpoint exists for Render's port check, not as a real health probe.
+const port = Number(process.env.PORT ?? 3001);
+const healthServer = createServer((_request, response) => {
+  response.writeHead(200, { "content-type": "text/plain" });
+  response.end("ok");
+});
+healthServer.listen(port, () => {
+  console.log(`Health check listening on :${port}.`);
+});
+
 // Assigned once the queue is up; the shutdown handler is registered before that
 // and has to cope with a signal arriving in between.
 let pollSchedule: MailboxPollSchedule | undefined;
@@ -66,6 +85,7 @@ let draftSchedule: ThreadDraftSchedule | undefined;
 
 const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
   console.log(`Received ${signal}, stopping worker.`);
+  healthServer.close();
   pollSchedule?.stop();
   triageSchedule?.stop();
   draftSchedule?.stop();
