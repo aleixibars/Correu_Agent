@@ -21,7 +21,7 @@ import {
 } from "../triage/taxonomy";
 
 /**
- * One category's switch and its patterns, as the dashboard shows it and
+ * One category's switch, as the dashboard shows it and
  * `applyAutoDiscardRule` reads it. Named apart from the `AutoDiscardRule` row
  * type in `db/schema` because it is the fields that decide behaviour, not the
  * stored row (mirrors `AutoReplyRuleState`).
@@ -29,8 +29,6 @@ import {
 export interface AutoDiscardRuleState {
   category: TriageCategory;
   enabled: boolean;
-  senderPatterns: string[];
-  keywordPatterns: string[];
 }
 
 /**
@@ -51,8 +49,6 @@ export class AutoDiscardCategoryError extends Error {
 const ruleColumns = {
   category: autoDiscardRules.category,
   enabled: autoDiscardRules.enabled,
-  senderPatterns: autoDiscardRules.senderPatterns,
-  keywordPatterns: autoDiscardRules.keywordPatterns,
 };
 
 /** The only category discarded automatically with no row stored at all. */
@@ -62,24 +58,12 @@ const DEFAULT_ENABLED_CATEGORY: TriageCategory = "newsletter";
 const defaultRuleState = (category: TriageCategory): AutoDiscardRuleState => ({
   category,
   enabled: category === DEFAULT_ENABLED_CATEGORY,
-  senderPatterns: [],
-  keywordPatterns: [],
 });
-
-const normalizePatterns = (patterns: string[]): string[] =>
-  patterns.map((pattern) => pattern.trim()).filter((pattern) => pattern.length > 0);
-
-const sameList = (a: string[], b: string[]): boolean =>
-  a.length === b.length && a.every((value, index) => value === b[index]);
 
 export interface SetAutoDiscardRuleInput {
   tenantId: string;
   category: TriageCategory;
   enabled: boolean;
-  /** Replaces whatever senders the rule carried; omit or empty to clear. */
-  senderPatterns?: string[];
-  /** Replaces whatever keywords the rule carried; omit or empty to clear. */
-  keywordPatterns?: string[];
   /** Who moved the switch — the audit trail's accountability anchor. */
   actor: UserActor;
   /** Stamp for the write; defaults to the wall clock. */
@@ -87,8 +71,7 @@ export interface SetAutoDiscardRuleInput {
 }
 
 /**
- * Turns one category's auto-discard on or off, with its sender/keyword
- * patterns, and answers the stored rule.
+ * Turns one category's auto-discard on or off, and answers the stored rule.
  *
  * Rejects an ineligible category outright (`AutoDiscardCategoryError`), and
  * records the move in the audit log: a thread later closed out with nobody
@@ -100,20 +83,9 @@ export const setAutoDiscardRule = async <
   TSchema extends Record<string, unknown> = Record<string, never>,
 >(
   db: PgDatabase<T, TSchema>,
-  {
-    tenantId,
-    category,
-    enabled,
-    senderPatterns = [],
-    keywordPatterns = [],
-    actor,
-    now = new Date(),
-  }: SetAutoDiscardRuleInput,
+  { tenantId, category, enabled, actor, now = new Date() }: SetAutoDiscardRuleInput,
 ): Promise<AutoDiscardRuleState> => {
   if (!isAutoDiscardEligible(category)) throw new AutoDiscardCategoryError(category);
-
-  const senders = normalizePatterns(senderPatterns);
-  const keywords = normalizePatterns(keywordPatterns);
 
   const [previous] = await db
     .select(ruleColumns)
@@ -128,23 +100,11 @@ export const setAutoDiscardRule = async <
 
   const [stored] = await db
     .insert(autoDiscardRules)
-    .values({
-      tenantId,
-      category,
-      enabled,
-      senderPatterns: senders,
-      keywordPatterns: keywords,
-      updatedAt: now,
-    })
+    .values({ tenantId, category, enabled, updatedAt: now })
     .onConflictDoUpdate({
       target: [autoDiscardRules.tenantId, autoDiscardRules.category],
       // `$onUpdate` does not fire on a conflict path, so the stamp is explicit.
-      set: {
-        enabled,
-        senderPatterns: senders,
-        keywordPatterns: keywords,
-        updatedAt: now,
-      },
+      set: { enabled, updatedAt: now },
     })
     .returning(ruleColumns);
 
@@ -154,17 +114,9 @@ export const setAutoDiscardRule = async <
 
   // A category with no rule yet reads as its default (on for newsletter, off
   // otherwise) — pressing that same state on one is not a change.
-  const fallback = defaultRuleState(category);
-  const previousEnabled = previous?.enabled ?? fallback.enabled;
-  const previousSenderPatterns = previous?.senderPatterns ?? fallback.senderPatterns;
-  const previousKeywordPatterns = previous?.keywordPatterns ?? fallback.keywordPatterns;
+  const previousEnabled = previous?.enabled ?? defaultRuleState(category).enabled;
 
-  const unchanged =
-    previousEnabled === stored.enabled &&
-    sameList(previousSenderPatterns, stored.senderPatterns) &&
-    sameList(previousKeywordPatterns, stored.keywordPatterns);
-
-  if (!unchanged) {
+  if (previousEnabled !== stored.enabled) {
     await recordAuditLogEntry(db, {
       action: "auto_discard_rule_changed",
       tenantId,
@@ -172,10 +124,6 @@ export const setAutoDiscardRule = async <
       category,
       previousEnabled,
       enabled: stored.enabled,
-      previousSenderPatterns,
-      senderPatterns: stored.senderPatterns,
-      previousKeywordPatterns,
-      keywordPatterns: stored.keywordPatterns,
       occurredAt: now,
     });
   }

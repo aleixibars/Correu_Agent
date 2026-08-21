@@ -146,11 +146,10 @@ export type ThreadAutoDiscardedEvent = EventBase & {
 };
 
 /**
- * Someone moved a category's auto-discard switch, or rewrote which senders or
- * keywords it fires on. Not attached to a thread — it is the act that lets
- * *later* mail be closed out without anyone looking at it, so without it the
- * trail of an auto-discard stops at "a rule was on" with no record of who
- * turned it on or what it matched.
+ * Someone moved a category's auto-discard switch. Not attached to a thread —
+ * it is the act that lets *later* mail be closed out without anyone looking at
+ * it, so without it the trail of an auto-discard stops at "a rule was on" with
+ * no record of who turned it on.
  */
 export type AutoDiscardRuleChangedEvent = TenantEventBase & {
   action: "auto_discard_rule_changed";
@@ -158,10 +157,6 @@ export type AutoDiscardRuleChangedEvent = TenantEventBase & {
   category: TriageCategory;
   enabled: boolean;
   previousEnabled: boolean;
-  senderPatterns: string[];
-  previousSenderPatterns: string[];
-  keywordPatterns: string[];
-  previousKeywordPatterns: string[];
 };
 
 export type AuditEvent =
@@ -285,19 +280,8 @@ const transitionOf = (event: AuditEvent): Transition => {
       };
     case "auto_discard_rule_changed":
       return {
-        // The patterns ride in the transition like the guidance does on
-        // `auto_reply_rule_changed`: a rewrite with the switch left on still
-        // changes which mail is closed out without anyone looking at it.
-        before: {
-          enabled: event.previousEnabled,
-          senderPatterns: event.previousSenderPatterns,
-          keywordPatterns: event.previousKeywordPatterns,
-        },
-        after: {
-          enabled: event.enabled,
-          senderPatterns: event.senderPatterns,
-          keywordPatterns: event.keywordPatterns,
-        },
+        before: { enabled: event.previousEnabled },
+        after: { enabled: event.enabled },
         details: { category: event.category },
       };
   }

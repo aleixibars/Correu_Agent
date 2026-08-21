@@ -25,37 +25,21 @@ const createDb = (results: unknown[][][] = []) => {
   return { db, queries };
 };
 
-const ruleRow = (
-  enabled: boolean,
-  senderPatterns: string[] = [],
-  keywordPatterns: string[] = [],
-  category = "comercial",
-) => [category, enabled, senderPatterns, keywordPatterns];
+const ruleRow = (enabled: boolean, category = "comercial") => [category, enabled];
 
 describe("setAutoDiscardRule", () => {
-  it("stores the switch and patterns of an eligible category", async () => {
-    const { db, queries } = createDb([
-      [],
-      [ruleRow(true, ["@acme.com"], ["butlletí"])],
-      [],
-    ]);
+  it("stores the switch of an eligible category", async () => {
+    const { db, queries } = createDb([[], [ruleRow(true)], []]);
 
     const rule = await setAutoDiscardRule(db, {
       tenantId: TENANT_ID,
       category: "comercial",
       enabled: true,
-      senderPatterns: ["@acme.com"],
-      keywordPatterns: ["butlletí"],
       actor: ACTOR,
       now: NOW,
     });
 
-    expect(rule).toEqual({
-      category: "comercial",
-      enabled: true,
-      senderPatterns: ["@acme.com"],
-      keywordPatterns: ["butlletí"],
-    });
+    expect(rule).toEqual({ category: "comercial", enabled: true });
 
     const write = queries[1]!;
     expect(write.sql).toContain('insert into "auto_discard_rules"');
@@ -115,17 +99,13 @@ describe("setAutoDiscardRule", () => {
     });
   });
 
-  it("writes no audit entry when the switch and patterns are already what is put", async () => {
-    const { db, queries } = createDb([
-      [ruleRow(true, ["@acme.com"])],
-      [ruleRow(true, ["@acme.com"])],
-    ]);
+  it("writes no audit entry when the switch is already what is put", async () => {
+    const { db, queries } = createDb([[ruleRow(true)], [ruleRow(true)]]);
 
     await setAutoDiscardRule(db, {
       tenantId: TENANT_ID,
       category: "comercial",
       enabled: true,
-      senderPatterns: ["@acme.com"],
       actor: ACTOR,
       now: NOW,
     });
@@ -153,11 +133,7 @@ describe("setAutoDiscardRule", () => {
   });
 
   it("audits switching newsletter off, since its unconfigured default is on", async () => {
-    const { db, queries } = createDb([
-      [],
-      [ruleRow(false, [], [], "newsletter")],
-      [],
-    ]);
+    const { db, queries } = createDb([[], [ruleRow(false, "newsletter")], []]);
 
     await setAutoDiscardRule(db, {
       tenantId: TENANT_ID,
@@ -177,52 +153,20 @@ describe("setAutoDiscardRule", () => {
       after: { enabled: false },
     });
   });
-
-  it("trims and drops blank patterns before storing them", async () => {
-    const { db, queries } = createDb([[], [ruleRow(true, ["acme.com"])], []]);
-
-    const rule = await setAutoDiscardRule(db, {
-      tenantId: TENANT_ID,
-      category: "comercial",
-      enabled: true,
-      senderPatterns: ["  acme.com  ", "   "],
-      actor: ACTOR,
-      now: NOW,
-    });
-
-    expect(rule.senderPatterns).toEqual(["acme.com"]);
-  });
 });
 
 describe("listAutoDiscardRules", () => {
   it("reports every eligible category, defaulting newsletter on and the rest off", async () => {
-    const { db, queries } = createDb([
-      [ruleRow(true, ["@acme.com"], [], "comercial")],
-    ]);
+    const { db, queries } = createDb([[ruleRow(true, "comercial")]]);
 
     const rules = await listAutoDiscardRules(db, TENANT_ID);
 
     expect(rules).toEqual([
-      {
-        category: "comercial",
-        enabled: true,
-        senderPatterns: ["@acme.com"],
-        keywordPatterns: [],
-      },
-      { category: "suport", enabled: false, senderPatterns: [], keywordPatterns: [] },
-      {
-        category: "facturacio",
-        enabled: false,
-        senderPatterns: [],
-        keywordPatterns: [],
-      },
-      {
-        category: "newsletter",
-        enabled: true,
-        senderPatterns: [],
-        keywordPatterns: [],
-      },
-      { category: "personal", enabled: false, senderPatterns: [], keywordPatterns: [] },
+      { category: "comercial", enabled: true },
+      { category: "suport", enabled: false },
+      { category: "facturacio", enabled: false },
+      { category: "newsletter", enabled: true },
+      { category: "personal", enabled: false },
     ]);
     // Urgent can never be switched on, so it is not offered at all.
     expect(rules.map((rule) => rule.category)).not.toContain("urgent");
@@ -230,40 +174,31 @@ describe("listAutoDiscardRules", () => {
   });
 
   it("respects a stored row that switches newsletter off", async () => {
-    const { db } = createDb([[ruleRow(false, [], [], "newsletter")]]);
+    const { db } = createDb([[ruleRow(false, "newsletter")]]);
 
     const rules = await listAutoDiscardRules(db, TENANT_ID);
 
-    expect(
-      rules.find((rule) => rule.category === "newsletter"),
-    ).toEqual({
+    expect(rules.find((rule) => rule.category === "newsletter")).toEqual({
       category: "newsletter",
       enabled: false,
-      senderPatterns: [],
-      keywordPatterns: [],
     });
   });
 });
 
 describe("findEnabledAutoDiscardRule", () => {
   it("returns the rule when the category's switch is on", async () => {
-    const { db } = createDb([[ruleRow(true, ["@acme.com"])]]);
+    const { db } = createDb([[ruleRow(true)]]);
 
     expect(
       await findEnabledAutoDiscardRule(db, {
         tenantId: TENANT_ID,
         category: "comercial",
       }),
-    ).toEqual({
-      category: "comercial",
-      enabled: true,
-      senderPatterns: ["@acme.com"],
-      keywordPatterns: [],
-    });
+    ).toEqual({ category: "comercial", enabled: true });
   });
 
   it("answers null for urgent without asking the database", async () => {
-    const { db, queries } = createDb([[ruleRow(true, [], [], "urgent")]]);
+    const { db, queries } = createDb([[ruleRow(true, "urgent")]]);
 
     expect(
       await findEnabledAutoDiscardRule(db, {
@@ -276,7 +211,7 @@ describe("findEnabledAutoDiscardRule", () => {
   });
 
   it("answers null when the rule exists but is switched off", async () => {
-    const { db } = createDb([[ruleRow(false, [], [], "suport")]]);
+    const { db } = createDb([[ruleRow(false, "suport")]]);
 
     expect(
       await findEnabledAutoDiscardRule(db, {
@@ -294,12 +229,7 @@ describe("findEnabledAutoDiscardRule", () => {
         tenantId: TENANT_ID,
         category: "newsletter",
       }),
-    ).toEqual({
-      category: "newsletter",
-      enabled: true,
-      senderPatterns: [],
-      keywordPatterns: [],
-    });
+    ).toEqual({ category: "newsletter", enabled: true });
   });
 
   it("defaults every other category to off when no row is stored", async () => {

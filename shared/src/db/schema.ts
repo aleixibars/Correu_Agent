@@ -329,16 +329,6 @@ export const autoDiscardRules = pgTable(
       .references(() => tenants.id, { onDelete: "cascade" }),
     category: triageCategoryEnum("category").notNull(),
     enabled: boolean("enabled").notNull().default(false),
-    /** Sender substrings (address or domain), matched case-insensitively; empty means "any sender". */
-    senderPatterns: text("sender_patterns")
-      .array()
-      .notNull()
-      .default(sql`'{}'`),
-    /** Subject substrings, matched case-insensitively; empty means "any subject". */
-    keywordPatterns: text("keyword_patterns")
-      .array()
-      .notNull()
-      .default(sql`'{}'`),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

@@ -112,10 +112,6 @@ const EVENTS: { [A in AuditAction]: Extract<AuditEvent, { action: A }> } = {
     category: "newsletter",
     previousEnabled: true,
     enabled: false,
-    senderPatterns: [],
-    previousSenderPatterns: [],
-    keywordPatterns: [],
-    previousKeywordPatterns: [],
   },
 };
 
@@ -166,8 +162,8 @@ const TRANSITIONS: Record<
     after: { status: "discarded" },
   },
   auto_discard_rule_changed: {
-    before: { enabled: true, senderPatterns: [], keywordPatterns: [] },
-    after: { enabled: false, senderPatterns: [], keywordPatterns: [] },
+    before: { enabled: true },
+    after: { enabled: false },
   },
 };
 
@@ -335,30 +331,6 @@ describe("buildAuditLogEntry", () => {
     expect(buildAuditLogEntry(EVENTS.thread_auto_discarded).draftId).toBe(
       DRAFT_ID,
     );
-  });
-
-  it("records the senders and keywords an auto-discard rule was rewritten to", () => {
-    const metadata = metadataOf({
-      ...EVENTS.auto_discard_rule_changed,
-      previousEnabled: true,
-      enabled: true,
-      previousSenderPatterns: [],
-      senderPatterns: ["@newsletter.example.com"],
-      previousKeywordPatterns: [],
-      keywordPatterns: ["butlletí"],
-    });
-
-    expect(metadata.category).toBe("newsletter");
-    expect(metadata.before).toEqual({
-      enabled: true,
-      senderPatterns: [],
-      keywordPatterns: [],
-    });
-    expect(metadata.after).toEqual({
-      enabled: true,
-      senderPatterns: ["@newsletter.example.com"],
-      keywordPatterns: ["butlletí"],
-    });
   });
 
   it("lists every action the events declare", () => {

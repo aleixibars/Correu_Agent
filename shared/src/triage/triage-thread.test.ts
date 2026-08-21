@@ -37,14 +37,6 @@ const messageRow = () => [
 
 const DRAFT_ID = "44444444-4444-4444-4444-444444444444";
 
-/** In the column order `findEnabledAutoDiscardRule` selects. */
-const autoDiscardRuleRow = (
-  enabled: boolean,
-  senderPatterns: string[] = [],
-  keywordPatterns: string[] = [],
-  category = "newsletter",
-) => [category, enabled, senderPatterns, keywordPatterns];
-
 const createDb = ({
   thread = threadRow(),
   messages = [messageRow()],

@@ -9,12 +9,7 @@ const DRAFT_ID = "33333333-3333-3333-3333-333333333333";
 const NOW = new Date("2026-06-01T09:00:00.000Z");
 
 /** In the column order `findEnabledAutoDiscardRule` selects. */
-const ruleRow = (
-  enabled: boolean,
-  senderPatterns: string[] = [],
-  keywordPatterns: string[] = [],
-  category = "newsletter",
-) => [category, enabled, senderPatterns, keywordPatterns];
+const ruleRow = (enabled: boolean, category = "newsletter") => [category, enabled];
 
 const createDb = ({
   rule = null as unknown[] | null,
@@ -47,8 +42,6 @@ describe("applyAutoDiscardRule", () => {
       tenantId: TENANT_ID,
       threadId: THREAD_ID,
       category: "newsletter",
-      fromAddresses: ["butlleti@example.com"],
-      subject: "El nostre butlletí",
       now: NOW,
     });
 
@@ -77,8 +70,6 @@ describe("applyAutoDiscardRule", () => {
       tenantId: TENANT_ID,
       threadId: THREAD_ID,
       category: "comercial",
-      fromAddresses: ["client@acme.com"],
-      subject: "Pressupost",
       now: NOW,
     });
 
@@ -86,56 +77,30 @@ describe("applyAutoDiscardRule", () => {
     expect(queries.map(({ sql }) => shape(sql))).toEqual(["rule lookup"]);
   });
 
-  it("does nothing when the rule is enabled but its senders/keywords do not match", async () => {
-    const { db, queries } = createDb({
-      rule: ruleRow(true, ["@newsletter.example.com"], [], "comercial"),
-    });
-
-    const discarded = await applyAutoDiscardRule(db, {
-      tenantId: TENANT_ID,
-      threadId: THREAD_ID,
-      category: "comercial",
-      fromAddresses: ["client@acme.com"],
-      subject: "Pressupost",
-      now: NOW,
-    });
-
-    expect(discarded).toBe(false);
-    expect(queries.map(({ sql }) => shape(sql))).toEqual(["rule lookup"]);
-  });
-
-  it("never touches urgent, whatever a planted row says", async () => {
-    const { db, queries } = createDb({
-      rule: ruleRow(true, [], [], "urgent"),
-    });
-
-    const discarded = await applyAutoDiscardRule(db, {
-      tenantId: TENANT_ID,
-      threadId: THREAD_ID,
-      category: "urgent",
-      fromAddresses: ["client@acme.com"],
-      subject: "Servidor caigut",
-      now: NOW,
-    });
-
-    expect(discarded).toBe(false);
-    expect(queries).toHaveLength(0);
-  });
-
-  it("discards a matching sender even outside the default-enabled category", async () => {
-    const { db } = createDb({
-      rule: ruleRow(true, ["@spam.example.com"], [], "personal"),
-    });
+  it("discards any category whose rule is explicitly on, not just newsletter", async () => {
+    const { db } = createDb({ rule: ruleRow(true, "personal") });
 
     const discarded = await applyAutoDiscardRule(db, {
       tenantId: TENANT_ID,
       threadId: THREAD_ID,
       category: "personal",
-      fromAddresses: ["ads@spam.example.com"],
-      subject: null,
       now: NOW,
     });
 
     expect(discarded).toBe(true);
+  });
+
+  it("never touches urgent, whatever a planted row says", async () => {
+    const { db, queries } = createDb({ rule: ruleRow(true, "urgent") });
+
+    const discarded = await applyAutoDiscardRule(db, {
+      tenantId: TENANT_ID,
+      threadId: THREAD_ID,
+      category: "urgent",
+      now: NOW,
+    });
+
+    expect(discarded).toBe(false);
+    expect(queries).toHaveLength(0);
   });
 });
