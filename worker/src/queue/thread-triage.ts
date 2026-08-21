@@ -1,6 +1,7 @@
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import type { WorkHandler } from "pg-boss";
 import {
+  needsDraft,
   triageThread,
   type TriageCategory,
   type TriageMessagesClient,
@@ -9,6 +10,7 @@ import {
   notifyUrgentThread,
   type WebPushSender,
 } from "@correu-agent/shared/web-push";
+import type { ThreadDraftJobData } from "./thread-draft";
 
 /** Queue that classifies the threads the poll wrote to (context.md §4). */
 export const THREAD_TRIAGE_QUEUE = "thread-triage";
@@ -33,6 +35,15 @@ export type ThreadTriageResult = {
   failed: FailedThreadTriage[];
 };
 
+/**
+ * Queues the immediate drafting of a thread just triaged into an eligible
+ * category (context.md §2, §4): the same job and singleton key the 2-minute
+ * schedule (`drafts/schedule.ts`) would queue on its next tick, sent right
+ * away so triaged mail does not wait for that clock — the schedule itself
+ * keeps running as the safety net for anything this misses.
+ */
+export type QueueThreadDraft = (target: ThreadDraftJobData) => Promise<unknown>;
+
 export interface ThreadTriageDeps<
   T extends PgQueryResultHKT,
   TSchema extends Record<string, unknown>,
@@ -40,6 +51,7 @@ export interface ThreadTriageDeps<
   db: PgDatabase<T, TSchema>;
   anthropic: TriageMessagesClient;
   webPush: WebPushSender;
+  queueThreadDraft: QueueThreadDraft;
 }
 
 const targetKey = ({ tenantId, threadId }: ThreadTriageJobData): string =>
@@ -65,6 +77,7 @@ export const createThreadTriageHandler = <
   db,
   anthropic,
   webPush,
+  queueThreadDraft,
 }: ThreadTriageDeps<T, TSchema>): WorkHandler<
   ThreadTriageJobData,
   ThreadTriageResult
@@ -100,6 +113,21 @@ export const createThreadTriageHandler = <
             } catch (error) {
               console.error(
                 `Notifying the urgent thread ${target.threadId} failed:`,
+                error,
+              );
+            }
+          }
+          // Newsletters and spam are archived, never answered (context.md
+          // §2), so only an eligible category is worth drafting for. A failure
+          // here is reported and nothing else: the category is already
+          // stored, and `drafts/schedule.ts`'s own tick still picks the
+          // thread up.
+          if (needsDraft(result.category)) {
+            try {
+              await queueThreadDraft(target);
+            } catch (error) {
+              console.error(
+                `Queuing immediate draft for thread ${target.threadId} failed:`,
                 error,
               );
             }

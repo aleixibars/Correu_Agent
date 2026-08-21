@@ -7,6 +7,7 @@ import {
   MAILBOX_POLL_QUEUE,
   createMailboxPollHandler,
   type MailboxPollJobData,
+  type QueueThreadTriage,
 } from "./mailbox-poll";
 
 const TENANT_ID = "11111111-1111-1111-1111-111111111111";
@@ -102,6 +103,7 @@ const stubFetch = (responseFor: (url: string) => unknown) => {
 const deps = (
   db: ReturnType<typeof createDb>,
   fetch: typeof globalThis.fetch,
+  queueThreadTriage: QueueThreadTriage = vi.fn(async () => "job-id"),
 ) => ({
   db,
   // The Gmail client reads the global fetch, so it is stubbed per test instead.
@@ -115,6 +117,7 @@ const deps = (
     encryptionKey: ENCRYPTION_KEY,
     fetch,
   },
+  queueThreadTriage,
 });
 
 /** Gmail with one new message waiting since the mailbox's stored historyId. */
@@ -384,5 +387,60 @@ describe("createMailboxPollHandler", () => {
     await expect(
       createMailboxPollHandler(deps(db, fetch))([]),
     ).resolves.toEqual({ polled: [], threads: [], failed: [] });
+  });
+
+  it("queues immediate triage for a new thread that needs it (context.md §8)", async () => {
+    const db = createDb([[accountRow(MAILBOX_ID, TENANT_ID)]]);
+    const { fetch } = stubFetch(() => graphPage("message-1"));
+    const queueThreadTriage: QueueThreadTriage = vi.fn(async () => "job-id");
+
+    await createMailboxPollHandler(deps(db, fetch, queueThreadTriage))([
+      job({ tenantId: TENANT_ID, mailboxAccountId: MAILBOX_ID }),
+    ]);
+
+    // Same singleton key as the 2-minute schedule (`triage/schedule.ts`) so a
+    // job it already queued is not stacked behind a duplicate.
+    expect(queueThreadTriage).toHaveBeenCalledWith({
+      tenantId: TENANT_ID,
+      threadId: THREAD_ID,
+    });
+  });
+
+  it("does not queue triage for a thread that already has a category", async () => {
+    const db = createDb(
+      [[accountRow(MAILBOX_ID, TENANT_ID)]],
+      threadRow("2026-01-01T08:00:00.000Z"),
+    );
+    const { fetch } = stubFetch(() => graphPage("message-1"));
+    const queueThreadTriage: QueueThreadTriage = vi.fn(async () => "job-id");
+
+    await createMailboxPollHandler(deps(db, fetch, queueThreadTriage))([
+      job({ tenantId: TENANT_ID, mailboxAccountId: MAILBOX_ID }),
+    ]);
+
+    expect(queueThreadTriage).not.toHaveBeenCalled();
+  });
+
+  it("reports and swallows an error queuing the immediate triage, leaving the poll's own result unaffected", async () => {
+    const db = createDb([[accountRow(MAILBOX_ID, TENANT_ID)]]);
+    const { fetch } = stubFetch(() => graphPage("message-1"));
+    const queueThreadTriage: QueueThreadTriage = vi.fn(async () => {
+      throw new Error("queue is down");
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    // The safety net (`triage/schedule.ts`'s own 2-minute tick) still picks
+    // this thread up, so a queueing failure here must not fail the poll job.
+    const result = await createMailboxPollHandler(deps(db, fetch, queueThreadTriage))([
+      job({ tenantId: TENANT_ID, mailboxAccountId: MAILBOX_ID }),
+    ]);
+
+    expect(result.threads).toHaveLength(1);
+    expect(result.failed).toEqual([]);
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining(THREAD_ID),
+      expect.anything(),
+    );
+    error.mockRestore();
   });
 });

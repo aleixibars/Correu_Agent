@@ -11,6 +11,7 @@ import {
 import { pollGmailMailbox, type GmailPollConfig } from "../poll/gmail";
 import { pollMicrosoftMailbox, type MicrosoftPollConfig } from "../poll/microsoft";
 import type { MailboxPoll } from "../poll/types";
+import type { ThreadTriageJobData } from "./thread-triage";
 
 /** Queue that drives the 2-minute mailbox polling cadence (context.md §8). */
 export const MAILBOX_POLL_QUEUE = "mailbox-poll";
@@ -42,6 +43,15 @@ export type MailboxPollResult = {
   failed: FailedMailboxPoll[];
 };
 
+/**
+ * Queues the immediate triage of a thread the poll just wrote (context.md §8):
+ * the same job and singleton key the 2-minute schedule (`triage/schedule.ts`)
+ * would queue on its next tick, sent right away so fresh mail does not wait for
+ * that clock — the schedule itself keeps running as the safety net for anything
+ * this misses.
+ */
+export type QueueThreadTriage = (target: ThreadTriageJobData) => Promise<unknown>;
+
 export interface MailboxPollDeps<
   T extends PgQueryResultHKT,
   TSchema extends Record<string, unknown>,
@@ -49,6 +59,7 @@ export interface MailboxPollDeps<
   db: PgDatabase<T, TSchema>;
   google: GmailPollConfig;
   microsoft: MicrosoftPollConfig;
+  queueThreadTriage: QueueThreadTriage;
 }
 
 const targetKey = ({ tenantId, mailboxAccountId }: MailboxPollTarget): string =>
@@ -73,6 +84,7 @@ export const createMailboxPollHandler = <
   db,
   google,
   microsoft,
+  queueThreadTriage,
 }: MailboxPollDeps<T, TSchema>): WorkHandler<
   MailboxPollJobData,
   MailboxPollResult
@@ -114,6 +126,31 @@ export const createMailboxPollHandler = <
     return persisted;
   };
 
+  /**
+   * Queues triage for the threads that need it, right after the poll wrote
+   * them. A failure here (the queue table unreachable, say) must not turn a
+   * successful poll into a failed job — `triage/schedule.ts`'s own 2-minute
+   * tick will still pick the thread up, just later than intended.
+   */
+  const queueImmediateTriage = async (
+    polledThreads: PolledMailboxThread[],
+  ): Promise<void> => {
+    for (const thread of polledThreads) {
+      if (!thread.needsTriage) continue;
+      try {
+        await queueThreadTriage({
+          tenantId: thread.tenantId,
+          threadId: thread.threadId,
+        });
+      } catch (error) {
+        console.error(
+          `Queuing immediate triage for thread ${thread.threadId} failed:`,
+          error,
+        );
+      }
+    }
+  };
+
   return async (jobs) => {
     const targets = new Map<string, MailboxPollTarget>();
     for (const { data } of jobs) {
@@ -135,15 +172,15 @@ export const createMailboxPollHandler = <
         const found = await pollOne(target);
         if (!found) continue;
         polled.push(target);
-        threads.push(
-          ...found.map((thread) => ({
-            ...target,
-            threadId: thread.threadId,
-            providerThreadId: thread.providerThreadId,
-            needsTriage: thread.triagedAt === null,
-            newMessages: thread.newProviderMessageIds.length,
-          })),
-        );
+        const newThreads = found.map((thread) => ({
+          ...target,
+          threadId: thread.threadId,
+          providerThreadId: thread.providerThreadId,
+          needsTriage: thread.triagedAt === null,
+          newMessages: thread.newProviderMessageIds.length,
+        }));
+        threads.push(...newThreads);
+        await queueImmediateTriage(newThreads);
       } catch (error) {
         // One mailbox with a revoked grant or an exhausted quota must not hide
         // the rest of the batch, but it must not disappear either: pg-boss keeps
