@@ -33,6 +33,9 @@ const createClient = (text = JSON.stringify(REPLY)) => {
 const draftRow = ({
   category = "comercial" as string | null,
   inReplyToMessageId = MESSAGE_ID as string | null,
+  mailboxEmail = "aleix@empresa.example" as string | null,
+  ownerName = "Aleix" as string | null,
+  companyName = "Empresa SL" as string | null,
 } = {}) => [
   DRAFT_ID,
   THREAD_ID,
@@ -40,6 +43,9 @@ const draftRow = ({
   OLD_BODY,
   "Pressupost",
   category,
+  mailboxEmail,
+  ownerName,
+  companyName,
 ];
 
 /** In the column order the message select asks for. */
@@ -196,6 +202,26 @@ describe("regenerateDraft", () => {
     expect(regenerated!.params.join(" ")).toContain(FEEDBACK);
     expect(generated!.params).toContain("draft_generated");
     expect(generated!.params).toContain(NEW_DRAFT_ID);
+  });
+
+  // Same bug the first draft has to avoid (`generate-draft.test.ts`): a
+  // regeneration must not lose track of whose mailbox it is writing for.
+  it("grounds the regenerated reply in whose mailbox and company it is answering for", async () => {
+    const { db } = createDb();
+    const { client, create } = createClient();
+
+    await regenerateDraft(db, client, {
+      tenantId: TENANT_ID,
+      draftId: DRAFT_ID,
+      userId: USER_ID,
+      feedback: FEEDBACK,
+      now: NOW,
+    });
+
+    const prompt = String(create.mock.calls[0]![0].messages[0]!.content);
+    expect(prompt).toContain("aleix@empresa.example");
+    expect(prompt).toContain("Aleix");
+    expect(prompt).toContain("Empresa SL");
   });
 
   it("refuses a rejection with no instruction in it", async () => {

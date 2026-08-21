@@ -6,7 +6,7 @@ import { and, eq, or } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { recordAuditLogEntry } from "../audit";
 import { findEnabledAutoReplyRule } from "../auto-reply/rules";
-import { drafts, threads } from "../db/schema";
+import { drafts, mailboxAccounts, tenants, threads, users } from "../db/schema";
 import { needsDraft } from "../triage/taxonomy";
 import { generateReply, type DraftMessagesClient } from "./generate";
 import { buildReplyHeaders, type ReplyHeaders } from "./reply-headers";
@@ -57,8 +57,17 @@ export const generateThreadDraft = async <
       subject: threads.subject,
       category: threads.category,
       triagedAt: threads.triagedAt,
+      // Grounds the reply in whose mailbox it is (`./generate`'s
+      // `MailboxToAnswerFor`) — without this the model has no way to tell it is
+      // answering a real employee's own inbox rather than a shared alias.
+      mailboxEmail: mailboxAccounts.emailAddress,
+      ownerName: users.name,
+      companyName: tenants.name,
     })
     .from(threads)
+    .innerJoin(mailboxAccounts, eq(mailboxAccounts.id, threads.mailboxAccountId))
+    .leftJoin(users, eq(users.id, mailboxAccounts.userId))
+    .innerJoin(tenants, eq(tenants.id, threads.tenantId))
     // Tenant-scoped like every other read a job payload drives.
     .where(and(eq(threads.id, threadId), eq(threads.tenantId, tenantId)))
     .limit(1);
@@ -118,6 +127,11 @@ export const generateThreadDraft = async <
     category: thread.category,
     messages: [...recent].reverse(),
     guidance: autoReplyRule?.instructions,
+    mailbox: {
+      emailAddress: thread.mailboxEmail,
+      ownerName: thread.ownerName,
+      companyName: thread.companyName,
+    },
   });
 
   const [stored] = await db
