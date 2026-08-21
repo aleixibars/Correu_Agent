@@ -260,11 +260,33 @@ const historyRecords = (body: Record<string, unknown>): HistoryRecord[] =>
  */
 export const MAX_MESSAGES_PER_POLL = 200;
 
+/** One page of `messages.list` — only the ids matter, the body is fetched separately. */
+const messageRefIds = (value: unknown): string[] =>
+  Array.isArray(value)
+    ? (value as { id?: unknown }[])
+        .map((entry) => asString(entry?.id))
+        .filter((id): id is string => id !== null)
+    : [];
+
+export interface GmailMailboxClient extends MailProviderClient {
+  /**
+   * One-time catch-up for a mailbox that just connected (context.md §4): mail
+   * from earlier the same business day that arrived *before* the connection.
+   * History (`fetchNewMessages`) only reports *changes* since a cursor, so it
+   * cannot answer "what already existed" — a full-text search can.
+   *
+   * Not bounded by `MAX_MESSAGES_PER_POLL` like the incremental poll is: this
+   * runs once, for one calendar day of one mailbox, never on the 2-minute
+   * cadence where an unbounded backlog is the real risk.
+   */
+  fetchMessagesSince(afterEpochSeconds: number): Promise<{ messages: ProviderMessage[] }>;
+}
+
 /**
  * A Gmail client bound to one mailbox's access token. Refreshing that token is
  * the caller's job — the client is short-lived, one poll long.
  */
-export const createGmailClient = (accessToken: string): MailProviderClient => ({
+export const createGmailClient = (accessToken: string): GmailMailboxClient => ({
   async fetchNewMessages(cursor: string | null): Promise<MailPollResult> {
     // A mailbox with no cursor has nothing to resume from, and the backlog is
     // never imported (context.md §4): it starts watching from now.
@@ -346,6 +368,40 @@ export const createGmailClient = (accessToken: string): MailProviderClient => ({
       cursor: truncated ? (lastRecordId ?? cursor) : latestHistoryId,
       cursorReset: false,
     };
+  },
+
+  async fetchMessagesSince(afterEpochSeconds: number): Promise<{ messages: ProviderMessage[] }> {
+    const ids: string[] = [];
+    let pageToken: string | undefined;
+
+    // `after:` is a Gmail search operator (a Unix timestamp is accepted), not
+    // a history cursor — this walks `messages.list`, never `/history`.
+    do {
+      const page = await gmailGet(accessToken, "/messages", {
+        q: `after:${afterEpochSeconds}`,
+        pageToken,
+      });
+      if (!page) break;
+
+      ids.push(...messageRefIds(page.messages));
+      pageToken = asString(page.nextPageToken) ?? undefined;
+    } while (pageToken);
+
+    const messages: ProviderMessage[] = [];
+    for (const id of ids) {
+      const raw = await gmailGet(
+        accessToken,
+        `/messages/${encodeURIComponent(id)}`,
+        { format: "full" },
+      );
+      // Deleted between the search and this fetch — normal, not an error.
+      if (!raw) continue;
+
+      const message = toProviderMessage(raw as GmailMessage);
+      if (message) messages.push(message);
+    }
+
+    return { messages };
   },
 });
 

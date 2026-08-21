@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { drizzle } from "drizzle-orm/pg-proxy";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { startOfBusinessDay } from "@correu-agent/shared/mail";
 import { decryptToken } from "@correu-agent/shared/token-encryption";
 import { GOOGLE_MAILBOX_SCOPES } from "./google-oauth";
 import {
@@ -33,44 +34,80 @@ const jsonResponse = (body: unknown, status = 200): Response =>
     headers: { "content-type": "application/json" },
   });
 
+const THREAD_ID = "44444444-4444-4444-4444-444444444444";
+const NOW = new Date("2026-01-15T10:00:00.000Z");
+
 const googleResponds = ({
   scope = GOOGLE_MAILBOX_SCOPES.join(" "),
   refreshToken = "refresh-1" as string | null,
+  /** Answers `GET /messages?q=after:...`, the catch-up search on a fresh connect. */
+  catchUpSearch = { messages: [] as { id: string }[] },
+  catchUpSearchStatus = 200,
+  catchUpMessages = {} as Record<string, unknown>,
 } = {}) => {
-  const fetchMock = vi
-    .fn()
-    .mockResolvedValueOnce(
-      jsonResponse({
+  const fetchMock = vi.fn(async (input: string | URL) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith("/token")) {
+      return jsonResponse({
         access_token: "access-1",
         ...(refreshToken ? { refresh_token: refreshToken } : {}),
         expires_in: 3599,
         scope,
         id_token: idToken({ sub: "google-sub-1" }),
-      }),
-    )
-    .mockResolvedValueOnce(
-      jsonResponse({ emailAddress: "bustia@example.com", historyId: "98765" }),
-    );
+      });
+    }
+    if (url.pathname.endsWith("/profile")) {
+      return jsonResponse({ emailAddress: "bustia@example.com", historyId: "98765" });
+    }
+    if (url.pathname.endsWith("/messages") && url.searchParams.has("q")) {
+      return jsonResponse(catchUpSearch, catchUpSearchStatus);
+    }
+    const id = url.pathname.split("/").pop()!;
+    const message = catchUpMessages[id];
+    return message ? jsonResponse(message) : jsonResponse({ error: { message: "not found" } }, 404);
+  });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 };
+
+/** In the column order the mailbox upsert returns (`id`, then `xmax = 0`). */
+const mailboxRow = (wasCreated: boolean) => [MAILBOX_ID, wasCreated];
+
+/** In the column order the thread upsert returns — same shape as `persist.test.ts`. */
+const threadRow = (id: string) => [id, null, null, true];
 
 /**
  * Drizzle's proxy driver: the statements the connect flow issues are built for
  * real and captured here instead of reaching Postgres, so the test asserts on
  * what would actually be written.
+ *
+ * `mailboxWasCreated` stands in for a real upsert's `xmax = 0`: true for a
+ * mailbox connected for the first time, false for a reconnect — only the
+ * former is followed by the one-time catch-up search (context.md §4).
  */
-const recordingDatabase = () => {
+const recordingDatabase = ({ mailboxWasCreated = true } = {}) => {
   const statements: { sql: string; params: unknown[] }[] = [];
   const db = drizzle(async (sql, params) => {
     statements.push({ sql, params });
-    // Shape of `.returning({ id })`: one row, one column.
-    return { rows: [[MAILBOX_ID]] };
+    if (sql.includes('insert into "mailbox_accounts"')) {
+      return { rows: [mailboxRow(mailboxWasCreated)] };
+    }
+    if (sql.includes('insert into "threads"')) {
+      return { rows: [threadRow(THREAD_ID)] };
+    }
+    if (sql.includes('insert into "messages"')) {
+      // One row per message actually inserted; the fixtures below use one.
+      return { rows: [["msg-1"]] };
+    }
+    return { rows: [] };
   });
   return { db, statements };
 };
 
-const connect = (db: ReturnType<typeof recordingDatabase>["db"]) =>
+const connect = (
+  db: ReturnType<typeof recordingDatabase>["db"],
+  overrides: { now?: () => Date } = {},
+) =>
   connectGoogleMailbox(db, {
     tenantId: TENANT_ID,
     userId: USER_ID,
@@ -78,6 +115,7 @@ const connect = (db: ReturnType<typeof recordingDatabase>["db"]) =>
     codeVerifier: "verifier-1",
     client: CLIENT,
     encryptionKey,
+    now: overrides.now ?? (() => NOW),
   });
 
 afterEach(() => {
@@ -142,7 +180,7 @@ describe("connectGoogleMailbox", () => {
 
   it("leaves the sync cursor alone when the same mailbox is reconnected", async () => {
     googleResponds();
-    const { db, statements } = recordingDatabase();
+    const { db, statements } = recordingDatabase({ mailboxWasCreated: false });
 
     await connect(db);
 
@@ -153,6 +191,94 @@ describe("connectGoogleMailbox", () => {
     expect(conflictClause).not.toBe("");
     expect(conflictClause).not.toContain("sync_cursor");
     expect(conflictClause).not.toContain("connected_at");
+  });
+
+  describe("catching up on the connection day's mail", () => {
+    const gmailMessage = () => ({
+      id: "msg-1",
+      threadId: "thread-1",
+      labelIds: ["INBOX"],
+      snippet: "Bon dia,",
+      internalDate: "1700000000000",
+      payload: {
+        mimeType: "text/plain",
+        headers: [
+          { name: "From", value: "client@example.com" },
+          { name: "Subject", value: "Pressupost" },
+        ],
+        body: {
+          data: Buffer.from("Bon dia, voldria un pressupost.", "utf8").toString(
+            "base64url",
+          ),
+        },
+      },
+    });
+
+    it("fetches and stores mail that arrived earlier the same day, before the connection", async () => {
+      const fetchMock = googleResponds({
+        catchUpSearch: { messages: [{ id: "msg-1" }] },
+        catchUpMessages: { "msg-1": gmailMessage() },
+      });
+      const { db, statements } = recordingDatabase({ mailboxWasCreated: true });
+
+      await connect(db);
+
+      const threadInsert = statements.find((s) => s.sql.includes('insert into "threads"'));
+      const messageInsert = statements.find((s) => s.sql.includes('insert into "messages"'));
+      expect(threadInsert).toBeDefined();
+      expect(messageInsert).toBeDefined();
+      expect(messageInsert!.params).toContain("msg-1");
+      expect(threadInsert!.params).toContain("thread-1");
+
+      // Search, not history: this is the one-time catch-up (context.md §4).
+      const searchCall = fetchMock.mock.calls.find(([input]) =>
+        String(input).includes("/messages?"),
+      );
+      expect(searchCall).toBeDefined();
+    });
+
+    it("searches from the start of the connection's business day, not the exact instant", async () => {
+      const fetchMock = googleResponds();
+      const { db } = recordingDatabase({ mailboxWasCreated: true });
+
+      await connect(db);
+
+      const expectedEpoch = Math.floor(
+        startOfBusinessDay(NOW).getTime() / 1000,
+      );
+      const searchCall = fetchMock.mock.calls.find(([input]) =>
+        String(input).includes("/messages?"),
+      );
+      expect(searchCall).toBeDefined();
+      const url = new URL(String(searchCall![0]));
+      expect(url.searchParams.get("q")).toBe(`after:${expectedEpoch}`);
+    });
+
+    it("does not search when the mailbox already existed (reconnect)", async () => {
+      const fetchMock = googleResponds();
+      const { db, statements } = recordingDatabase({ mailboxWasCreated: false });
+
+      await connect(db);
+
+      const searchCall = fetchMock.mock.calls.find(([input]) =>
+        String(input).includes("/messages?"),
+      );
+      expect(searchCall).toBeUndefined();
+      // Only the mailbox upsert — no thread/message ever gets a chance to write.
+      expect(statements).toHaveLength(1);
+    });
+
+    it("does not fail the connection when the catch-up search itself fails", async () => {
+      googleResponds({ catchUpSearchStatus: 500 });
+      const { db, statements } = recordingDatabase({ mailboxWasCreated: true });
+
+      await expect(connect(db)).resolves.toEqual({
+        id: MAILBOX_ID,
+        emailAddress: "bustia@example.com",
+      });
+      // The mailbox itself is connected; only the catch-up was lost.
+      expect(statements).toHaveLength(1);
+    });
   });
 
   it("refuses a consent screen where the user unticked the send grant", async () => {

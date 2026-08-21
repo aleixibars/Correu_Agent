@@ -4,9 +4,10 @@
 // flow is exercised by tests with Google mocked.
 
 import { sql } from "drizzle-orm";
-import type { TablesRelationalConfig } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { mailboxAccounts } from "@correu-agent/shared/db/schema";
+import { createGmailClient, startOfBusinessDay } from "@correu-agent/shared/mail";
+import { persistPolledMessages } from "@correu-agent/shared/mailbox";
 import {
   encryptToken,
   loadTokenEncryptionKey,
@@ -45,6 +46,8 @@ export interface ConnectGoogleMailboxParams {
   client: GoogleOAuthClient;
   /** Defaults to the key in `TOKEN_ENCRYPTION_KEY`. */
   encryptionKey?: Buffer;
+  /** Defaults to the wall clock; overridable so tests pin "today" (context.md §4). */
+  now?: () => Date;
 }
 
 export interface ConnectedMailbox {
@@ -58,13 +61,13 @@ const REQUIRED_SCOPES = GOOGLE_MAILBOX_SCOPES.filter(
 );
 
 // Generic over the schema the connection was opened with, so the app's database
-// and a bare test one are both accepted — same shape as `recordAuditLogEntry`.
+// and a bare test one are both accepted — same shape as `recordAuditLogEntry`
+// and `persistPolledMessages`, which this function now calls into directly.
 export const connectGoogleMailbox = async <
   TResult extends PgQueryResultHKT,
-  TFullSchema extends Record<string, unknown>,
-  TSchema extends TablesRelationalConfig,
+  TFullSchema extends Record<string, unknown> = Record<string, never>,
 >(
-  db: PgDatabase<TResult, TFullSchema, TSchema>,
+  db: PgDatabase<TResult, TFullSchema>,
   {
     tenantId,
     userId,
@@ -72,6 +75,7 @@ export const connectGoogleMailbox = async <
     codeVerifier,
     client,
     encryptionKey,
+    now = () => new Date(),
   }: ConnectGoogleMailboxParams,
 ): Promise<ConnectedMailbox> => {
   const tokens = await exchangeGoogleAuthorizationCode(client, {
@@ -155,7 +159,45 @@ export const connectGoogleMailbox = async <
         updatedAt: sql`now()`,
       },
     })
-    .returning({ id: mailboxAccounts.id });
+    .returning({
+      id: mailboxAccounts.id,
+      // Postgres' upsert tell: a row this statement inserted has no deleting
+      // transaction, an updated one (a reconnect) carries the one that replaced
+      // it. Same trick `persistPolledMessages` uses for a thread.
+      justConnected: sql<boolean>`(xmax = 0)`,
+    });
 
-  return { id: connected!.id, emailAddress: profile.emailAddress };
+  const mailboxId = connected!.id;
+
+  // History (`fetchNewMessages`) only reports *changes* from the cursor above,
+  // never what already existed — so a mailbox connected for the first time
+  // still needs a one-time catch-up for the mail of today that arrived before
+  // this moment (context.md §4). A reconnect skips this: its cursor and
+  // `connectedAt` are untouched above, so the incremental poll already resumes
+  // from where the mailbox left off and nothing is missed.
+  if (connected!.justConnected) {
+    try {
+      const since = startOfBusinessDay(now());
+      const catchUp = await createGmailClient(tokens.accessToken).fetchMessagesSince(
+        Math.floor(since.getTime() / 1000),
+      );
+      if (catchUp.messages.length > 0) {
+        await persistPolledMessages(db, {
+          tenantId,
+          mailboxAccountId: mailboxId,
+          messages: catchUp.messages,
+        });
+      }
+    } catch (cause) {
+      // The mailbox is connected either way, and the 2-minute poll keeps it
+      // moving forward from here on: only today's already-arrived mail is at
+      // risk, so a failed catch-up must not undo the connection itself.
+      console.error(
+        `Could not catch up on today's mail for ${profile.emailAddress}:`,
+        cause,
+      );
+    }
+  }
+
+  return { id: mailboxId, emailAddress: profile.emailAddress };
 };

@@ -53,9 +53,16 @@ const gmailMessage = ({
 
 /** Answers each Gmail endpoint by URL, so the order of calls is not baked into the test. */
 const gmailResponds = (
-  routes: { history?: unknown[]; messages?: Record<string, unknown>; profile?: unknown },
+  routes: {
+    history?: unknown[];
+    messages?: Record<string, unknown>;
+    profile?: unknown;
+    /** Pages for `GET /messages?q=...`, the search `fetchMessagesSince` lists ids from. */
+    search?: unknown[];
+  },
 ) => {
   const history = [...(routes.history ?? [])];
+  const search = [...(routes.search ?? [])];
   const requested: string[] = [];
   const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
     void init;
@@ -68,6 +75,11 @@ const gmailResponds = (
     }
     if (url.pathname.endsWith("/profile")) {
       return jsonResponse(routes.profile ?? { emailAddress: "bustia@example.com", historyId: "9000" });
+    }
+    // The bare list endpoint, as opposed to `/messages/{id}` below.
+    if (url.pathname.endsWith("/messages") && url.searchParams.has("q")) {
+      const page = search.shift();
+      return jsonResponse(page ?? { messages: [] });
     }
     const id = url.pathname.split("/").pop()!;
     const message = routes.messages?.[id];
@@ -373,6 +385,79 @@ describe("createGmailClient", () => {
     await expect(
       createGmailClient(ACCESS_TOKEN).fetchNewMessages("1000"),
     ).rejects.toThrow(/Rate Limit Exceeded/);
+  });
+});
+
+describe("createGmailClient().fetchMessagesSince", () => {
+  it("fetches the mail Gmail's search finds after the given instant", async () => {
+    const { requested } = gmailResponds({
+      search: [{ messages: [{ id: "msg-1", threadId: "thread-1" }] }],
+      messages: { "msg-1": gmailMessage() },
+    });
+
+    const result = await createGmailClient(ACCESS_TOKEN).fetchMessagesSince(1_700_000_000);
+
+    expect(result.messages.map((message) => message.providerMessageId)).toEqual([
+      "msg-1",
+    ]);
+    // `after:` is a Gmail search operator, not a history cursor (context.md
+    // §4) — this is a one-time catch-up, never the 2-minute poll.
+    expect(requested[0]).toContain("q=after%3A1700000000");
+  });
+
+  it("follows search pages, de-duplicated the same way history is", async () => {
+    gmailResponds({
+      search: [
+        { messages: [{ id: "msg-1" }], nextPageToken: "page-2" },
+        { messages: [{ id: "msg-2" }] },
+      ],
+      messages: {
+        "msg-1": gmailMessage(),
+        "msg-2": gmailMessage({ id: "msg-2", threadId: "thread-2" }),
+      },
+    });
+
+    const result = await createGmailClient(ACCESS_TOKEN).fetchMessagesSince(0);
+
+    expect(result.messages.map((message) => message.providerMessageId)).toEqual([
+      "msg-1",
+      "msg-2",
+    ]);
+  });
+
+  it("returns nothing when the search finds no mail", async () => {
+    gmailResponds({ search: [{}] });
+
+    const result = await createGmailClient(ACCESS_TOKEN).fetchMessagesSince(0);
+
+    expect(result.messages).toEqual([]);
+  });
+
+  it("excludes drafts and trashed mail, same as the incremental poll", async () => {
+    gmailResponds({
+      search: [{ messages: [{ id: "msg-1" }, { id: "msg-2" }] }],
+      messages: {
+        "msg-1": gmailMessage({ labelIds: ["DRAFT"] }),
+        "msg-2": gmailMessage({ id: "msg-2", labelIds: ["TRASH"] }),
+      },
+    });
+
+    const result = await createGmailClient(ACCESS_TOKEN).fetchMessagesSince(0);
+
+    expect(result.messages).toEqual([]);
+  });
+
+  it("skips a message deleted between the search and the fetch", async () => {
+    gmailResponds({
+      search: [{ messages: [{ id: "msg-gone" }, { id: "msg-1" }] }],
+      messages: { "msg-1": gmailMessage() },
+    });
+
+    const result = await createGmailClient(ACCESS_TOKEN).fetchMessagesSince(0);
+
+    expect(result.messages.map((message) => message.providerMessageId)).toEqual([
+      "msg-1",
+    ]);
   });
 });
 

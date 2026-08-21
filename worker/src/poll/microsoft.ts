@@ -6,6 +6,7 @@
 import { and, eq } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { mailboxAccounts } from "@correu-agent/shared/db/schema";
+import { startOfBusinessDay } from "@correu-agent/shared/mail";
 import {
   fetchMicrosoftNewMessages,
   microsoftTenantFromIssuer,
@@ -99,7 +100,9 @@ export const pollMicrosoftMailbox = async <
     deltaLink: account.syncCursor,
     // Not the last poll: mail older than the connection is never this
     // product's business, however far back the cursor reaches (context.md §4).
-    since: account.connectedAt,
+    // The cut is the start of the connection's business day, not the exact
+    // instant, so mail that arrived earlier the same day is caught too.
+    since: startOfBusinessDay(account.connectedAt),
     fetch,
   });
 
