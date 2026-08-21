@@ -1,6 +1,8 @@
-// What the dashboard home leads with (context.md §2): threads that still need
-// something from the reviewer, so the initial screen answers "what's waiting
-// for me" without a click into /fils.
+// What the dashboard home leads with (context.md §2): threads the triatge
+// tick has already classified and that still need something from the
+// reviewer, so the initial screen answers "what's waiting for me" without a
+// click into /fils. A thread still awaiting triage never shows up here — it
+// is not the reviewer's turn yet, it is the triatge's (context.md §4).
 
 import type { ThreadListItem } from "./list-threads";
 
@@ -10,12 +12,12 @@ export const DEFAULT_ACTIONABLE_THREAD_LIMIT = 10;
 const CLOSED_STATUSES = new Set(["replied", "draft-discarded"]);
 
 const needsReviewer = (status: ThreadListItem["status"]): boolean =>
-  status === "awaiting-triage" || status === "draft-pending";
+  status === "draft-pending";
 
 /**
- * Threads waiting on the reviewer, plus urgent threads that have not been
- * closed out yet — even once triaged and drafted, urgent mail stays visible
- * until it is replied to or its draft discarded.
+ * Triaged threads with a live draft waiting on the reviewer, plus urgent
+ * threads that have not been closed out yet — even once triaged and drafted,
+ * urgent mail stays visible until it is replied to or its draft discarded.
  */
 export const actionableThreads = (
   threads: ThreadListItem[],

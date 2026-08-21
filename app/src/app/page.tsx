@@ -125,14 +125,13 @@ export default async function HomePage({
                   <th scope="col">Categoria</th>
                   <th scope="col">Estat</th>
                   <th scope="col">Últim missatge</th>
+                  <th scope="col">Acció</th>
                 </tr>
               </thead>
               <tbody>
                 {pending.map(({ id, subject, category, status, lastMessageAt }) => (
                   <tr key={id}>
-                    <td>
-                      <Link href={threadPath(id)}>{subjectLabel(subject)}</Link>
-                    </td>
+                    <td>{subjectLabel(subject)}</td>
                     <td>
                       {category === null ? (
                         <span className="meta">—</span>
@@ -149,6 +148,13 @@ export default async function HomePage({
                           {timeFormat.format(lastMessageAt)}
                         </time>
                       )}
+                    </td>
+                    <td>
+                      {/* Explicit call to action, not just a link on the
+                          subject: aquesta és la fila d'on el revisor actua. */}
+                      <Link href={threadPath(id)} className="btn">
+                        Respondre
+                      </Link>
                     </td>
                   </tr>
                 ))}
