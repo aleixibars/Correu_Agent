@@ -25,7 +25,6 @@ import { listThreads } from "../lib/threads/list-threads";
 import { threadStatusLabel } from "../lib/threads/thread-status";
 import { actionableThreads } from "../lib/threads/actionable-threads";
 import { latestDailyDigest } from "../lib/digest/latest-digest";
-import { UrgentPushToggle } from "./urgent-push";
 
 // El tauler és una eina d'oficina en horari local (context.md §5), així que la
 // data d'un missatge es formata al fus del negoci i no al del servidor de
@@ -225,14 +224,8 @@ export default async function HomePage({
         )}
       </section>
 
-      <section className="card">
-        {/* Read here rather than in the client component: the key is public, but
-            only a Server Component can reach the environment it lives in. */}
-        <UrgentPushToggle publicKey={process.env.VAPID_PUBLIC_KEY ?? ""} />
-      </section>
-
       <p className="meta">
-        <Link href={AUTO_REPLY_PATH}>Configuració de resposta automàtica</Link>
+        <Link href={AUTO_REPLY_PATH}>Configuració</Link>
       </p>
     </div>
   );

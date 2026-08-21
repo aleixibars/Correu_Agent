@@ -13,9 +13,10 @@ import { db } from "../../lib/db";
 import { AppHeader } from "../../components/AppHeader";
 import { CategoryStamp } from "../../components/CategoryStamp";
 import { saveAutoDiscardRule, saveAutoReplyRule } from "./actions";
+import { UrgentPushToggle } from "../urgent-push";
 
 export const metadata = {
-  title: `Auto-resposta · ${APP_NAME}`,
+  title: `Configuració · ${APP_NAME}`,
 };
 
 // Les categories que no són mai elegibles (context.md §2) es llisten, però
@@ -42,16 +43,18 @@ export default async function AutoReplyPage() {
     <div className="app-shell">
       <div className="airmail-stripe" />
       <AppHeader email={session.user.email ?? ""} active={AUTO_REPLY_PATH} />
-      <h1>Resposta automàtica</h1>
+      <h1>Configuració</h1>
+
+      <h2>Resposta automàtica</h2>
       <p>
         Amb una regla activada, els correus d'aquesta categoria es responen
         sols, sense revisió ni aprovació prèvia. Es desactiva quan vulguis.
       </p>
       {rules.map(({ category, enabled, instructions }) => (
         <section key={category} className="card">
-          <h2>
+          <h3>
             <CategoryStamp category={category} />
-          </h2>
+          </h3>
           <form action={saveAutoReplyRule}>
             <input type="hidden" name="category" value={category} />
             <div className="switch-row">
@@ -83,7 +86,7 @@ export default async function AutoReplyPage() {
         </section>
       ))}
       <section className="card">
-        <h2>Categories sense resposta automàtica</h2>
+        <h3>Categories sense resposta automàtica</h3>
         <p>
           Aquestes categories no es responen mai soles: les de risc necessiten
           sempre una persona i els butlletins no necessiten resposta.
@@ -97,7 +100,7 @@ export default async function AutoReplyPage() {
         </p>
       </section>
 
-      <h1>Descart automàtic</h1>
+      <h2>Descart automàtic</h2>
       <p>
         Amb una regla activada, els fils d'aquesta categoria (que compleixin els
         remitents o paraules clau, si n'hi ha) es descarten sols, sense generar
@@ -105,9 +108,9 @@ export default async function AutoReplyPage() {
       </p>
       {discardRules.map(({ category, enabled, senderPatterns, keywordPatterns }) => (
         <section key={category} className="card">
-          <h2>
+          <h3>
             <CategoryStamp category={category} />
-          </h2>
+          </h3>
           <form action={saveAutoDiscardRule}>
             <input type="hidden" name="category" value={category} />
             <div className="switch-row">
@@ -151,7 +154,7 @@ export default async function AutoReplyPage() {
         </section>
       ))}
       <section className="card">
-        <h2>Categories sense descart automàtic</h2>
+        <h3>Categories sense descart automàtic</h3>
         <p>
           Els fils urgents no es descarten mai sols: sempre necessiten una
           persona (context.md §4).
@@ -164,6 +167,10 @@ export default async function AutoReplyPage() {
           ))}
         </p>
       </section>
+
+      {/* Read here rather than in the client component: the key is public,
+          but only a Server Component can reach the environment it lives in. */}
+      <UrgentPushToggle publicKey={process.env.VAPID_PUBLIC_KEY ?? ""} />
     </div>
   );
 }

@@ -270,3 +270,22 @@ describe("AutoReplyPage — auto-discard section", () => {
     expect(await render()).toContain("Descart automàtic");
   });
 });
+
+describe("AutoReplyPage — configuration hub", () => {
+  // The page grew beyond auto-reply (auto-discard, and now notifications), so
+  // it reads as one settings screen rather than a page named after its first
+  // feature.
+  it("titles the page as the tenant's configuration screen", async () => {
+    withRules();
+
+    expect(await render()).toContain("<h1>Configuració</h1>");
+  });
+
+  // Notification settings moved here from the dashboard home — configuration
+  // belongs with the rest of the tenant's settings, not the daily-review screen.
+  it("carries the urgent-notification toggle", async () => {
+    withRules();
+
+    expect(await render()).toContain("Notificacions de correu urgent");
+  });
+});

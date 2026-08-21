@@ -4,7 +4,7 @@ import { AUTO_REPLY_PATH, DIGEST_PATH, THREADS_PATH } from "../lib/routes";
 const NAV_ITEMS = [
   { href: THREADS_PATH, label: "Fils" },
   { href: DIGEST_PATH, label: "Digest" },
-  { href: AUTO_REPLY_PATH, label: "Auto-resposta" },
+  { href: AUTO_REPLY_PATH, label: "Configuració" },
 ] as const;
 
 /**

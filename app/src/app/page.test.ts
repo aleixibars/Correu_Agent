@@ -215,4 +215,14 @@ describe("HomePage", () => {
     expect(markup).not.toContain("Bústies connectades");
     expect(markup).not.toContain("Connecta una bústia de Gmail");
   });
+
+  // Notification settings are configuration, not something to review daily —
+  // they moved to /auto-resposta alongside the rest of the tenant's settings.
+  it("does not clutter the dashboard with the notification toggle", async () => {
+    signedIn();
+
+    const markup = await render();
+
+    expect(markup).not.toContain("Notificacions de correu urgent");
+  });
 });
