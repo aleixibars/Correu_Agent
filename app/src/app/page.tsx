@@ -17,8 +17,6 @@ import {
   MAILBOX_STATUS_PARAM,
   mailboxConnectionNotice,
 } from "../lib/mailbox/connect-messages";
-import { GOOGLE_CONNECT_PATH } from "../lib/mailbox/google-oauth";
-import { MICROSOFT_MAILBOX_CONNECT_PATH } from "../lib/mailbox/microsoft";
 import { db } from "../lib/db";
 import { categoryLabel } from "../lib/category-labels";
 import { CATEGORY_COLOR_VARS } from "../lib/category-colors";
@@ -219,23 +217,6 @@ export default async function HomePage({
             ))}
           </>
         )}
-      </section>
-
-      <section className="card">
-        <h2>Bústies connectades</h2>
-        <p>
-          {/* Plain anchors, not `next/link`: the targets are route handlers that
-              redirect off-site to the provider, and a client-side navigation
-              would run them twice — once for the RSC fetch that cannot follow the
-              cross-origin redirect, once for the hard navigation that replaces
-              it. */}
-          <a href={GOOGLE_CONNECT_PATH} className="btn">
-            Connecta una bústia de Gmail
-          </a>{" "}
-          <a href={MICROSOFT_MAILBOX_CONNECT_PATH} className="btn">
-            Connecta una bústia de Microsoft 365/Outlook
-          </a>
-        </p>
       </section>
 
       <section className="card">
