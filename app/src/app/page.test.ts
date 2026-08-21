@@ -192,11 +192,14 @@ describe("HomePage", () => {
     );
   });
 
-  it("still offers to connect a mailbox", async () => {
+  // Connecting a mailbox is production-only setup, not something the
+  // dashboard should keep offering once a tenant is up and running.
+  it("does not clutter the dashboard with mailbox connect buttons", async () => {
     signedIn();
 
     const markup = await render();
 
-    expect(markup).toContain("Connecta una bústia de Gmail");
+    expect(markup).not.toContain("Bústies connectades");
+    expect(markup).not.toContain("Connecta una bústia de Gmail");
   });
 });
