@@ -61,6 +61,11 @@ const createDb = (
     if (sql.includes('from "messages"')) return { rows: [messageRow()] };
     // The guarded update reports the thread it really triaged.
     if (sql.includes('update "threads"')) return { rows: [[`thread-${updates++}`]] };
+    // No tenant rule stored: whether a category auto-discards falls back to the
+    // code default (newsletter only) — tests that care about a specific rule
+    // build their own db, like the one just below.
+    if (sql.includes('from "auto_discard_rules"')) return { rows: [] };
+    if (sql.includes('insert into "drafts"')) return { rows: [["draft-stub"]] };
     return { rows: [] };
   });
 };
