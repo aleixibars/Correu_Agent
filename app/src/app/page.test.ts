@@ -94,7 +94,7 @@ describe("HomePage", () => {
     });
   });
 
-  it("lists a thread awaiting triage among the actionable threads", async () => {
+  it("leaves out a thread still awaiting triage", async () => {
     signedIn();
     listThreads.mockResolvedValue([
       thread({ id: "t-1", subject: "Falta triatge", status: "awaiting-triage" }),
@@ -102,8 +102,7 @@ describe("HomePage", () => {
 
     const markup = await render();
 
-    expect(markup).toContain("Falta triatge");
-    expect(markup).toContain(`href="${threadPath("t-1")}"`);
+    expect(markup).not.toContain("Falta triatge");
   });
 
   it("leaves out a triaged thread that is not urgent", async () => {
@@ -115,6 +114,20 @@ describe("HomePage", () => {
     const markup = await render();
 
     expect(markup).not.toContain("Ja triat");
+  });
+
+  it("offers an explicit Respondre button for a thread with a draft pending review", async () => {
+    signedIn();
+    listThreads.mockResolvedValue([
+      thread({ id: "t-1", subject: "Cal revisar", status: "draft-pending" }),
+    ]);
+
+    const markup = await render();
+
+    expect(markup).toContain("Cal revisar");
+    expect(markup).toContain(
+      `<a class="btn" href="${threadPath("t-1")}">Respondre</a>`,
+    );
   });
 
   it("says so when nothing is waiting on the reviewer", async () => {

@@ -1,6 +1,7 @@
 // What "pendents/urgents" means on the dashboard home (context.md §2): threads
-// still waiting on the reviewer, or urgent threads that have not been closed
-// out yet. Pure filter, so it is tested without a database.
+// with a live draft waiting on the reviewer, or urgent threads that have not
+// been closed out yet. A thread still awaiting triage never belongs here —
+// see below. Pure filter, so it is tested without a database.
 
 import { describe, expect, it } from "vitest";
 import type { ThreadListItem } from "./list-threads";
@@ -16,10 +17,10 @@ const thread = (overrides: Partial<ThreadListItem> = {}): ThreadListItem => ({
 });
 
 describe("actionableThreads", () => {
-  it("keeps a thread still awaiting triage", () => {
-    const threads = [thread({ status: "awaiting-triage" })];
-
-    expect(actionableThreads(threads)).toEqual(threads);
+  it("drops a thread still awaiting triage", () => {
+    expect(
+      actionableThreads([thread({ status: "awaiting-triage" })]),
+    ).toEqual([]);
   });
 
   it("keeps a thread with a draft pending review", () => {
@@ -64,9 +65,9 @@ describe("actionableThreads", () => {
 
   it("limits the result while keeping the incoming order", () => {
     const threads = [
-      thread({ id: "a", status: "awaiting-triage" }),
+      thread({ id: "a", status: "draft-pending" }),
       thread({ id: "b", status: "draft-pending" }),
-      thread({ id: "c", status: "awaiting-triage" }),
+      thread({ id: "c", status: "draft-pending" }),
     ];
 
     expect(actionableThreads(threads, 2)).toEqual([threads[0], threads[1]]);
