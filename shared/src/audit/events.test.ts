@@ -97,11 +97,33 @@ const EVENTS: { [A in AuditAction]: Extract<AuditEvent, { action: A }> } = {
     instructions: null,
     previousInstructions: null,
   },
+  thread_auto_discarded: {
+    action: "thread_auto_discarded",
+    tenantId: TENANT_ID,
+    actor: SYSTEM,
+    threadId: THREAD_ID,
+    draftId: DRAFT_ID,
+    category: "newsletter",
+  },
+  auto_discard_rule_changed: {
+    action: "auto_discard_rule_changed",
+    tenantId: TENANT_ID,
+    actor: USER,
+    category: "newsletter",
+    previousEnabled: true,
+    enabled: false,
+    senderPatterns: [],
+    previousSenderPatterns: [],
+    keywordPatterns: [],
+    previousKeywordPatterns: [],
+  },
 };
 
 /** The actions that belong to a thread; the rest are tenant-wide configuration. */
 const THREAD_ACTIONS = AUDIT_ACTIONS.filter(
-  (action) => action !== "auto_reply_rule_changed",
+  (action) =>
+    action !== "auto_reply_rule_changed" &&
+    action !== "auto_discard_rule_changed",
 );
 
 /** Every action's `metadata.before` / `metadata.after`, i.e. the transition it records. */
@@ -139,6 +161,14 @@ const TRANSITIONS: Record<
     before: { enabled: false, instructions: null },
     after: { enabled: true, instructions: null },
   },
+  thread_auto_discarded: {
+    before: undefined,
+    after: { status: "discarded" },
+  },
+  auto_discard_rule_changed: {
+    before: { enabled: true, senderPatterns: [], keywordPatterns: [] },
+    after: { enabled: false, senderPatterns: [], keywordPatterns: [] },
+  },
 };
 
 const metadataOf = (event: AuditEvent): Record<string, unknown> =>
@@ -163,6 +193,14 @@ describe("buildAuditLogEntry", () => {
     // so it belongs to the tenant, not to any one thread (context.md §2).
     expect(
       buildAuditLogEntry(EVENTS.auto_reply_rule_changed).threadId,
+    ).toBeNull();
+  });
+
+  it("records an auto-discard switch against no thread", () => {
+    // Turning a category on is what closes out *later* mail with nobody
+    // looking at it, so it belongs to the tenant, not to any one thread.
+    expect(
+      buildAuditLogEntry(EVENTS.auto_discard_rule_changed).threadId,
     ).toBeNull();
   });
 
@@ -286,6 +324,41 @@ describe("buildAuditLogEntry", () => {
     // The whole point of the granular auto-reply switch (context.md §2) is being
     // able to answer which rule sent a mail nobody approved.
     expect(metadataOf(EVENTS.auto_reply_sent).category).toBe("comercial");
+  });
+
+  it("records which category's rule discarded a thread automatically", () => {
+    // The whole point of the granular auto-discard switch is being able to
+    // answer which rule closed out a thread nobody ever saw.
+    expect(metadataOf(EVENTS.thread_auto_discarded).category).toBe(
+      "newsletter",
+    );
+    expect(buildAuditLogEntry(EVENTS.thread_auto_discarded).draftId).toBe(
+      DRAFT_ID,
+    );
+  });
+
+  it("records the senders and keywords an auto-discard rule was rewritten to", () => {
+    const metadata = metadataOf({
+      ...EVENTS.auto_discard_rule_changed,
+      previousEnabled: true,
+      enabled: true,
+      previousSenderPatterns: [],
+      senderPatterns: ["@newsletter.example.com"],
+      previousKeywordPatterns: [],
+      keywordPatterns: ["butlletí"],
+    });
+
+    expect(metadata.category).toBe("newsletter");
+    expect(metadata.before).toEqual({
+      enabled: true,
+      senderPatterns: [],
+      keywordPatterns: [],
+    });
+    expect(metadata.after).toEqual({
+      enabled: true,
+      senderPatterns: ["@newsletter.example.com"],
+      keywordPatterns: ["butlletí"],
+    });
   });
 
   it("lists every action the events declare", () => {
