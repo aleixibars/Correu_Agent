@@ -25,6 +25,7 @@ Nucli (sempre actiu):
 Opcional, granular per categoria:
 
 - **Resposta automàtica** (auto-reply): activable per categoria/regla, mai un interruptor global tot-o-res. Elegible només a **Comercial/Vendes, Suport/Atenció al client, Facturació/Administració**. **Mai** a Urgent ni Personal/Altres (massa risc/sensibilitat). Newsletter/Spam no necessita resposta, només arxivar/etiquetar.
+- **Descart automàtic** (auto-discard): activable per categoria/regla, amb el mateix patró que l'auto-resposta però l'acció oposada — el fil es descarta sol just en triar-lo, sense generar mai esborrany ni consumir el pipeline de redacció. Elegible a **totes les categories excepte Urgent** (invariant de seguretat igual que l'auto-resposta). Cada regla pot afinar-se amb patrons de remitent i/o paraules clau a l'assumpte; sense cap dels dos, s'aplica a tota la categoria. Per defecte, sense cap regla desada, Newsletter/Spam ja es descarta sol (no necessita resposta); la resta de categories comencen desactivades.
 
 Flux d'aprovació d'un esborrany:
 - **Aprovar** → envia realment el correu via l'API del proveïdor (Gmail API / Microsoft Graph), amb opció d'editar el text abans d'aprovar.
@@ -197,6 +198,7 @@ Resolt durant la sessió de grilling (50 preguntes) que ha donat forma a aquest 
 | Idioma dels esborranys | Detecció automàtica, resposta en el mateix idioma |
 | Categories de triatge | Fixes (6), configurabilitat ajornada |
 | Categories elegibles per auto-resposta | Comercial, Suport, Facturació; mai Urgent ni Personal |
+| Categories elegibles per descart automàtic | Totes excepte Urgent; Newsletter activada per defecte sense regla desada |
 | Digest | Diari, dins del dashboard (no per correu) |
 | Aprovació d'esborranys | Aprovar envia realment el correu; rebutjar = descartar o regenerar amb feedback |
 | Emmagatzematge de correu | Cos complet a BD, retenció 90 dies |

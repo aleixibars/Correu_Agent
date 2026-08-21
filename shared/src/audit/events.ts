@@ -131,6 +131,39 @@ export type AutoReplyRuleChangedEvent = TenantEventBase & {
   previousInstructions: string | null;
 };
 
+/**
+ * An auto-discard rule closed the thread out the moment it was triaged: no
+ * draft was ever written, so there is nothing for a reviewer to see (context.md
+ * §2, §4). `draftId` points at the empty `discarded` draft written to make the
+ * thread read as "Esborrany descartat" on the dashboard.
+ */
+export type ThreadAutoDiscardedEvent = EventBase & {
+  action: "thread_auto_discarded";
+  actor: SystemActor;
+  draftId: string;
+  /** Which category's rule fired, i.e. which switch to look at if this was wrong. */
+  category: TriageCategory;
+};
+
+/**
+ * Someone moved a category's auto-discard switch, or rewrote which senders or
+ * keywords it fires on. Not attached to a thread — it is the act that lets
+ * *later* mail be closed out without anyone looking at it, so without it the
+ * trail of an auto-discard stops at "a rule was on" with no record of who
+ * turned it on or what it matched.
+ */
+export type AutoDiscardRuleChangedEvent = TenantEventBase & {
+  action: "auto_discard_rule_changed";
+  actor: UserActor;
+  category: TriageCategory;
+  enabled: boolean;
+  previousEnabled: boolean;
+  senderPatterns: string[];
+  previousSenderPatterns: string[];
+  keywordPatterns: string[];
+  previousKeywordPatterns: string[];
+};
+
 export type AuditEvent =
   | MailReceivedEvent
   | ThreadClassifiedEvent
@@ -140,7 +173,9 @@ export type AuditEvent =
   | DraftRegeneratedEvent
   | DraftSentEvent
   | AutoReplySentEvent
-  | AutoReplyRuleChangedEvent;
+  | AutoReplyRuleChangedEvent
+  | ThreadAutoDiscardedEvent
+  | AutoDiscardRuleChangedEvent;
 
 /** Derived from the events, so the union above is the single source of truth. */
 export type AuditAction = AuditEvent["action"];
@@ -161,6 +196,8 @@ export const AUDIT_ACTIONS = [
   "draft_sent",
   "auto_reply_sent",
   "auto_reply_rule_changed",
+  "thread_auto_discarded",
+  "auto_discard_rule_changed",
 ] as const satisfies readonly AuditAction[];
 
 type Transition = {
@@ -238,6 +275,30 @@ const transitionOf = (event: AuditEvent): Transition => {
           category: event.category,
           sentMessageId: event.sentMessageId,
         },
+      };
+    case "thread_auto_discarded":
+      return {
+        // There is no "before": the draft this entry points at was created
+        // discarded, never pending — unlike `draft_discarded`, nobody rejected it.
+        after: { status: "discarded" satisfies DraftStatus },
+        details: { category: event.category },
+      };
+    case "auto_discard_rule_changed":
+      return {
+        // The patterns ride in the transition like the guidance does on
+        // `auto_reply_rule_changed`: a rewrite with the switch left on still
+        // changes which mail is closed out without anyone looking at it.
+        before: {
+          enabled: event.previousEnabled,
+          senderPatterns: event.previousSenderPatterns,
+          keywordPatterns: event.previousKeywordPatterns,
+        },
+        after: {
+          enabled: event.enabled,
+          senderPatterns: event.senderPatterns,
+          keywordPatterns: event.keywordPatterns,
+        },
+        details: { category: event.category },
       };
   }
 };

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  AUTO_DISCARD_ELIGIBLE_CATEGORIES,
   AUTO_REPLY_ELIGIBLE_CATEGORIES,
   DRAFT_ELIGIBLE_CATEGORIES,
   TRIAGE_CATEGORIES,
+  isAutoDiscardEligible,
   isAutoReplyEligible,
   needsDraft,
 } from "./index";
@@ -45,6 +47,24 @@ describe("triage categories", () => {
     // it would silently drop business mail.
     expect(needsDraft("personal")).toBe(true);
     expect(needsDraft("urgent")).toBe(true);
+  });
+
+  it("marks urgent as never auto-discard eligible", () => {
+    // Urgent mail must always reach a human — the one invariant auto-discard
+    // shares with auto-reply, on the opposite action.
+    expect(isAutoDiscardEligible("urgent")).toBe(false);
+  });
+
+  it("marks every other category as auto-discard eligible", () => {
+    for (const category of TRIAGE_CATEGORIES.filter((c) => c !== "urgent")) {
+      expect(isAutoDiscardEligible(category)).toBe(true);
+    }
+  });
+
+  it("keeps the auto-discard eligible list a subset of the fixed categories", () => {
+    for (const category of AUTO_DISCARD_ELIGIBLE_CATEGORIES) {
+      expect(TRIAGE_CATEGORIES).toContain(category);
+    }
   });
 });
 

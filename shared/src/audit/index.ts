@@ -7,6 +7,7 @@ export type {
   AuditAction,
   AuditActor,
   AuditEvent,
+  AutoDiscardRuleChangedEvent,
   AutoReplyRuleChangedEvent,
   AutoReplySentEvent,
   DraftApprovedEvent,
@@ -16,6 +17,7 @@ export type {
   DraftSentEvent,
   MailReceivedEvent,
   SystemActor,
+  ThreadAutoDiscardedEvent,
   ThreadClassifiedEvent,
   UserActor,
 } from "./events";

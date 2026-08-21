@@ -57,6 +57,13 @@
       "when": 1787077889955,
       "tag": "0007_push_subscriptions",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787312285756,
+      "tag": "0008_slippery_sunspot",
+      "breakpoints": true
     }
   ]
 }

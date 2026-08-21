@@ -2,15 +2,17 @@ import { redirect } from "next/navigation";
 import {
   APP_NAME,
   TRIAGE_CATEGORIES,
+  isAutoDiscardEligible,
   isAutoReplyEligible,
 } from "@correu-agent/shared";
 import { listAutoReplyRules } from "@correu-agent/shared/auto-reply";
+import { listAutoDiscardRules } from "@correu-agent/shared/auto-discard";
 import { auth } from "../../auth";
 import { AUTO_REPLY_PATH, LOGIN_PATH } from "../../lib/routes";
 import { db } from "../../lib/db";
 import { AppHeader } from "../../components/AppHeader";
 import { CategoryStamp } from "../../components/CategoryStamp";
-import { saveAutoReplyRule } from "./actions";
+import { saveAutoDiscardRule, saveAutoReplyRule } from "./actions";
 
 export const metadata = {
   title: `Auto-resposta · ${APP_NAME}`,
@@ -23,11 +25,18 @@ const INELIGIBLE_CATEGORIES = TRIAGE_CATEGORIES.filter(
   (category) => !isAutoReplyEligible(category),
 );
 
+// Urgent és l'única categoria mai elegible per descart automàtic (context.md
+// §4) — el mateix invariant que `INELIGIBLE_CATEGORIES` aplica a l'auto-resposta.
+const DISCARD_INELIGIBLE_CATEGORIES = TRIAGE_CATEGORIES.filter(
+  (category) => !isAutoDiscardEligible(category),
+);
+
 export default async function AutoReplyPage() {
   const session = await auth();
   if (!session) redirect(LOGIN_PATH);
 
   const rules = await listAutoReplyRules(db, session.user.tenantId);
+  const discardRules = await listAutoDiscardRules(db, session.user.tenantId);
 
   return (
     <div className="app-shell">
@@ -81,6 +90,74 @@ export default async function AutoReplyPage() {
         </p>
         <p>
           {INELIGIBLE_CATEGORIES.map((category) => (
+            <span key={category} style={{ marginRight: 8 }}>
+              <CategoryStamp category={category} muted />
+            </span>
+          ))}
+        </p>
+      </section>
+
+      <h1>Descart automàtic</h1>
+      <p>
+        Amb una regla activada, els fils d'aquesta categoria (que compleixin els
+        remitents o paraules clau, si n'hi ha) es descarten sols, sense generar
+        mai un esborrany ni necessitar revisió humana.
+      </p>
+      {discardRules.map(({ category, enabled, senderPatterns, keywordPatterns }) => (
+        <section key={category} className="card">
+          <h2>
+            <CategoryStamp category={category} />
+          </h2>
+          <form action={saveAutoDiscardRule}>
+            <input type="hidden" name="category" value={category} />
+            <div className="switch-row">
+              <input
+                type="checkbox"
+                id={`discard-enabled-${category}`}
+                name="enabled"
+                defaultChecked={enabled}
+              />
+              <label htmlFor={`discard-enabled-${category}`}>
+                Descarta automàticament els fils d'aquesta categoria
+              </label>
+            </div>
+            <div className="field">
+              <label htmlFor={`discard-senders-${category}`}>
+                Remitents (opcional, un per línia o separats per comes)
+              </label>
+              <textarea
+                id={`discard-senders-${category}`}
+                name="senderPatterns"
+                rows={3}
+                defaultValue={senderPatterns.join("\n")}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor={`discard-keywords-${category}`}>
+                Paraules clau a l'assumpte (opcional, una per línia o separades
+                per comes)
+              </label>
+              <textarea
+                id={`discard-keywords-${category}`}
+                name="keywordPatterns"
+                rows={3}
+                defaultValue={keywordPatterns.join("\n")}
+              />
+            </div>
+            <button type="submit" className="btn-primary">
+              Desa
+            </button>
+          </form>
+        </section>
+      ))}
+      <section className="card">
+        <h2>Categories sense descart automàtic</h2>
+        <p>
+          Els fils urgents no es descarten mai sols: sempre necessiten una
+          persona (context.md §4).
+        </p>
+        <p>
+          {DISCARD_INELIGIBLE_CATEGORIES.map((category) => (
             <span key={category} style={{ marginRight: 8 }}>
               <CategoryStamp category={category} muted />
             </span>

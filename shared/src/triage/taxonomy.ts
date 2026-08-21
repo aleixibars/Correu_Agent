@@ -35,3 +35,15 @@ export const DRAFT_ELIGIBLE_CATEGORIES: readonly TriageCategory[] =
 
 export const needsDraft = (category: TriageCategory): boolean =>
   DRAFT_ELIGIBLE_CATEGORIES.includes(category);
+
+/**
+ * Categories where automatic discard is allowed to be enabled at all. Urgent is
+ * the one category that must always reach a human — the same invariant
+ * `AUTO_REPLY_ELIGIBLE_CATEGORIES` enforces on the opposite action, so it is the
+ * only one excluded here too.
+ */
+export const AUTO_DISCARD_ELIGIBLE_CATEGORIES: readonly TriageCategory[] =
+  TRIAGE_CATEGORIES.filter((category) => category !== "urgent");
+
+export const isAutoDiscardEligible = (category: TriageCategory): boolean =>
+  AUTO_DISCARD_ELIGIBLE_CATEGORIES.includes(category);

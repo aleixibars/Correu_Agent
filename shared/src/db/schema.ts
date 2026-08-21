@@ -19,6 +19,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import {
+  AUTO_DISCARD_ELIGIBLE_CATEGORIES,
   AUTO_REPLY_ELIGIBLE_CATEGORIES,
   TRIAGE_CATEGORIES,
 } from "../triage/taxonomy";
@@ -311,6 +312,54 @@ export const autoReplyRules = pgTable(
 );
 
 /**
+ * Automatic discard is opt-in per category and per tenant, exactly like
+ * `autoReplyRules` — but the outcome is the opposite: a matching thread never
+ * gets a reply drafted at all, and is closed out as discarded the moment it is
+ * triaged. A separate table because these are separate concepts a tenant
+ * configures independently (a category can be both auto-replied and
+ * auto-discarded would be a contradiction the eligible-category CHECK already
+ * rules out for auto-reply, and this table enforces its own invariant below).
+ */
+export const autoDiscardRules = pgTable(
+  "auto_discard_rules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    category: triageCategoryEnum("category").notNull(),
+    enabled: boolean("enabled").notNull().default(false),
+    /** Sender substrings (address or domain), matched case-insensitively; empty means "any sender". */
+    senderPatterns: text("sender_patterns")
+      .array()
+      .notNull()
+      .default(sql`'{}'`),
+    /** Subject substrings, matched case-insensitively; empty means "any subject". */
+    keywordPatterns: text("keyword_patterns")
+      .array()
+      .notNull()
+      .default(sql`'{}'`),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    unique().on(table.tenantId, table.category),
+    // Urgent mail must never be discarded without a human looking at it — the
+    // same invariant `auto_reply_rules_eligible_category` enforces on the
+    // opposite action, enforced in the database rather than only in
+    // `isAutoDiscardEligible`.
+    check(
+      "auto_discard_rules_eligible_category",
+      sql`NOT ${table.enabled} OR ${table.category} IN (${sql.raw(
+        AUTO_DISCARD_ELIGIBLE_CATEGORIES.map(
+          (category) => `'${category}'`,
+        ).join(", "),
+      )})`,
+    ),
+  ],
+);
+
+/**
  * A browser that asked to be told about Urgent mail (context.md §5). Web Push is
  * the only active notification in the product; everything else waits for the
  * daily digest.
@@ -425,6 +474,8 @@ export type Draft = typeof drafts.$inferSelect;
 export type NewDraft = typeof drafts.$inferInsert;
 export type AutoReplyRule = typeof autoReplyRules.$inferSelect;
 export type NewAutoReplyRule = typeof autoReplyRules.$inferInsert;
+export type AutoDiscardRule = typeof autoDiscardRules.$inferSelect;
+export type NewAutoDiscardRule = typeof autoDiscardRules.$inferInsert;
 export type AuditLogEntry = typeof auditLogEntries.$inferSelect;
 export type NewAuditLogEntry = typeof auditLogEntries.$inferInsert;
 export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;

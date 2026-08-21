@@ -12,6 +12,7 @@
     "./mail": "./src/mail/index.ts",
     "./audit": "./src/audit/index.ts",
     "./auto-reply": "./src/auto-reply/index.ts",
+    "./auto-discard": "./src/auto-discard/index.ts",
     "./digest": "./src/digest/index.ts",
     "./mailbox": "./src/mailbox/index.ts",
     "./retention": "./src/retention/index.ts",

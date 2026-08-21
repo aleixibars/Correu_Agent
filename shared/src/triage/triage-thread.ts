@@ -4,6 +4,7 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { recordAuditLogEntry } from "../audit";
+import { applyAutoDiscardRule } from "../auto-discard/apply";
 import { messages, threads } from "../db/schema";
 import {
   MAX_THREAD_MESSAGES,
@@ -100,6 +101,19 @@ export const triageThread = async <
     category,
     model,
     occurredAt: now,
+  });
+
+  // A category an auto-discard rule matches (context.md §2, §4) is closed out
+  // right here: nothing downstream ever queues Sonnet for a reply that would
+  // only be thrown away (`applyAutoDiscardRule`'s own doc comment explains why
+  // that alone is enough to keep it out of the drafting queue).
+  await applyAutoDiscardRule(db, {
+    tenantId,
+    threadId,
+    category,
+    fromAddresses: threadMessages.map((message) => message.fromAddress),
+    subject: thread.subject,
+    now,
   });
 
   return { threadId, category, model };

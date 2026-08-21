@@ -336,4 +336,50 @@ describe("createThreadTriageHandler", () => {
     );
     error.mockRestore();
   });
+
+  // Auto-discard (context.md §2, §4) is wired inside `triageThread` itself
+  // (`@correu-agent/shared/triage`), not here — this is the end-to-end proof
+  // that the handler carries it through: no push for a non-urgent category, and
+  // a `discarded` draft written straight from triage, with no Sonnet call.
+  it("discards a newsletter thread automatically, with no push and no draft written any other way", async () => {
+    const { client } = createClient(["newsletter"]);
+    const webPush = createSender();
+    const queueThreadDraft = createQueueThreadDraft();
+    const queries: { sql: string }[] = [];
+    const db = drizzle(async (sql) => {
+      queries.push({ sql });
+      if (sql.includes('from "push_subscriptions"')) return { rows: [] };
+      if (sql.includes('left join "messages"')) {
+        return { rows: [["El nostre butlletí", "newsletter@example.com"]] };
+      }
+      if (sql.includes('from "threads"')) return { rows: [threadRow()] };
+      if (sql.includes('from "messages"')) return { rows: [messageRow()] };
+      if (sql.includes('update "threads"')) return { rows: [["thread-0"]] };
+      // No row stored: newsletter is discarded automatically by default.
+      if (sql.includes('from "auto_discard_rules"')) return { rows: [] };
+      if (sql.includes('insert into "drafts"')) return { rows: [["draft-1"]] };
+      return { rows: [] };
+    });
+
+    const result = await createThreadTriageHandler({
+      db,
+      anthropic: client,
+      webPush,
+      queueThreadDraft,
+    })([job({ tenantId: TENANT_ID, threadId: THREAD_ID })]);
+
+    expect(queueThreadDraft).not.toHaveBeenCalled();
+    expect(result.triaged).toEqual([
+      {
+        tenantId: TENANT_ID,
+        threadId: THREAD_ID,
+        category: "newsletter",
+        model: TRIAGE_MODEL,
+      },
+    ]);
+    expect(webPush).not.toHaveBeenCalled();
+    expect(queries.some(({ sql }) => sql.includes('insert into "drafts"'))).toBe(
+      true,
+    );
+  });
 });

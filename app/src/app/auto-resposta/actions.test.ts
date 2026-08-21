@@ -13,14 +13,27 @@ const setAutoReplyRule = vi.fn(async () => ({
   enabled: true,
   instructions: null,
 }));
+const setAutoDiscardRule = vi.fn(async () => ({
+  category: "comercial" as const,
+  enabled: true,
+  senderPatterns: [],
+  keywordPatterns: [],
+}));
 const revalidatePath = vi.fn();
 
 vi.mock("../../auth", () => ({ auth }));
 vi.mock("../../lib/db", () => ({ db: {} }));
 vi.mock("@correu-agent/shared/auto-reply", () => ({ setAutoReplyRule }));
+// `parsePatternList` is real: it is a pure textarea parser, and `actions.ts`
+// uses it to build the arrays `setAutoDiscardRule` is asserted against below.
+vi.mock("@correu-agent/shared/auto-discard", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@correu-agent/shared/auto-discard")>();
+  return { ...actual, setAutoDiscardRule };
+});
 vi.mock("next/cache", () => ({ revalidatePath }));
 
-const { saveAutoReplyRule } = await import("./actions");
+const { saveAutoDiscardRule, saveAutoReplyRule } = await import("./actions");
 
 const USER_ID = "user-1";
 
@@ -35,6 +48,12 @@ const submit = (fields: Record<string, string>): Promise<void> => {
   const form = new FormData();
   for (const [name, value] of Object.entries(fields)) form.append(name, value);
   return saveAutoReplyRule(form);
+};
+
+const submitDiscard = (fields: Record<string, string>): Promise<void> => {
+  const form = new FormData();
+  for (const [name, value] of Object.entries(fields)) form.append(name, value);
+  return saveAutoDiscardRule(form);
 };
 
 beforeEach(() => {
@@ -128,6 +147,111 @@ describe("saveAutoReplyRule", () => {
     signedIn();
 
     await submit({ category: "comercial", enabled: "on" });
+
+    expect(revalidatePath).toHaveBeenCalledWith(AUTO_REPLY_PATH);
+  });
+});
+
+describe("saveAutoDiscardRule", () => {
+  it("sends a visitor without a session to the login page", async () => {
+    await expect(
+      submitDiscard({ category: "newsletter", enabled: "on" }),
+    ).rejects.toThrow("NEXT_REDIRECT");
+    expect(setAutoDiscardRule).not.toHaveBeenCalled();
+  });
+
+  it("stores the switch and parsed patterns against the signed-in tenant and user", async () => {
+    signedIn();
+
+    await submitDiscard({
+      category: "newsletter",
+      enabled: "on",
+      senderPatterns: "acme.com, @spam.example.com",
+      keywordPatterns: "butlletí\npromoció",
+    });
+
+    expect(setAutoDiscardRule).toHaveBeenCalledWith(expect.anything(), {
+      tenantId: TEST_TENANT_ID,
+      category: "newsletter",
+      enabled: true,
+      senderPatterns: ["acme.com", "@spam.example.com"],
+      keywordPatterns: ["butlletí", "promoció"],
+      actor: { type: "user", userId: USER_ID },
+    });
+  });
+
+  // An unchecked checkbox is not submitted at all, so the absent field is what
+  // "off" looks like — reading it as "unchanged" would make the switch one-way.
+  it("turns the switch off when the checkbox is not submitted", async () => {
+    signedIn();
+
+    await submitDiscard({ category: "comercial" });
+
+    expect(setAutoDiscardRule).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ enabled: false }),
+    );
+  });
+
+  it("stores empty pattern lists when the fields are left blank", async () => {
+    signedIn();
+
+    await submitDiscard({ category: "comercial", enabled: "on" });
+
+    expect(setAutoDiscardRule).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ senderPatterns: [], keywordPatterns: [] }),
+    );
+  });
+
+  // The form only ever offers the five eligible categories, so urgent can only
+  // come from a hand-crafted POST (context.md §4).
+  it("refuses to write a rule for urgent", async () => {
+    signedIn();
+
+    await expect(
+      submitDiscard({ category: "urgent", enabled: "on" }),
+    ).rejects.toThrow("urgent");
+    expect(setAutoDiscardRule).not.toHaveBeenCalled();
+  });
+
+  it("refuses a category that is not in the taxonomy at all", async () => {
+    signedIn();
+
+    await expect(
+      submitDiscard({ category: "inventada", enabled: "on" }),
+    ).rejects.toThrow();
+    expect(setAutoDiscardRule).not.toHaveBeenCalled();
+  });
+
+  it("refuses a submission that names no category", async () => {
+    signedIn();
+
+    await expect(submitDiscard({ enabled: "on" })).rejects.toThrow();
+    expect(setAutoDiscardRule).not.toHaveBeenCalled();
+  });
+
+  // A submitted tenant is another tenant's mailbox waiting to be closed out:
+  // the rule is written against the session's tenant whatever the form says.
+  it("ignores a tenant smuggled into the form", async () => {
+    signedIn();
+
+    await submitDiscard({
+      category: "newsletter",
+      enabled: "on",
+      tenantId: "99999999-9999-9999-9999-999999999999",
+    });
+
+    expect(setAutoDiscardRule).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ tenantId: TEST_TENANT_ID }),
+    );
+  });
+
+  it("refreshes the settings page so the stored state is what is shown", async () => {
+    signedIn();
+
+    await submitDiscard({ category: "newsletter", enabled: "on" });
 
     expect(revalidatePath).toHaveBeenCalledWith(AUTO_REPLY_PATH);
   });

@@ -35,14 +35,28 @@ const messageRow = () => [
   "Voldríem un pressupost",
 ];
 
+const DRAFT_ID = "44444444-4444-4444-4444-444444444444";
+
+/** In the column order `findEnabledAutoDiscardRule` selects. */
+const autoDiscardRuleRow = (
+  enabled: boolean,
+  senderPatterns: string[] = [],
+  keywordPatterns: string[] = [],
+  category = "newsletter",
+) => [category, enabled, senderPatterns, keywordPatterns];
+
 const createDb = ({
   thread = threadRow(),
   messages = [messageRow()],
   updated = [[THREAD_ID]] as unknown[][],
+  autoDiscardRule = null as unknown[] | null,
+  discardedDraft = [[DRAFT_ID]] as unknown[][],
 }: {
   thread?: unknown[] | null;
   messages?: unknown[][];
   updated?: unknown[][];
+  autoDiscardRule?: unknown[] | null;
+  discardedDraft?: unknown[][];
 } = {}) => {
   const queries: { sql: string; params: unknown[] }[] = [];
   const db = drizzle(async (sql, params) => {
@@ -50,6 +64,10 @@ const createDb = ({
     if (sql.includes('from "threads"')) return { rows: thread ? [thread] : [] };
     if (sql.includes('from "messages"')) return { rows: messages };
     if (sql.includes('update "threads"')) return { rows: updated };
+    if (sql.includes('from "auto_discard_rules"')) {
+      return { rows: autoDiscardRule ? [autoDiscardRule] : [] };
+    }
+    if (sql.includes('insert into "drafts"')) return { rows: discardedDraft };
     return { rows: [] };
   });
   return { db, queries };
@@ -59,6 +77,8 @@ const shape = (sql: string): string => {
   if (sql.includes('from "threads"')) return "load thread";
   if (sql.includes('from "messages"')) return "load messages";
   if (sql.includes('update "threads"')) return "store category";
+  if (sql.includes('from "auto_discard_rules"')) return "auto-discard lookup";
+  if (sql.includes('insert into "drafts"')) return "auto-discard draft";
   if (sql.includes('insert into "audit_log_entries"')) return "audit";
   return "other";
 };
@@ -84,6 +104,9 @@ describe("triageThread", () => {
       "load messages",
       "store category",
       "audit",
+      // No auto-discard rule matches "suport" here, so the lookup is the last
+      // step: nothing is written beyond the classification itself.
+      "auto-discard lookup",
     ]);
     // The stored mail is what the model reads: the thread is not re-fetched
     // from the provider at triage time (context.md §7).
@@ -155,5 +178,59 @@ describe("triageThread", () => {
       "load thread",
       "load messages",
     ]);
+  });
+
+  it("discards a newsletter thread automatically by default, writing no draft any other way", async () => {
+    // newsletter is discarded automatically with no row stored at all
+    // (shared/src/auto-discard/rules.ts), and never gets a reply drafted
+    // (context.md §2) — so triaging one closes it out in the same step.
+    const { db, queries } = createDb({ autoDiscardRule: null });
+    const { client, create } = createClient("newsletter");
+
+    const result = await triageThread(db, client, {
+      tenantId: TENANT_ID,
+      threadId: THREAD_ID,
+      now: NOW,
+    });
+
+    expect(result).toEqual({
+      threadId: THREAD_ID,
+      category: "newsletter",
+      model: TRIAGE_MODEL,
+    });
+    expect(create).toHaveBeenCalledOnce();
+    expect(queries.map(({ sql }) => shape(sql))).toEqual([
+      "load thread",
+      "load messages",
+      "store category",
+      "audit",
+      "auto-discard lookup",
+      "auto-discard draft",
+      "audit",
+    ]);
+
+    const draftInsert = queries.find((query) => shape(query.sql) === "auto-discard draft")!;
+    expect(draftInsert.params).toContain("discarded");
+    expect(draftInsert.params).toContain(THREAD_ID);
+
+    const auditInserts = queries.filter(({ sql }) => shape(sql) === "audit");
+    expect(auditInserts).toHaveLength(2);
+    expect(auditInserts[0]!.params).toContain("thread_classified");
+    expect(auditInserts[1]!.params).toContain("thread_auto_discarded");
+  });
+
+  it("does not discard a comercial thread when no auto-discard rule matches it", async () => {
+    const { db, queries } = createDb({ autoDiscardRule: null });
+    const { client } = createClient("comercial");
+
+    await triageThread(db, client, {
+      tenantId: TENANT_ID,
+      threadId: THREAD_ID,
+      now: NOW,
+    });
+
+    expect(queries.some((query) => shape(query.sql) === "auto-discard draft")).toBe(
+      false,
+    );
   });
 });

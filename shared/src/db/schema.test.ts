@@ -1,6 +1,8 @@
+import type { SQL } from "drizzle-orm";
 import { PgDialect, getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 import {
+  AUTO_DISCARD_ELIGIBLE_CATEGORIES,
   AUTO_REPLY_ELIGIBLE_CATEGORIES,
   TRIAGE_CATEGORIES,
 } from "../triage/taxonomy";
@@ -8,6 +10,7 @@ import {
   auditLogEntries,
   authAccounts,
   authSessions,
+  autoDiscardRules,
   autoReplyRules,
   dailyDigests,
   drafts,
@@ -29,6 +32,7 @@ const TENANT_SCOPED_TABLES: Record<string, PgTable> = {
   threads,
   drafts,
   autoReplyRules,
+  autoDiscardRules,
   auditLogEntries,
   dailyDigests,
 };
@@ -44,6 +48,7 @@ const TABLES_WITH_UPDATED_AT: Record<string, PgTable> = {
   threads,
   drafts,
   autoReplyRules,
+  autoDiscardRules,
   dailyDigests,
 };
 
@@ -175,6 +180,44 @@ describe("schema", () => {
       (column) => column.name === "enabled",
     );
     expect(enabled?.default).toBe(false);
+  });
+
+  it("allows at most one auto-discard rule per category per tenant", () => {
+    const unique = getTableConfig(autoDiscardRules).uniqueConstraints[0];
+    expect(unique?.columns.map((column) => column.name)).toEqual([
+      "tenant_id",
+      "category",
+    ]);
+  });
+
+  it("refuses an enabled auto-discard rule on urgent, the one ineligible category", () => {
+    // Urgent mail must always reach a human — the database has to say so too,
+    // not just `isAutoDiscardEligible`.
+    const checks = getTableConfig(autoDiscardRules).checks;
+    expect(checks).toHaveLength(1);
+
+    const constraint = new PgDialect().sqlToQuery(checks[0]!.value);
+    expect(constraint.params).toEqual([]);
+    for (const category of TRIAGE_CATEGORIES) {
+      const eligible = AUTO_DISCARD_ELIGIBLE_CATEGORIES.includes(category);
+      expect(constraint.sql.includes(`'${category}'`)).toBe(eligible);
+    }
+  });
+
+  it("defaults auto-discard rules to disabled and with no sender or keyword patterns", () => {
+    // The column default is off for every category; the code-level default that
+    // turns newsletter on with no row stored lives in `listAutoDiscardRules` /
+    // `findEnabledAutoDiscardRule`, not here.
+    const columns = getTableConfig(autoDiscardRules).columns;
+    expect(columns.find((column) => column.name === "enabled")?.default).toBe(
+      false,
+    );
+    const patternDefault = (name: string) =>
+      new PgDialect().sqlToQuery(
+        columns.find((column) => column.name === name)!.default as SQL,
+      ).sql;
+    expect(patternDefault("sender_patterns")).toBe("'{}'");
+    expect(patternDefault("keyword_patterns")).toBe("'{}'");
   });
 
   it("scopes user emails to a tenant rather than globally", () => {
