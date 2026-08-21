@@ -178,7 +178,7 @@ describe("pollMicrosoftMailbox", () => {
     expect(calls[0]!.url).toContain("/oauth2/v2.0/token");
   });
 
-  it("starts an uncursored mailbox from the connection instant, not from its history", async () => {
+  it("starts an uncursored mailbox from the start of the connection's business day, not its exact instant", async () => {
     const { db } = createRecordingDb();
     const { fetch, calls } = stubFetch([
       { value: [], "@odata.deltaLink": "https://delta/2" },
@@ -188,8 +188,11 @@ describe("pollMicrosoftMailbox", () => {
     await pollMicrosoftMailbox(db, account({ syncCursor: null }), config(fetch));
 
     expect(calls[0]!.url).toContain("deltatoken=latest");
+    // connectedAt is 2026-01-01T00:00:00.000Z (00:00 UTC = 01:00 CET, still
+    // Jan 1st in Madrid), so all of that Madrid day is caught up, not just the
+    // instant the mailbox happened to connect at (context.md §4).
     expect(decodeURIComponent(calls[1]!.url)).toContain(
-      "receivedDateTime gt 2026-01-01T00:00:00.000Z",
+      "receivedDateTime gt 2025-12-31T23:00:00.000Z",
     );
   });
 
