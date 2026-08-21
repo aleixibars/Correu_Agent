@@ -11,6 +11,7 @@ import {
 import {
   THREAD_TRIAGE_QUEUE,
   createThreadTriageHandler,
+  type QueueThreadDraft,
   type ThreadTriageJobData,
 } from "./thread-triage";
 
@@ -67,6 +68,9 @@ const createDb = (
 const createSender = () =>
   vi.fn<WebPushSender>(async () => ({ statusCode: 201, expired: false }));
 
+const createQueueThreadDraft = () =>
+  vi.fn<QueueThreadDraft>(async () => "job-id");
+
 const createClient = (answers: string[] = ["comercial"]) => {
   let calls = 0;
   const create = vi.fn(async () => {
@@ -88,6 +92,7 @@ describe("createThreadTriageHandler", () => {
       db: createDb([threadRow(), threadRow()]),
       anthropic: client,
       webPush: createSender(),
+      queueThreadDraft: createQueueThreadDraft(),
     })([
       job({ tenantId: TENANT_ID, threadId: THREAD_ID }),
       job({ tenantId: TENANT_ID, threadId: OTHER_THREAD_ID }, "job-2"),
@@ -117,6 +122,7 @@ describe("createThreadTriageHandler", () => {
       db: createDb(),
       anthropic: client,
       webPush: createSender(),
+      queueThreadDraft: createQueueThreadDraft(),
     })([
       job({ tenantId: TENANT_ID, threadId: THREAD_ID }),
       job({ tenantId: TENANT_ID, threadId: THREAD_ID }, "job-2"),
@@ -134,6 +140,7 @@ describe("createThreadTriageHandler", () => {
       db: createDb([threadRow("2026-01-01T09:00:00.000Z")]),
       anthropic: client,
       webPush: createSender(),
+      queueThreadDraft: createQueueThreadDraft(),
     })([job({ tenantId: TENANT_ID, threadId: THREAD_ID })]);
 
     expect(result.skipped).toEqual([{ tenantId: TENANT_ID, threadId: THREAD_ID }]);
@@ -149,6 +156,7 @@ describe("createThreadTriageHandler", () => {
       db: createDb([threadRow(), threadRow()]),
       anthropic: client,
       webPush: createSender(),
+      queueThreadDraft: createQueueThreadDraft(),
     })([
       job({ tenantId: TENANT_ID, threadId: THREAD_ID }),
       job({ tenantId: TENANT_ID, threadId: OTHER_THREAD_ID }, "job-2"),
@@ -176,6 +184,7 @@ describe("createThreadTriageHandler", () => {
         db: createDb(),
         anthropic: client,
         webPush: createSender(),
+        queueThreadDraft: createQueueThreadDraft(),
       })([
         job({ tenantId: TENANT_ID, threadId: THREAD_ID }),
       ]),
@@ -196,6 +205,7 @@ describe("createThreadTriageHandler", () => {
       ]),
       anthropic: client,
       webPush,
+      queueThreadDraft: createQueueThreadDraft(),
     })([job({ tenantId: TENANT_ID, threadId: THREAD_ID })]);
 
     expect(webPush).toHaveBeenCalledWith(
@@ -223,6 +233,7 @@ describe("createThreadTriageHandler", () => {
       ]),
       anthropic: client,
       webPush,
+      queueThreadDraft: createQueueThreadDraft(),
     })([job({ tenantId: TENANT_ID, threadId: THREAD_ID })]);
 
     expect(webPush).not.toHaveBeenCalled();
@@ -246,10 +257,83 @@ describe("createThreadTriageHandler", () => {
       ]),
       anthropic: client,
       webPush,
+      queueThreadDraft: createQueueThreadDraft(),
     })([job({ tenantId: TENANT_ID, threadId: THREAD_ID })]);
 
     expect(result.triaged).toHaveLength(1);
     expect(result.failed).toEqual([]);
+    error.mockRestore();
+  });
+
+  it("queues immediate drafting for a thread classified into a draft-eligible category (context.md §2, §8)", async () => {
+    const { client } = createClient(["comercial"]);
+    const queueThreadDraft = createQueueThreadDraft();
+
+    await createThreadTriageHandler({
+      db: createDb(),
+      anthropic: client,
+      webPush: createSender(),
+      queueThreadDraft,
+    })([job({ tenantId: TENANT_ID, threadId: THREAD_ID })]);
+
+    // Same singleton key as the 2-minute schedule (`drafts/schedule.ts`) so a
+    // job it already queued is not stacked behind a duplicate.
+    expect(queueThreadDraft).toHaveBeenCalledWith({
+      tenantId: TENANT_ID,
+      threadId: THREAD_ID,
+    });
+  });
+
+  it("does not queue drafting for a thread classified as newsletter", async () => {
+    const { client } = createClient(["newsletter"]);
+    const queueThreadDraft = createQueueThreadDraft();
+
+    await createThreadTriageHandler({
+      db: createDb(),
+      anthropic: client,
+      webPush: createSender(),
+      queueThreadDraft,
+    })([job({ tenantId: TENANT_ID, threadId: THREAD_ID })]);
+
+    expect(queueThreadDraft).not.toHaveBeenCalled();
+  });
+
+  it("does not queue drafting for a thread that was skipped (already triaged)", async () => {
+    const { client } = createClient();
+    const queueThreadDraft = createQueueThreadDraft();
+
+    await createThreadTriageHandler({
+      db: createDb([threadRow("2026-01-01T09:00:00.000Z")]),
+      anthropic: client,
+      webPush: createSender(),
+      queueThreadDraft,
+    })([job({ tenantId: TENANT_ID, threadId: THREAD_ID })]);
+
+    expect(queueThreadDraft).not.toHaveBeenCalled();
+  });
+
+  it("reports and swallows an error queuing the immediate draft, leaving the triage result unaffected", async () => {
+    const { client } = createClient(["comercial"]);
+    const queueThreadDraft = vi.fn<QueueThreadDraft>(async () => {
+      throw new Error("queue is down");
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    // The safety net (`drafts/schedule.ts`'s own 2-minute tick) still picks
+    // this thread up, so a queueing failure here must not fail the triage job.
+    const result = await createThreadTriageHandler({
+      db: createDb(),
+      anthropic: client,
+      webPush: createSender(),
+      queueThreadDraft,
+    })([job({ tenantId: TENANT_ID, threadId: THREAD_ID })]);
+
+    expect(result.triaged).toHaveLength(1);
+    expect(result.failed).toEqual([]);
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining(THREAD_ID),
+      expect.anything(),
+    );
     error.mockRestore();
   });
 });

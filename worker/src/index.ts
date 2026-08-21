@@ -22,11 +22,18 @@ import {
   type MailboxPollSchedule,
 } from "./poll/schedule";
 import { createDailyDigestHandler } from "./queue/daily-digest";
-import { createMailboxPollHandler } from "./queue/mailbox-poll";
+import {
+  createMailboxPollHandler,
+  type QueueThreadTriage,
+} from "./queue/mailbox-poll";
 import { createQueueClient, startQueue } from "./queue/queue-client";
 import { createRetentionPurgeHandler } from "./queue/retention-purge";
-import { createThreadDraftHandler } from "./queue/thread-draft";
-import { createThreadTriageHandler } from "./queue/thread-triage";
+import { createThreadDraftHandler, THREAD_DRAFT_QUEUE } from "./queue/thread-draft";
+import {
+  createThreadTriageHandler,
+  THREAD_TRIAGE_QUEUE,
+  type QueueThreadDraft,
+} from "./queue/thread-triage";
 import {
   startThreadTriageSchedule,
   type ThreadTriageSchedule,
@@ -65,6 +72,21 @@ const boss = createQueueClient(databaseUrl);
 boss.on("error", (error) => {
   console.error("Queue error:", error);
 });
+
+// Lets each pipeline stage queue the next one as soon as it finishes
+// (context.md §8), instead of only through the 2-minute schedules below —
+// which still run unchanged as the safety net for whatever this misses. Same
+// queue, same singleton key as the schedule that would otherwise pick the
+// job up on its next tick, so a job already queued this way is never
+// duplicated.
+const queueThreadTriage: QueueThreadTriage = (target) =>
+  boss.send(THREAD_TRIAGE_QUEUE, target, {
+    singletonKey: `${target.tenantId}:${target.threadId}`,
+  });
+const queueThreadDraft: QueueThreadDraft = (target) =>
+  boss.send(THREAD_DRAFT_QUEUE, target, {
+    singletonKey: `${target.tenantId}:${target.threadId}`,
+  });
 
 // A ping only proves the process is alive, not that the queue is healthy —
 // this endpoint exists for Render's port check, not as a real health probe.
@@ -105,11 +127,12 @@ process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
 await startQueue(boss, {
-  mailboxPoll: createMailboxPollHandler({ db, google, microsoft }),
+  mailboxPoll: createMailboxPollHandler({ db, google, microsoft, queueThreadTriage }),
   threadTriage: createThreadTriageHandler({
     db,
     anthropic: anthropic.messages,
     webPush,
+    queueThreadDraft,
   }),
   threadDraft: createThreadDraftHandler({
     db,
