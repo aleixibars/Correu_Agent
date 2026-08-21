@@ -39,6 +39,11 @@ const thread = (overrides: Partial<ThreadToAnswer> = {}): ThreadToAnswer => ({
   subject: "Pressupost",
   category: "comercial",
   messages: [message()],
+  mailbox: {
+    emailAddress: "aleix@empresa.example",
+    ownerName: "Aleix",
+    companyName: "Empresa SL",
+  },
   ...overrides,
 });
 
@@ -273,5 +278,61 @@ describe("generateReply", () => {
     await generateReply(client, thread());
 
     expect(promptOf(create)).not.toContain("auto_reply_guidance");
+  });
+
+  // A wrong recipient reply ("this isn't Aleix, contact him directly" sent to
+  // mail addressed to Aleix himself) is what happens when the model has no
+  // idea whose mailbox it is writing for and guesses a shared support alias.
+  it("grounds the reply in whose mailbox this is", async () => {
+    const { client, create } = createClient();
+
+    await generateReply(
+      client,
+      thread({
+        mailbox: {
+          emailAddress: "aleix@empresa.example",
+          ownerName: "Aleix",
+          companyName: "Empresa SL",
+        },
+      }),
+    );
+
+    const prompt = promptOf(create);
+    expect(prompt).toContain("aleix@empresa.example");
+    expect(prompt).toContain("Aleix");
+    expect(prompt).toContain("Empresa SL");
+  });
+
+  it("still names the mailbox and company when nobody is set as its owner", async () => {
+    const { client, create } = createClient();
+
+    await generateReply(
+      client,
+      thread({
+        mailbox: {
+          emailAddress: "info@empresa.example",
+          ownerName: null,
+          companyName: "Empresa SL",
+        },
+      }),
+    );
+
+    const prompt = promptOf(create);
+    expect(prompt).toContain("info@empresa.example");
+    expect(prompt).toContain("Empresa SL");
+    expect(prompt).not.toContain("null");
+  });
+
+  it("tells the model this is a real employee's own mailbox, not a shared support alias", async () => {
+    const { client, create } = createClient();
+
+    await generateReply(client, thread());
+
+    // The bug this guards against: replying to mail addressed to the mailbox's
+    // own owner as if the owner were unreachable and someone else had to be
+    // contacted instead.
+    expect(String(create.mock.calls[0]![0].system)).toContain(
+      "not a shared customer-service alias",
+    );
   });
 });

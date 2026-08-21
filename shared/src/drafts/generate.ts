@@ -30,6 +30,20 @@ export const MAX_THREAD_MESSAGES = 10;
  */
 export type DraftMessagesClient = Pick<Anthropic["messages"], "create">;
 
+/**
+ * Whose mailbox the reply is written for — without this the model has no way
+ * to know it is answering as a real employee's own inbox, and can invent that
+ * the mailbox belongs to someone else and redirect the correspondent (a bug
+ * this product must never ship: mail addressed to the owner personally getting
+ * "this isn't them, contact them directly" back).
+ */
+export interface MailboxToAnswerFor {
+  emailAddress: string;
+  /** Null when the connected account has no name on file. */
+  ownerName: string | null;
+  companyName: string;
+}
+
 /** One message of the thread being answered, as stored (context.md §7). */
 export interface ThreadMessageToAnswer {
   /** Inbound is the correspondent, outbound is the mailbox this replies for. */
@@ -53,6 +67,8 @@ export interface ThreadToAnswer {
   subject: string | null;
   /** What triage decided the thread is (context.md §4) — it sets the register of the reply. */
   category: TriageCategory;
+  /** Whose mailbox this reply goes out from — grounds the model's identity. */
+  mailbox: MailboxToAnswerFor;
   /** Oldest first; the last one is the mail being answered. */
   messages: ThreadMessageToAnswer[];
   /** Set when this call is a regeneration, i.e. the user rejected a draft with feedback. */
@@ -80,6 +96,13 @@ const SYSTEM_PROMPT = [
   "You write replies to the business mail of a company. The user sends you one",
   "email thread; you write the reply the company would send to the last message",
   "in it.",
+  "",
+  "The <mailbox> line names whose inbox this is: a real employee's own work",
+  "mailbox, not a shared customer-service alias. Mail addressed to that person",
+  "by name is mail for them, sent to the inbox they actually read — never tell",
+  "the correspondent this is the wrong person or mailbox, and never say to",
+  "contact someone else instead. Write as that person or as the company would,",
+  "the way the thread's own register asks for.",
   "",
   "Language: detect the language of the most recent inbound message and write",
   "the whole reply in that language. There is no default language — never",
@@ -191,9 +214,16 @@ const renderGuidance = (guidance: string): string =>
     "</auto_reply_guidance>",
   ].join("\n");
 
+/** Never "null" in the prompt: an unnamed owner is described, not omitted. */
+const renderMailbox = (mailbox: MailboxToAnswerFor): string =>
+  `Mailbox: ${defuseFence(mailbox.emailAddress)}, the personal work inbox of ${
+    mailbox.ownerName ? defuseFence(mailbox.ownerName) : "an employee"
+  } at ${defuseFence(mailbox.companyName)}.`;
+
 const renderThread = (thread: ThreadToAnswer): string =>
   [
     "<thread>",
+    renderMailbox(thread.mailbox),
     `Thread subject: ${defuseFence(thread.subject ?? "(no subject)")}`,
     `Triage category: ${thread.category}`,
     "",

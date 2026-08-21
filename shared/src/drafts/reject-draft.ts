@@ -7,7 +7,7 @@
 import { and, eq } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { recordAuditLogEntry } from "../audit";
-import { drafts, threads } from "../db/schema";
+import { drafts, mailboxAccounts, tenants, threads, users } from "../db/schema";
 import { needsDraft } from "../triage/taxonomy";
 import { generateReply, type DraftMessagesClient } from "./generate";
 import { loadThreadMessages } from "./thread-messages";
@@ -158,9 +158,18 @@ export const regenerateDraft = async <
       body: drafts.body,
       subject: threads.subject,
       category: threads.category,
+      // Grounds the regenerated reply in whose mailbox it is, same as the
+      // first draft (`./generate-draft.ts`) — a regeneration must not lose
+      // track of that either.
+      mailboxEmail: mailboxAccounts.emailAddress,
+      ownerName: users.name,
+      companyName: tenants.name,
     })
     .from(drafts)
     .innerJoin(threads, eq(threads.id, drafts.threadId))
+    .innerJoin(mailboxAccounts, eq(mailboxAccounts.id, threads.mailboxAccountId))
+    .leftJoin(users, eq(users.id, mailboxAccounts.userId))
+    .innerJoin(tenants, eq(tenants.id, threads.tenantId))
     .where(
       and(
         eq(drafts.id, draftId),
@@ -185,6 +194,11 @@ export const regenerateDraft = async <
     category: rejected.category,
     messages: [...recent].reverse(),
     revision: { previousBody: rejected.body, feedback: instruction },
+    mailbox: {
+      emailAddress: rejected.mailboxEmail,
+      ownerName: rejected.ownerName,
+      companyName: rejected.companyName,
+    },
   });
 
   const claimed = await claimPendingDraft(db, {

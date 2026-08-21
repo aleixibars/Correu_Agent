@@ -17,11 +17,17 @@ const OTHER_THREAD_ID = "33333333-3333-3333-3333-333333333333";
 const job = (data: ThreadDraftJobData, id = "job-1"): Job<ThreadDraftJobData> =>
   ({ id, name: THREAD_DRAFT_QUEUE, data }) as Job<ThreadDraftJobData>;
 
-/** In the column order `generateThreadDraft` selects: subject, category, triagedAt. */
+/**
+ * In the column order `generateThreadDraft` selects: subject, category,
+ * triagedAt, then the mailbox/owner/company columns the reply is grounded in.
+ */
 const threadRow = (category: string | null = "comercial") => [
   "Pressupost",
   category,
   category ? "2026-01-02T09:00:00.000Z" : null,
+  "aleix@empresa.example",
+  "Aleix",
+  "Empresa SL",
 ];
 
 const messageRow = () => [

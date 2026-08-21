@@ -24,11 +24,24 @@ const createClient = (text = JSON.stringify(REPLY)) => {
   return { client: { create } as unknown as DraftMessagesClient, create };
 };
 
-/** In the column order the thread select asks for: subject, category, triagedAt. */
+/**
+ * In the column order the thread select asks for: subject, category,
+ * triagedAt, then the mailbox/owner/company columns the reply is grounded in.
+ */
 const threadRow = ({
   category = "comercial" as string | null,
   triagedAt = "2026-01-02T09:00:00.000Z" as string | null,
-} = {}) => ["Pressupost", category, triagedAt];
+  mailboxEmail = "aleix@empresa.example" as string | null,
+  ownerName = "Aleix" as string | null,
+  companyName = "Empresa SL" as string | null,
+} = {}) => [
+  "Pressupost",
+  category,
+  triagedAt,
+  mailboxEmail,
+  ownerName,
+  companyName,
+];
 
 /** In the column order the message select asks for. */
 const messageRow = ({
@@ -299,6 +312,22 @@ describe("generateThreadDraft", () => {
       sql.includes('insert into "audit_log_entries"'),
     )!;
     expect(audit.params.join(" ")).toContain('"autoReply":true');
+  });
+
+  it("grounds the reply in whose mailbox and company it is answering for", async () => {
+    const { db } = createDb();
+    const { client, create } = createClient();
+
+    await generateThreadDraft(db, client, {
+      tenantId: TENANT_ID,
+      threadId: THREAD_ID,
+      now: NOW,
+    });
+
+    const prompt = String(create.mock.calls[0]![0].messages[0]!.content);
+    expect(prompt).toContain("aleix@empresa.example");
+    expect(prompt).toContain("Aleix");
+    expect(prompt).toContain("Empresa SL");
   });
 
   it("never reads a rule for a category auto-reply can never apply to", async () => {
