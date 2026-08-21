@@ -9,7 +9,7 @@ import {
   type TriageCategory,
 } from "@correu-agent/shared";
 import { setAutoReplyRule } from "@correu-agent/shared/auto-reply";
-import { parsePatternList, setAutoDiscardRule } from "@correu-agent/shared/auto-discard";
+import { setAutoDiscardRule } from "@correu-agent/shared/auto-discard";
 import { auth } from "../../auth";
 import { AUTO_REPLY_PATH, LOGIN_PATH } from "../../lib/routes";
 import { db } from "../../lib/db";
@@ -73,13 +73,9 @@ const eligibleDiscardCategory = (
   return category;
 };
 
-const patternsField = (value: FormDataEntryValue | null): string[] =>
-  parsePatternList(typeof value === "string" ? value : null);
-
 /**
- * Saves one category's auto-discard switch and its sender/keyword patterns.
- * The tenant and the actor come from the session, never from the form — same
- * reasoning as `saveAutoReplyRule`.
+ * Saves one category's auto-discard switch. The tenant and the actor come
+ * from the session, never from the form — same reasoning as `saveAutoReplyRule`.
  */
 export const saveAutoDiscardRule = async (formData: FormData): Promise<void> => {
   const session = await auth();
@@ -92,8 +88,6 @@ export const saveAutoDiscardRule = async (formData: FormData): Promise<void> => 
     category,
     // An unchecked checkbox is not submitted at all, so an absent field is off.
     enabled: formData.get("enabled") === "on",
-    senderPatterns: patternsField(formData.get("senderPatterns")),
-    keywordPatterns: patternsField(formData.get("keywordPatterns")),
     actor: { type: "user", userId: session.user.id },
   });
 

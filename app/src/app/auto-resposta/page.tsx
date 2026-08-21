@@ -102,11 +102,10 @@ export default async function AutoReplyPage() {
 
       <h2>Descart automàtic</h2>
       <p>
-        Amb una regla activada, els fils d'aquesta categoria (que compleixin els
-        remitents o paraules clau, si n'hi ha) es descarten sols, sense generar
-        mai un esborrany ni necessitar revisió humana.
+        Amb una regla activada, els fils d'aquesta categoria es descarten sols,
+        sense generar mai un esborrany ni necessitar revisió humana.
       </p>
-      {discardRules.map(({ category, enabled, senderPatterns, keywordPatterns }) => (
+      {discardRules.map(({ category, enabled }) => (
         <section key={category} className="card">
           <h3>
             <CategoryStamp category={category} />
@@ -123,29 +122,6 @@ export default async function AutoReplyPage() {
               <label htmlFor={`discard-enabled-${category}`}>
                 Descarta automàticament els fils d'aquesta categoria
               </label>
-            </div>
-            <div className="field">
-              <label htmlFor={`discard-senders-${category}`}>
-                Remitents (opcional, un per línia o separats per comes)
-              </label>
-              <textarea
-                id={`discard-senders-${category}`}
-                name="senderPatterns"
-                rows={3}
-                defaultValue={senderPatterns.join("\n")}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor={`discard-keywords-${category}`}>
-                Paraules clau a l'assumpte (opcional, una per línia o separades
-                per comes)
-              </label>
-              <textarea
-                id={`discard-keywords-${category}`}
-                name="keywordPatterns"
-                rows={3}
-                defaultValue={keywordPatterns.join("\n")}
-              />
             </div>
             <button type="submit" className="btn-primary">
               Desa

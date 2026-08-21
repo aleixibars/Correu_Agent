@@ -16,21 +16,13 @@ const setAutoReplyRule = vi.fn(async () => ({
 const setAutoDiscardRule = vi.fn(async () => ({
   category: "comercial" as const,
   enabled: true,
-  senderPatterns: [],
-  keywordPatterns: [],
 }));
 const revalidatePath = vi.fn();
 
 vi.mock("../../auth", () => ({ auth }));
 vi.mock("../../lib/db", () => ({ db: {} }));
 vi.mock("@correu-agent/shared/auto-reply", () => ({ setAutoReplyRule }));
-// `parsePatternList` is real: it is a pure textarea parser, and `actions.ts`
-// uses it to build the arrays `setAutoDiscardRule` is asserted against below.
-vi.mock("@correu-agent/shared/auto-discard", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@correu-agent/shared/auto-discard")>();
-  return { ...actual, setAutoDiscardRule };
-});
+vi.mock("@correu-agent/shared/auto-discard", () => ({ setAutoDiscardRule }));
 vi.mock("next/cache", () => ({ revalidatePath }));
 
 const { saveAutoDiscardRule, saveAutoReplyRule } = await import("./actions");
@@ -160,22 +152,15 @@ describe("saveAutoDiscardRule", () => {
     expect(setAutoDiscardRule).not.toHaveBeenCalled();
   });
 
-  it("stores the switch and parsed patterns against the signed-in tenant and user", async () => {
+  it("stores the switch against the signed-in tenant and user", async () => {
     signedIn();
 
-    await submitDiscard({
-      category: "newsletter",
-      enabled: "on",
-      senderPatterns: "acme.com, @spam.example.com",
-      keywordPatterns: "butlletí\npromoció",
-    });
+    await submitDiscard({ category: "newsletter", enabled: "on" });
 
     expect(setAutoDiscardRule).toHaveBeenCalledWith(expect.anything(), {
       tenantId: TEST_TENANT_ID,
       category: "newsletter",
       enabled: true,
-      senderPatterns: ["acme.com", "@spam.example.com"],
-      keywordPatterns: ["butlletí", "promoció"],
       actor: { type: "user", userId: USER_ID },
     });
   });
@@ -190,17 +175,6 @@ describe("saveAutoDiscardRule", () => {
     expect(setAutoDiscardRule).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ enabled: false }),
-    );
-  });
-
-  it("stores empty pattern lists when the fields are left blank", async () => {
-    signedIn();
-
-    await submitDiscard({ category: "comercial", enabled: "on" });
-
-    expect(setAutoDiscardRule).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ senderPatterns: [], keywordPatterns: [] }),
     );
   });
 

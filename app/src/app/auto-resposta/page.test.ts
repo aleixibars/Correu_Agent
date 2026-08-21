@@ -57,8 +57,6 @@ const discardDefaults = (): AutoDiscardRuleState[] =>
   AUTO_DISCARD_ELIGIBLE_CATEGORIES.map((category) => ({
     category,
     enabled: category === "newsletter",
-    senderPatterns: [],
-    keywordPatterns: [],
   }));
 
 const withRules = (rules: AutoReplyRuleState[] = allOff()): void => {
@@ -167,8 +165,6 @@ describe("AutoReplyPage", () => {
       AUTO_DISCARD_ELIGIBLE_CATEGORIES.map((category) => ({
         category,
         enabled: false,
-        senderPatterns: [],
-        keywordPatterns: [],
       })),
     );
 
@@ -200,15 +196,13 @@ describe("AutoReplyPage — auto-discard section", () => {
     );
   });
 
-  it("offers a switch and pattern fields for every auto-discard eligible category", async () => {
+  it("offers a switch for every auto-discard eligible category", async () => {
     withDiscardRules();
 
     const markup = await render();
 
     for (const category of AUTO_DISCARD_ELIGIBLE_CATEGORIES) {
       expect(markup).toContain(`id="discard-enabled-${category}"`);
-      expect(markup).toContain(`id="discard-senders-${category}"`);
-      expect(markup).toContain(`id="discard-keywords-${category}"`);
     }
   });
 
@@ -222,8 +216,6 @@ describe("AutoReplyPage — auto-discard section", () => {
       const markup = await render();
 
       expect(markup).not.toContain(`id="discard-enabled-${category}"`);
-      expect(markup).not.toContain(`id="discard-senders-${category}"`);
-      expect(markup).not.toContain(`id="discard-keywords-${category}"`);
     },
   );
 
@@ -239,29 +231,22 @@ describe("AutoReplyPage — auto-discard section", () => {
     expect(newsletterSection).toContain("checked");
   });
 
-  it("shows the sender and keyword patterns a rule was configured with", async () => {
+  it("shows a rule someone switched on for a category other than newsletter", async () => {
     withDiscardRules([
-      {
-        category: "comercial",
-        enabled: true,
-        senderPatterns: ["@spam.example.com"],
-        keywordPatterns: ["promoció"],
-      },
-      { category: "suport", enabled: false, senderPatterns: [], keywordPatterns: [] },
-      {
-        category: "facturacio",
-        enabled: false,
-        senderPatterns: [],
-        keywordPatterns: [],
-      },
-      { category: "newsletter", enabled: true, senderPatterns: [], keywordPatterns: [] },
-      { category: "personal", enabled: false, senderPatterns: [], keywordPatterns: [] },
+      { category: "comercial", enabled: true },
+      { category: "suport", enabled: false },
+      { category: "facturacio", enabled: false },
+      { category: "newsletter", enabled: true },
+      { category: "personal", enabled: false },
     ]);
 
     const markup = await render();
 
-    expect(markup).toContain("@spam.example.com");
-    expect(markup).toContain("promoció");
+    const comercialSection = markup.slice(
+      markup.indexOf('id="discard-enabled-comercial"'),
+      markup.indexOf('id="discard-enabled-comercial"') + 120,
+    );
+    expect(comercialSection).toContain("checked");
   });
 
   it("explains that a matching thread is discarded without ever being drafted", async () => {

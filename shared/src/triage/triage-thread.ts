@@ -107,14 +107,7 @@ export const triageThread = async <
   // right here: nothing downstream ever queues Sonnet for a reply that would
   // only be thrown away (`applyAutoDiscardRule`'s own doc comment explains why
   // that alone is enough to keep it out of the drafting queue).
-  await applyAutoDiscardRule(db, {
-    tenantId,
-    threadId,
-    category,
-    fromAddresses: threadMessages.map((message) => message.fromAddress),
-    subject: thread.subject,
-    now,
-  });
+  await applyAutoDiscardRule(db, { tenantId, threadId, category, now });
 
   return { threadId, category, model };
 };

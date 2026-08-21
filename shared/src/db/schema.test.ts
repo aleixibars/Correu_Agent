@@ -1,4 +1,3 @@
-import type { SQL } from "drizzle-orm";
 import { PgDialect, getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 import {
@@ -204,7 +203,7 @@ describe("schema", () => {
     }
   });
 
-  it("defaults auto-discard rules to disabled and with no sender or keyword patterns", () => {
+  it("defaults auto-discard rules to disabled", () => {
     // The column default is off for every category; the code-level default that
     // turns newsletter on with no row stored lives in `listAutoDiscardRules` /
     // `findEnabledAutoDiscardRule`, not here.
@@ -212,12 +211,6 @@ describe("schema", () => {
     expect(columns.find((column) => column.name === "enabled")?.default).toBe(
       false,
     );
-    const patternDefault = (name: string) =>
-      new PgDialect().sqlToQuery(
-        columns.find((column) => column.name === name)!.default as SQL,
-      ).sql;
-    expect(patternDefault("sender_patterns")).toBe("'{}'");
-    expect(patternDefault("keyword_patterns")).toBe("'{}'");
   });
 
   it("scopes user emails to a tenant rather than globally", () => {

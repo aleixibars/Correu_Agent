@@ -8,7 +8,6 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { recordAuditLogEntry } from "../audit";
 import { drafts } from "../db/schema";
 import type { TriageCategory } from "../triage/taxonomy";
-import { matchesAutoDiscardCriteria } from "./match";
 import { findEnabledAutoDiscardRule } from "./rules";
 
 /**
@@ -23,10 +22,6 @@ export interface ApplyAutoDiscardRuleInput {
   tenantId: string;
   threadId: string;
   category: TriageCategory;
-  /** Every sender address seen in the thread, for the rule's sender patterns to match against. */
-  fromAddresses: string[];
-  /** The thread's subject, for the rule's keyword patterns to match against. */
-  subject: string | null;
   /** Stamp for the write; defaults to the wall clock. */
   now?: Date;
 }
@@ -34,8 +29,7 @@ export interface ApplyAutoDiscardRuleInput {
 /**
  * Discards a just-triaged thread outright when an enabled auto-discard rule
  * matches it. Answers whether it did — `false` when no rule is enabled for the
- * category, or one is but its senders/keywords do not match this thread; the
- * caller does nothing further either way.
+ * category; the caller does nothing further either way.
  *
  * The draft this writes is what `listThreadsAwaitingDraft`
  * (`worker/src/drafts/schedule.ts`) already reads to skip a thread: its
@@ -48,18 +42,10 @@ export const applyAutoDiscardRule = async <
   TSchema extends Record<string, unknown> = Record<string, never>,
 >(
   db: PgDatabase<T, TSchema>,
-  {
-    tenantId,
-    threadId,
-    category,
-    fromAddresses,
-    subject,
-    now = new Date(),
-  }: ApplyAutoDiscardRuleInput,
+  { tenantId, threadId, category, now = new Date() }: ApplyAutoDiscardRuleInput,
 ): Promise<boolean> => {
   const rule = await findEnabledAutoDiscardRule(db, { tenantId, category });
   if (!rule) return false;
-  if (!matchesAutoDiscardCriteria(rule, { fromAddresses, subject })) return false;
 
   const [stored] = await db
     .insert(drafts)
