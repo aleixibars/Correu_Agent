@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { APP_NAME } from "@correu-agent/shared";
@@ -97,7 +98,13 @@ export default async function ThreadPage({
         {draft === null ? (
           <p>Cap esborrany per revisar en aquest fil.</p>
         ) : draft.status === "pending" ? (
-          <>
+          // Keyed on the draft, not just present unconditionally: regenerating
+          // writes a *new* draft row (a different id) in the same JSX position,
+          // so without this React reconciles the old textarea in place instead
+          // of remounting it — and a `defaultValue` only applies on mount, so
+          // the editable field would keep showing the rejected text until the
+          // reader refreshed by hand.
+          <Fragment key={draft.id}>
             <p>
               Edita el text si cal: en aprovar-lo, s'envia la resposta al
               remitent del fil.
@@ -134,7 +141,7 @@ export default async function ThreadPage({
               </div>
               <button type="submit">Regenera amb aquest comentari</button>
             </form>
-          </>
+          </Fragment>
         ) : (
           <>
             <p className="status">{threadStatusLabel(thread.status)}</p>
