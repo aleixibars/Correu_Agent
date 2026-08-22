@@ -321,6 +321,18 @@ button:disabled {
   text-decoration: underline;
 }
 
+/* Dues accions per fila (Respondre / Descarta): en línia, sense que el
+   formulari de descartar trenqui l'alineació vertical del botó de respondre. */
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.row-actions form {
+  display: inline;
+}
+
 .meta {
   font-family: var(--font-mono);
   font-size: 0.82rem;
@@ -357,6 +369,35 @@ input[type="text"]:focus {
 
 .field {
   margin-bottom: 16px;
+}
+
+/* Selector d'opcions d'esborrany (DraftOptionsForm): un ràdio per resposta
+   proposada, per triar-la abans d'editar-la a l'àrea de text. */
+.draft-options {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px 14px;
+  margin: 0 0 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+}
+
+.draft-options legend {
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+  padding: 0 4px;
+}
+
+.draft-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  cursor: pointer;
 }
 
 /* Checkbox rendered as a settings switch. */

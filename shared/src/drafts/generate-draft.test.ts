@@ -11,7 +11,10 @@ const DRAFT_ID = "44444444-4444-4444-4444-444444444444";
 
 const NOW = new Date("2026-01-02T10:00:00.000Z");
 
-const REPLY = { language: "ca", body: "Bon dia,\n\nUs enviem el pressupost." };
+const REPLY = {
+  language: "ca",
+  options: [{ label: "Resposta", body: "Bon dia,\n\nUs enviem el pressupost." }],
+};
 
 const createClient = (text = JSON.stringify(REPLY)) => {
   const create = vi.fn(
@@ -136,7 +139,7 @@ describe("generateThreadDraft", () => {
     const insert = queries.find(({ sql }) =>
       sql.includes('insert into "drafts"'),
     )!;
-    expect(insert.params).toContain(REPLY.body);
+    expect(insert.params).toContain(REPLY.options[0].body);
     expect(insert.params).toContain(MESSAGE_ID);
     expect(insert.params).toContain(DRAFT_MODEL);
 

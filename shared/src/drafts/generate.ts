@@ -81,8 +81,21 @@ export interface ThreadToAnswer {
   guidance?: string | null;
 }
 
-export interface GeneratedReply {
+/** One of the replies the model wrote (context.md §2) — see `DraftOption`. */
+export interface GeneratedReplyOption {
+  /** Short tag distinguishing this option from the others, e.g. "Afirmatiu". */
+  label: string;
   body: string;
+}
+
+export interface GeneratedReply {
+  /**
+   * At least one option, in the order the model wrote them; the first is what
+   * `drafts.body` stores. More than one only when the thread's last message
+   * genuinely has more than one reasonable answer (context.md §2) — most
+   * replies come back with exactly one.
+   */
+  options: [GeneratedReplyOption, ...GeneratedReplyOption[]];
   /**
    * The language the model detected and answered in, as a BCP 47 code. Null when
    * it answered with prose instead of the requested shape.
@@ -112,6 +125,16 @@ const SYSTEM_PROMPT = [
   "placeholders like [name] and no signature block — the mailbox adds its own.",
   "Keep the register of the thread, stay concise, and answer what was actually",
   "asked.",
+  "",
+  "Usually write exactly one reply. Write two or three instead only when the",
+  "last message has a genuine either/or answer the mailbox's owner has to pick",
+  "— e.g. confirming or declining a request, or naming one of a few real",
+  "alternatives — never merely different phrasings of the same content. Each",
+  "option is a complete, ready-to-send reply on its own, and carries a short",
+  "label naming the choice it makes (e.g. \"Afirmatiu\" / \"Negatiu\"), in the",
+  "same language as the reply. One option is the default and correct answer",
+  "for almost every thread; reach for more only when the thread really leaves",
+  "the choice open.",
   "",
   "You know nothing about this company beyond what the thread says. Never invent",
   "prices, dates, availability, order numbers or commitments: when an answer",
@@ -151,12 +174,31 @@ const OUTPUT_FORMAT = {
         description:
           "BCP 47 code of the language the reply is written in, e.g. `ca`, `es`, `en`.",
       },
-      body: {
-        type: "string",
-        description: "The body of the reply, as plain text.",
+      options: {
+        type: "array",
+        description:
+          "One ready-to-send reply, or a few when the thread leaves a real choice open.",
+        minItems: 1,
+        maxItems: 3,
+        items: {
+          type: "object",
+          properties: {
+            label: {
+              type: "string",
+              description:
+                "Short tag naming the choice this option makes, e.g. \"Afirmatiu\". Any single option is simply named after what it says, e.g. \"Resposta\".",
+            },
+            body: {
+              type: "string",
+              description: "The body of this reply option, as plain text.",
+            },
+          },
+          required: ["label", "body"],
+          additionalProperties: false,
+        },
       },
     },
-    required: ["language", "body"],
+    required: ["language", "options"],
     additionalProperties: false,
   },
 } as const satisfies Anthropic.JSONOutputFormat;
@@ -233,6 +275,15 @@ const renderThread = (thread: ThreadToAnswer): string =>
     ...(thread.revision ? [renderRevision(thread.revision)] : []),
   ].join("\n\n");
 
+/**
+ * What `drafts.options` stores for a reply (context.md §2): null when there is
+ * only the one option, so a normal draft costs nothing beyond `body` — the
+ * column only earns its keep once there is a real choice to remember.
+ */
+export const draftOptionsColumn = (
+  options: GeneratedReply["options"],
+): GeneratedReplyOption[] | null => (options.length > 1 ? options : null);
+
 const answerText = (message: Anthropic.Message): string =>
   message.content
     .filter((block): block is Anthropic.TextBlock => block.type === "text")
@@ -252,25 +303,49 @@ const parseLanguage = (language: unknown): string | null =>
     ? language.trim()
     : null;
 
+/** One option straight off the model, before it is known to be a real reply. */
+const parseOption = (option: unknown): GeneratedReplyOption | null => {
+  if (!option || typeof option !== "object") return null;
+  const { label, body } = option as { label?: unknown; body?: unknown };
+  if (typeof label !== "string" || typeof body !== "string") return null;
+  const trimmedBody = body.trim();
+  if (!trimmedBody) return null;
+  return { label: label.trim() || "Resposta", body: trimmedBody };
+};
+
 /**
  * A model that answered with prose rather than the requested object still wrote
  * a reply, and a reviewer can read it — the alternative is throwing away a
- * finished draft over its envelope.
+ * finished draft over its envelope. Prose becomes a single unlabelled option.
  */
-const parseReply = (answer: string): Pick<GeneratedReply, "body" | "language"> => {
+const parseReply = (
+  answer: string,
+): Pick<GeneratedReply, "options" | "language"> => {
   try {
     const parsed: unknown = JSON.parse(answer);
-    if (parsed && typeof parsed === "object" && "body" in parsed) {
-      const { body, language } = parsed as { body: unknown; language?: unknown };
-      if (typeof body === "string") {
-        return { body: body.trim(), language: parseLanguage(language) };
+    if (parsed && typeof parsed === "object" && "options" in parsed) {
+      const { options, language } = parsed as {
+        options: unknown;
+        language?: unknown;
+      };
+      if (Array.isArray(options)) {
+        const parsedOptions = options
+          .map(parseOption)
+          .filter((option): option is GeneratedReplyOption => option !== null);
+        const [first, ...rest] = parsedOptions;
+        if (first) {
+          return { options: [first, ...rest], language: parseLanguage(language) };
+        }
       }
     }
   } catch {
     // Not JSON: fall through to the raw answer.
   }
 
-  return { body: answer.trim(), language: null };
+  return {
+    options: [{ label: "Resposta", body: answer.trim() }],
+    language: null,
+  };
 };
 
 /**
@@ -311,7 +386,7 @@ export const generateReply = async (
   // A refusal answers with no text at all (the prompt tells the model not to,
   // which is not the same as it never happening), and a model can answer the
   // requested shape with an empty body.
-  if (!reply.body) {
+  if (!reply.options[0].body) {
     throw new Error("The model answered with no reply to draft.");
   }
 

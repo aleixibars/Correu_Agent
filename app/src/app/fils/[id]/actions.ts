@@ -9,7 +9,12 @@ import {
 } from "@correu-agent/shared/drafts";
 import { createAnthropicClient } from "@correu-agent/shared/triage";
 import { auth } from "../../../auth";
-import { LOGIN_PATH, THREADS_PATH, threadPath } from "../../../lib/routes";
+import {
+  DASHBOARD_PATH,
+  LOGIN_PATH,
+  THREADS_PATH,
+  threadPath,
+} from "../../../lib/routes";
 import { db } from "../../../lib/db";
 import { createDraftSender } from "../../../lib/mailbox/draft-sender";
 import { isUuid } from "../../../lib/uuid";
@@ -39,14 +44,16 @@ const submittedText = (value: FormDataEntryValue | null, field: string): string 
 };
 
 /**
- * The screens that show the draft after it moved: the thread itself, and the
- * list, where the thread's status is drawn from the same draft. A draft that
- * was already dealt with in another tab reports no thread — only the list is
- * refreshed then, which is where the user finds out.
+ * The screens that show the draft after it moved: the thread itself, the
+ * list, and the dashboard home — all three draw the thread's status from the
+ * same draft, and the dashboard also offers to discard it inline (`app/page.tsx`).
+ * A draft that was already dealt with in another tab reports no thread — only
+ * the list and dashboard are refreshed then, which is where the user finds out.
  */
 const showDraftAsItStands = (threadId: string | undefined): void => {
   if (threadId !== undefined) revalidatePath(threadPath(threadId));
   revalidatePath(THREADS_PATH);
+  revalidatePath(DASHBOARD_PATH);
 };
 
 /**

@@ -10,7 +10,10 @@ import {
 } from "./generate";
 
 const createClient = (
-  text = JSON.stringify({ language: "ca", body: "Bon dia,\n\nHi treballem." }),
+  text = JSON.stringify({
+    language: "ca",
+    options: [{ label: "Resposta", body: "Bon dia,\n\nHi treballem." }],
+  }),
   stopReason: Anthropic.Message["stop_reason"] = "end_turn",
 ) => {
   const create = vi.fn(
@@ -55,7 +58,7 @@ describe("generateReply", () => {
     const { client, create } = createClient();
 
     await expect(generateReply(client, thread())).resolves.toEqual({
-      body: "Bon dia,\n\nHi treballem.",
+      options: [{ label: "Resposta", body: "Bon dia,\n\nHi treballem." }],
       language: "ca",
       model: DRAFT_MODEL,
     });
@@ -80,7 +83,7 @@ describe("generateReply", () => {
     const { client } = createClient("Bon dia, ho revisem.");
 
     await expect(generateReply(client, thread())).resolves.toEqual({
-      body: "Bon dia, ho revisem.",
+      options: [{ label: "Resposta", body: "Bon dia, ho revisem." }],
       language: null,
       model: DRAFT_MODEL,
     });
@@ -108,11 +111,14 @@ describe("generateReply", () => {
     // The tag is kept forever in the audit trail (context.md §7); a sentence
     // there answers nothing about which language the mail went out in.
     const { client } = createClient(
-      JSON.stringify({ language: "Catalan (detected)", body: "Bon dia." }),
+      JSON.stringify({
+        language: "Catalan (detected)",
+        options: [{ label: "Resposta", body: "Bon dia." }],
+      }),
     );
 
     await expect(generateReply(client, thread())).resolves.toEqual({
-      body: "Bon dia.",
+      options: [{ label: "Resposta", body: "Bon dia." }],
       language: null,
       model: DRAFT_MODEL,
     });

@@ -62,6 +62,7 @@ const detail = (overrides: Partial<ThreadDetail> = {}): ThreadDetail => ({
     status: "pending",
     model: "claude-sonnet-5",
     createdAt: new Date("2026-08-18T09:05:00Z"),
+    options: [{ label: "Resposta", body: "Bon dia, us el passem avui mateix." }],
   },
   ...overrides,
 });

@@ -8,7 +8,7 @@ import { recordAuditLogEntry } from "../audit";
 import { findEnabledAutoReplyRule } from "../auto-reply/rules";
 import { drafts, mailboxAccounts, tenants, threads, users } from "../db/schema";
 import { needsDraft } from "../triage/taxonomy";
-import { generateReply, type DraftMessagesClient } from "./generate";
+import { draftOptionsColumn, generateReply, type DraftMessagesClient } from "./generate";
 import { buildReplyHeaders, type ReplyHeaders } from "./reply-headers";
 import { loadThreadMessages } from "./thread-messages";
 
@@ -122,7 +122,7 @@ export const generateThreadDraft = async <
     category: thread.category,
   });
 
-  const { body, language, model } = await generateReply(client, {
+  const { options, language, model } = await generateReply(client, {
     subject: thread.subject,
     category: thread.category,
     messages: [...recent].reverse(),
@@ -140,7 +140,8 @@ export const generateThreadDraft = async <
       tenantId,
       threadId,
       inReplyToMessageId: answering.id,
-      body,
+      body: options[0].body,
+      options: draftOptionsColumn(options),
       autoReply: autoReplyRule !== null,
       model,
       createdAt: now,

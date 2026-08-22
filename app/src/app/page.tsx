@@ -25,6 +25,7 @@ import { listThreads } from "../lib/threads/list-threads";
 import { threadStatusLabel } from "../lib/threads/thread-status";
 import { actionableThreads } from "../lib/threads/actionable-threads";
 import { latestDailyDigest } from "../lib/digest/latest-digest";
+import { rejectDraft } from "./fils/[id]/actions";
 
 // El tauler és una eina d'oficina en horari local (context.md §5), així que la
 // data d'un missatge es formata al fus del negoci i no al del servidor de
@@ -128,7 +129,7 @@ export default async function HomePage({
                 </tr>
               </thead>
               <tbody>
-                {pending.map(({ id, subject, category, status, lastMessageAt }) => (
+                {pending.map(({ id, subject, category, status, lastMessageAt, draftId }) => (
                   <tr key={id}>
                     <td>{subjectLabel(subject)}</td>
                     <td>
@@ -151,9 +152,21 @@ export default async function HomePage({
                     <td>
                       {/* Explicit call to action, not just a link on the
                           subject: aquesta és la fila d'on el revisor actua. */}
-                      <Link href={threadPath(id)} className="btn">
-                        Respondre
-                      </Link>
+                      <div className="row-actions">
+                        <Link href={threadPath(id)} className="btn">
+                          Respondre
+                        </Link>
+                        {/* Només quan hi ha un esborrany viu a descartar: una
+                            fila urgent sense esborrany encara no en té cap. */}
+                        {status === "draft-pending" && draftId !== null && (
+                          <form action={rejectDraft}>
+                            <input type="hidden" name="draftId" value={draftId} />
+                            <button type="submit" className="btn-ghost">
+                              Descarta
+                            </button>
+                          </form>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

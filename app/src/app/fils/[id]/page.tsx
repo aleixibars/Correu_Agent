@@ -10,6 +10,7 @@ import { loadThreadDetail } from "../../../lib/threads/thread-detail";
 import { threadStatusLabel } from "../../../lib/threads/thread-status";
 import { AppHeader } from "../../../components/AppHeader";
 import { CategoryStamp } from "../../../components/CategoryStamp";
+import { DraftOptionsForm } from "../../../components/DraftOptionsForm";
 import {
   approveDraft,
   regenerateDraftWithFeedback,
@@ -106,25 +107,15 @@ export default async function ThreadPage({
           // reader refreshed by hand.
           <Fragment key={draft.id}>
             <p>
-              Edita el text si cal: en aprovar-lo, s'envia la resposta al
-              remitent del fil.
+              {draft.options.length > 1
+                ? "Tria una de les respostes proposades i edita-la si cal: en aprovar-la, s'envia al remitent del fil."
+                : "Edita el text si cal: en aprovar-lo, s'envia la resposta al remitent del fil."}
             </p>
-            <form action={approveDraft}>
-              <input type="hidden" name="draftId" value={draft.id} />
-              <div className="field">
-                <label htmlFor="body">Text de la resposta</label>
-                <textarea
-                  id="body"
-                  name="body"
-                  rows={12}
-                  required
-                  defaultValue={draft.body}
-                />
-              </div>
-              <button type="submit" className="btn-primary">
-                Aprova i envia
-              </button>
-            </form>
+            <DraftOptionsForm
+              draftId={draft.id}
+              options={draft.options}
+              approveDraft={approveDraft}
+            />
             {/* Formularis germans i no imbricats: l'HTML no permet imbricar-los,
                 i cada botó envia només el seu camp. */}
             <form action={rejectDraft} style={{ marginTop: 14 }}>

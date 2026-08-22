@@ -51,6 +51,13 @@ export const draftStatusEnum = pgEnum("draft_status", [
 
 export type DraftStatus = (typeof draftStatusEnum.enumValues)[number];
 
+/** One of the replies the model wrote for a draft with more than one option (context.md §2). */
+export interface DraftOption {
+  /** Short tag distinguishing this option from the others, e.g. "Afirmatiu". */
+  label: string;
+  body: string;
+}
+
 export const auditActorTypeEnum = pgEnum("audit_actor_type", ["user", "system"]);
 
 const createdAt = () =>
@@ -249,7 +256,16 @@ export const drafts = pgTable(
       { onDelete: "set null" },
     ),
     status: draftStatusEnum("status").notNull().default("pending"),
+    /** The option the reviewer would send as-is: `options[0].body` when there is more than one. */
     body: text("body").notNull(),
+    /**
+     * The alternative replies the model wrote alongside `body`, when the
+     * thread had a genuine either/or answer (context.md §2) — e.g. one
+     * option confirming a request and one declining it. Null on drafts
+     * written before this existed and on every draft with only one
+     * reasonable reply; `body` alone covers those.
+     */
+    options: jsonb("options").$type<DraftOption[]>(),
     /** Rejection feedback fed back into the model on regeneration (context.md §2). */
     feedback: text("feedback"),
     /** Set when the draft was produced by an auto-reply rule rather than on demand. */

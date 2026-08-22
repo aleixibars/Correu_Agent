@@ -17,6 +17,8 @@ export interface ThreadListItem {
   category: TriageCategory | null;
   lastMessageAt: Date | null;
   status: ThreadStatus;
+  /** The live draft's id, so the dashboard can offer to discard it in place. */
+  draftId: string | null;
 }
 
 export interface ListThreadsOptions {
@@ -40,6 +42,16 @@ const liveDraftStatus = sql<DraftStatus | null>`(
   limit 1
 )`;
 
+/** Same row as `liveDraftStatus`, but the id — so a discard button on the
+ * dashboard can act on it without a trip through the thread page first. */
+const liveDraftId = sql<string | null>`(
+  select ${drafts.id}
+  from ${drafts}
+  where ${and(eq(drafts.threadId, threads.id), ne(drafts.status, "superseded"))}
+  order by ${desc(drafts.createdAt)}
+  limit 1
+)`;
+
 export const listThreads = async <
   TResult extends PgQueryResultHKT,
   TFullSchema extends Record<string, unknown>,
@@ -56,6 +68,7 @@ export const listThreads = async <
       triagedAt: threads.triagedAt,
       lastMessageAt: threads.lastMessageAt,
       draftStatus: liveDraftStatus,
+      draftId: liveDraftId,
     })
     .from(threads)
     .where(eq(threads.tenantId, tenantId))
