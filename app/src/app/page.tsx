@@ -2,7 +2,7 @@ import Link from "next/link";
 import { APP_NAME } from "@correu-agent/shared";
 import { collectDailyDigest } from "@correu-agent/shared/digest";
 import { AppHeader } from "../components/AppHeader";
-import { CategoryStamp } from "../components/CategoryStamp";
+import { PendingThreadsTable } from "../components/PendingThreadsTable";
 import { auth } from "../auth";
 import {
   AUTO_REPLY_PATH,
@@ -10,7 +10,6 @@ import {
   DIGEST_PATH,
   LOGIN_PATH,
   THREADS_PATH,
-  threadPath,
 } from "../lib/routes";
 import {
   MAILBOX_REASON_PARAM,
@@ -22,7 +21,6 @@ import { categoryLabel } from "../lib/category-labels";
 import { CATEGORY_COLOR_VARS } from "../lib/category-colors";
 import { subjectLabel } from "../lib/subject-label";
 import { listThreads } from "../lib/threads/list-threads";
-import { threadStatusLabel } from "../lib/threads/thread-status";
 import { actionableThreads } from "../lib/threads/actionable-threads";
 import { latestDailyDigest } from "../lib/digest/latest-digest";
 import { rejectDraft } from "./fils/[id]/actions";
@@ -112,67 +110,7 @@ export default async function HomePage({
         {pending.length === 0 ? (
           <p>Tot al dia, cap fil pendent.</p>
         ) : (
-          <div
-            className="table-scroll"
-            role="region"
-            aria-label="Fils pendents i urgents"
-            tabIndex={0}
-          >
-            <table className="thread-table">
-              <thead>
-                <tr>
-                  <th scope="col">Assumpte</th>
-                  <th scope="col">Categoria</th>
-                  <th scope="col">Estat</th>
-                  <th scope="col">Últim missatge</th>
-                  <th scope="col">Acció</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pending.map(({ id, subject, category, status, lastMessageAt, draftId }) => (
-                  <tr key={id}>
-                    <td>{subjectLabel(subject)}</td>
-                    <td>
-                      {category === null ? (
-                        <span className="meta">—</span>
-                      ) : (
-                        <CategoryStamp category={category} />
-                      )}
-                    </td>
-                    <td className="status">{threadStatusLabel(status)}</td>
-                    <td className="meta">
-                      {lastMessageAt === null ? (
-                        "—"
-                      ) : (
-                        <time dateTime={lastMessageAt.toISOString()}>
-                          {timeFormat.format(lastMessageAt)}
-                        </time>
-                      )}
-                    </td>
-                    <td>
-                      {/* Explicit call to action, not just a link on the
-                          subject: aquesta és la fila d'on el revisor actua. */}
-                      <div className="row-actions">
-                        <Link href={threadPath(id)} className="btn">
-                          Respondre
-                        </Link>
-                        {/* Només quan hi ha un esborrany viu a descartar: una
-                            fila urgent sense esborrany encara no en té cap. */}
-                        {status === "draft-pending" && draftId !== null && (
-                          <form action={rejectDraft}>
-                            <input type="hidden" name="draftId" value={draftId} />
-                            <button type="submit" className="btn-ghost">
-                              Descarta
-                            </button>
-                          </form>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <PendingThreadsTable threads={pending} rejectDraft={rejectDraft} />
         )}
         <p>
           <Link href={THREADS_PATH}>Veure tots els fils →</Link>
