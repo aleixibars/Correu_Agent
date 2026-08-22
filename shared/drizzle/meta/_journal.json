@@ -71,6 +71,13 @@
       "when": 1787319868009,
       "tag": "0009_known_umar",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1787426727926,
+      "tag": "0010_strong_shard",
+      "breakpoints": true
     }
   ]
 }

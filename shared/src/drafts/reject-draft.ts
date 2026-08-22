@@ -9,7 +9,7 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { recordAuditLogEntry } from "../audit";
 import { drafts, mailboxAccounts, tenants, threads, users } from "../db/schema";
 import { needsDraft } from "../triage/taxonomy";
-import { generateReply, type DraftMessagesClient } from "./generate";
+import { draftOptionsColumn, generateReply, type DraftMessagesClient } from "./generate";
 import { loadThreadMessages } from "./thread-messages";
 
 export interface RejectDraftInput {
@@ -189,7 +189,7 @@ export const regenerateDraft = async <
 
   const recent = await loadThreadMessages(db, rejected.threadId);
 
-  const { body, language, model } = await generateReply(client, {
+  const { options, language, model } = await generateReply(client, {
     subject: rejected.subject,
     category: rejected.category,
     messages: [...recent].reverse(),
@@ -219,7 +219,8 @@ export const regenerateDraft = async <
       threadId: rejected.threadId,
       // The replacement answers the same message, so it threads the same way.
       inReplyToMessageId: rejected.inReplyToMessageId,
-      body,
+      body: options[0].body,
+      options: draftOptionsColumn(options),
       model,
       createdAt: now,
       updatedAt: now,

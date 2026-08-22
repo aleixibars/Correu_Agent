@@ -15,7 +15,10 @@ const NOW = new Date("2026-01-02T10:00:00.000Z");
 
 const FEEDBACK = "Massa sec, i no prometis cap data.";
 const OLD_BODY = "Bon dia,\n\nUs enviem el pressupost demà.";
-const REPLY = { language: "ca", body: "Bon dia,\n\nUs enviem el pressupost." };
+const REPLY = {
+  language: "ca",
+  options: [{ label: "Resposta", body: "Bon dia,\n\nUs enviem el pressupost." }],
+};
 
 const createClient = (text = JSON.stringify(REPLY)) => {
   const create = vi.fn(
@@ -186,7 +189,7 @@ describe("regenerateDraft", () => {
     expect(claim.params).toContain(FEEDBACK);
 
     const store = queryOf(queries, "store draft");
-    expect(store.params).toContain(REPLY.body);
+    expect(store.params).toContain(REPLY.options[0].body);
     expect(store.params).toContain(THREAD_ID);
     // The replacement answers the same message, so it threads the same way.
     expect(store.params).toContain(MESSAGE_ID);

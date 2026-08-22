@@ -61,7 +61,9 @@ const createDb = (
   });
 };
 
-const createClient = (answers: string[] = ['{"language":"ca","body":"Bon dia."}']) => {
+const createClient = (
+  answers: string[] = ['{"language":"ca","options":[{"label":"Resposta","body":"Bon dia."}]}'],
+) => {
   let calls = 0;
   const create = vi.fn(async () => {
     const text = answers[calls++] ?? answers[answers.length - 1]!;
@@ -158,7 +160,7 @@ describe("createThreadDraftHandler", () => {
   it("keeps drafting the batch after one thread fails", async () => {
     const { client } = createClient([
       "boom",
-      '{"language":"es","body":"Buenos días."}',
+      '{"language":"es","options":[{"label":"Resposta","body":"Buenos días."}]}',
     ]);
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
 

@@ -13,6 +13,7 @@ const thread = (overrides: Partial<ThreadListItem> = {}): ThreadListItem => ({
   category: "comercial",
   lastMessageAt: null,
   status: "triaged",
+  draftId: null,
   ...overrides,
 });
 

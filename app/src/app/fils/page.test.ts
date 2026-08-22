@@ -42,6 +42,7 @@ const threadPerCategory = (): ThreadListItem[] =>
     category,
     lastMessageAt: new Date("2026-08-18T08:30:00Z"),
     status: "triaged" as const,
+    draftId: null,
   }));
 
 beforeEach(() => {
@@ -100,6 +101,7 @@ describe("ThreadsPage", () => {
         category: null,
         lastMessageAt: null,
         status: "awaiting-triage",
+        draftId: null,
       },
     ]);
 

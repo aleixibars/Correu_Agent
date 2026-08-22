@@ -27,6 +27,9 @@ vi.mock("../lib/db", () => ({ db: {} }));
 vi.mock("../lib/threads/list-threads", () => ({ listThreads }));
 vi.mock("../lib/digest/latest-digest", () => ({ latestDailyDigest }));
 vi.mock("@correu-agent/shared/digest", () => ({ collectDailyDigest }));
+// Just the button that submits it, not what it does — that's `actions.test.ts`
+// and what pulls in the mailbox/token stack the dashboard render doesn't need.
+vi.mock("./fils/[id]/actions", () => ({ rejectDraft: vi.fn() }));
 
 const { default: HomePage } = await import("./page");
 
@@ -56,6 +59,7 @@ const thread = (overrides: Partial<ThreadListItem> = {}): ThreadListItem => ({
   category: "comercial",
   lastMessageAt: new Date("2026-08-19T08:30:00Z"),
   status: "triaged",
+  draftId: null,
   ...overrides,
 });
 
@@ -128,6 +132,43 @@ describe("HomePage", () => {
     expect(markup).toContain(
       `<a class="btn" href="${threadPath("t-1")}">Respondre</a>`,
     );
+  });
+
+  // A draft to reject is what makes Descarta meaningful; the row's other
+  // action, Respondre, always links to the thread regardless.
+  it("also offers to discard the draft straight from the dashboard row", async () => {
+    signedIn();
+    listThreads.mockResolvedValue([
+      thread({
+        id: "t-1",
+        subject: "Cal revisar",
+        status: "draft-pending",
+        draftId: "draft-1",
+      }),
+    ]);
+
+    const markup = await render();
+
+    expect(markup).toContain('name="draftId" value="draft-1"');
+    expect(markup).toContain(">Descarta<");
+  });
+
+  // An urgent thread with no draft yet has nothing for Descarta to act on.
+  it("leaves out Descarta when the thread has no live draft to discard", async () => {
+    signedIn();
+    listThreads.mockResolvedValue([
+      thread({
+        id: "t-1",
+        subject: "Urgent sense esborrany",
+        status: "triaged",
+        category: "urgent",
+        draftId: null,
+      }),
+    ]);
+
+    const markup = await render();
+
+    expect(markup).not.toContain(">Descarta<");
   });
 
   it("says so when nothing is waiting on the reviewer", async () => {

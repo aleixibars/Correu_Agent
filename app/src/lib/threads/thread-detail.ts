@@ -8,7 +8,7 @@ import type { TablesRelationalConfig } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import type { TriageCategory } from "@correu-agent/shared";
 import { drafts, messages, threads } from "@correu-agent/shared/db/schema";
-import type { DraftStatus } from "@correu-agent/shared/db/schema";
+import type { DraftOption, DraftStatus } from "@correu-agent/shared/db/schema";
 import { isUuid } from "../uuid";
 import { threadStatus, type ThreadStatus } from "./thread-status";
 
@@ -32,6 +32,12 @@ export interface ThreadDetailDraft {
   /** The model that wrote it (context.md §6); null on a draft stored without one. */
   model: string | null;
   createdAt: Date;
+  /**
+   * At least one option to approve; more than one only when the model wrote
+   * real alternatives (context.md §2). A draft with a single option carries
+   * one entry here too, so the reviewer screen has one shape to render.
+   */
+  options: DraftOption[];
 }
 
 export interface ThreadDetail {
@@ -99,6 +105,7 @@ export const loadThreadDetail = async <
       status: drafts.status,
       model: drafts.model,
       createdAt: drafts.createdAt,
+      options: drafts.options,
     })
     .from(drafts)
     // A regeneration supersedes the draft it replaces (context.md §2), so those
@@ -132,6 +139,8 @@ export const loadThreadDetail = async <
     ...rest,
     status: threadStatus({ triagedAt, draftStatus: draft?.status ?? null }),
     messages: [...mail].reverse(),
-    draft: draft ?? null,
+    draft: draft
+      ? { ...draft, options: draft.options ?? [{ label: "Resposta", body: draft.body }] }
+      : null,
   };
 };
