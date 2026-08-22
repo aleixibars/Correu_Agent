@@ -1,7 +1,8 @@
 // What "pendents/urgents" means on the dashboard home (context.md §2): threads
 // with a live draft waiting on the reviewer, or urgent threads that have not
-// been closed out yet. A thread still awaiting triage never belongs here —
-// see below. Pure filter, so it is tested without a database.
+// been closed out yet. A thread still awaiting triage, or triaged with no
+// draft written for it yet, never belongs here — see below. Pure filter, so
+// it is tested without a database.
 
 import { describe, expect, it } from "vitest";
 import type { ThreadListItem } from "./list-threads";
@@ -44,8 +45,16 @@ describe("actionableThreads", () => {
     ).toEqual([]);
   });
 
-  it("keeps an urgent thread even once triaged", () => {
-    const threads = [thread({ category: "urgent", status: "triaged" })];
+  // Triaged but with no draft yet: nothing waits on the reviewer until the
+  // next drafting tick writes one, urgent or not.
+  it("drops an urgent thread that is only triaged, with no draft yet", () => {
+    expect(
+      actionableThreads([thread({ category: "urgent", status: "triaged" })]),
+    ).toEqual([]);
+  });
+
+  it("keeps an urgent thread once it has a draft pending review", () => {
+    const threads = [thread({ category: "urgent", status: "draft-pending" })];
 
     expect(actionableThreads(threads)).toEqual(threads);
   });
