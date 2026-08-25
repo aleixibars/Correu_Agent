@@ -177,9 +177,7 @@ const OUTPUT_FORMAT = {
       options: {
         type: "array",
         description:
-          "One ready-to-send reply, or a few when the thread leaves a real choice open.",
-        minItems: 1,
-        maxItems: 3,
+          "One ready-to-send reply, or a few (at most 3) when the thread leaves a real choice open. At least one is required.",
         items: {
           type: "object",
           properties: {
@@ -331,7 +329,10 @@ const parseReply = (
       if (Array.isArray(options)) {
         const parsedOptions = options
           .map(parseOption)
-          .filter((option): option is GeneratedReplyOption => option !== null);
+          .filter((option): option is GeneratedReplyOption => option !== null)
+          // The schema can no longer cap this itself (Anthropic's json_schema
+          // support rejects `maxItems`), so the cap is enforced here instead.
+          .slice(0, 3);
         const [first, ...rest] = parsedOptions;
         if (first) {
           return { options: [first, ...rest], language: parseLanguage(language) };

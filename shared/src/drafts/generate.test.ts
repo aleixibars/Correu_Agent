@@ -124,6 +124,31 @@ describe("generateReply", () => {
     });
   });
 
+  it("caps the options at 3 even if the model answers with more", async () => {
+    // The schema can no longer enforce this itself: Anthropic's json_schema
+    // support rejects `maxItems` on arrays (only `minItems` risked the same,
+    // so neither is declared there anymore — see generate.ts).
+    const { client } = createClient(
+      JSON.stringify({
+        language: "ca",
+        options: [
+          { label: "A", body: "Opció A" },
+          { label: "B", body: "Opció B" },
+          { label: "C", body: "Opció C" },
+          { label: "D", body: "Opció D" },
+        ],
+      }),
+    );
+
+    const reply = await generateReply(client, thread());
+
+    expect(reply.options).toEqual([
+      { label: "A", body: "Opció A" },
+      { label: "B", body: "Opció B" },
+      { label: "C", body: "Opció C" },
+    ]);
+  });
+
   it("tells the model which messages are the mailbox's own", async () => {
     const { client, create } = createClient();
 
