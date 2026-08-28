@@ -35,6 +35,28 @@ describe("cleanMessageBody", () => {
     expect(cleanMessageBody(body)).toBe("D'acord, ho miro avui.");
   });
 
+  it("cuts at a Gmail attribution line wrapped over three lines", () => {
+    const body = [
+      "D'acord, ho miro avui.",
+      "",
+      "El dt., 26 d'ag. 2026 a les 10:12, Aleix Ibars i Cognom Llarg",
+      "<aleix.ibars.cognom.llarg@example.com> va",
+      "escriure:",
+      "",
+      "> Pots revisar la proposta?",
+    ].join("\n");
+
+    expect(cleanMessageBody(body)).toBe("D'acord, ho miro avui.");
+  });
+
+  it("does not join a paragraph across a blank line into an attribution", () => {
+    // Without the blank-line guard the joined window would read as
+    // `El resum ... va escriure:` and swallow the whole message.
+    const body = "El resum és aquest:\n\nqui va escriure:";
+
+    expect(cleanMessageBody(body)).toBe(body);
+  });
+
   it("cuts at a Gmail attribution line wrapped over two lines", () => {
     const body = [
       "D'acord, ho miro avui.",
@@ -93,6 +115,17 @@ describe("cleanMessageBody", () => {
     expect(cleanMessageBody(body)).toBe("Confirmat.");
   });
 
+  it("cuts at an indented block of quoted lines", () => {
+    const body = [
+      "Confirmat.",
+      "",
+      "  > Ens veiem dijous?",
+      "  > A les 10?",
+    ].join("\n");
+
+    expect(cleanMessageBody(body)).toBe("Confirmat.");
+  });
+
   it("keeps a lone line starting with '>' — one line is not a quoted block", () => {
     const body = "El resultat és:\n\n> 42, sense cap dubte";
 
@@ -111,10 +144,29 @@ describe("cleanMessageBody", () => {
     expect(cleanMessageBody(body)).toBe("Ho tindràs demà.");
   });
 
+  it("cuts at the Outlook rule of underscores above the quoted headers", () => {
+    const body = [
+      "Rebut, gràcies.",
+      "",
+      "________________________________",
+      "De: Aleix <aleix@example.com>",
+      "Enviat: dimecres, 26 d'agost de 2026 10:12",
+    ].join("\n");
+
+    expect(cleanMessageBody(body)).toBe("Rebut, gràcies.");
+  });
+
   it("cuts at a mobile client footer", () => {
     const body = "Vinga, quedem així.\n\nEnviat des del meu iPhone";
 
     expect(cleanMessageBody(body)).toBe("Vinga, quedem així.");
+  });
+
+  it("cuts at the Outlook app footer", () => {
+    expect(cleanMessageBody("Fet.\n\nObtén l'Outlook per a Android")).toBe(
+      "Fet.",
+    );
+    expect(cleanMessageBody("Done.\n\nGet Outlook for iOS")).toBe("Done.");
   });
 
   it("cuts at the earliest marker when several appear", () => {

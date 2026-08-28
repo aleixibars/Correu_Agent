@@ -17,13 +17,48 @@ const ATTRIBUTION =
 const ORIGINAL_MESSAGE =
   /^-{2,}\s*(original message|mensaje original|missatge original|forwarded message|mensaje reenviado|missatge reenviat)\s*-{2,}$/i;
 
+/** Outlook's other separator: a rule of underscores above the quoted headers. */
+const HEADER_RULE = /^_{5,}$/;
+
 /** The RFC 3676 signature delimiter — a line that is exactly `--` (or `-- `). */
 const SIGNATURE_DELIMITER = /^--$/;
 
-/** Footers phones staple onto every outgoing mail. */
-const MOBILE_FOOTER = /^(enviat des del meu|enviado desde mi|sent from my)\b/i;
+/** Footers phones and the Outlook app staple onto every outgoing mail. */
+const MOBILE_FOOTER =
+  /^(enviat des del meu|enviado desde mi|sent from my|(get|obtén|obteniu|obtenga)\s+(l'|el\s+)?outlook\s+(for|per|para)\b)/i;
 
-const isQuoted = (line: string): boolean => line.startsWith(">");
+const TAIL_MARKERS = [
+  ORIGINAL_MESSAGE,
+  HEADER_RULE,
+  SIGNATURE_DELIMITER,
+  MOBILE_FOOTER,
+];
+
+/** Gmail wraps a long attribution over as many as this many lines. */
+const ATTRIBUTION_WRAP = 3;
+
+const isQuoted = (line: string): boolean => line.trimStart().startsWith(">");
+
+/**
+ * Whether the attribution line starts at `index`. Gmail wraps a long one over
+ * several lines, so the `va escriure:` can land on a line of its own; the
+ * window is joined back together before matching. It stops at a blank line —
+ * a wrapped attribution never contains one, and without the guard a paragraph
+ * ending in a colon could be joined onto an unrelated later line.
+ */
+const startsAttribution = (lines: string[], index: number): boolean => {
+  let joined = "";
+
+  for (let span = 0; span < ATTRIBUTION_WRAP; span += 1) {
+    const line = lines[index + span]?.trim();
+    if (line === undefined || (span > 0 && line === "")) return false;
+
+    joined = span === 0 ? line : `${joined} ${line}`;
+    if (ATTRIBUTION.test(joined)) return true;
+  }
+
+  return false;
+};
 
 /**
  * Index of the first line that starts the quoted tail / signature, or `-1`
@@ -31,31 +66,16 @@ const isQuoted = (line: string): boolean => line.startsWith(">");
  */
 const findTailStart = (lines: string[]): number => {
   for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index].trimEnd();
+    const line = lines[index].trim();
 
-    if (
-      ORIGINAL_MESSAGE.test(line) ||
-      SIGNATURE_DELIMITER.test(line) ||
-      MOBILE_FOOTER.test(line)
-    ) {
-      return index;
-    }
+    if (TAIL_MARKERS.some((marker) => marker.test(line))) return index;
 
-    // Gmail wraps a long attribution over two lines, so the `va escriure:` can
-    // land on its own line; match the pair joined back together as well.
-    const next = lines[index + 1];
-    if (
-      ATTRIBUTION.test(line) ||
-      (next !== undefined && ATTRIBUTION.test(`${line} ${next.trim()}`))
-    ) {
-      return index;
-    }
+    if (startsAttribution(lines, index)) return index;
 
     // A single `>` line can be someone quoting a value inline; a run of them is
     // the previous mail.
-    if (isQuoted(line) && next !== undefined && isQuoted(next.trimStart())) {
-      return index;
-    }
+    const next = lines[index + 1];
+    if (isQuoted(line) && next !== undefined && isQuoted(next)) return index;
   }
 
   return -1;
