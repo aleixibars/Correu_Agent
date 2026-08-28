@@ -150,8 +150,9 @@ export const loadThreadDetail = async <
       ccAddresses: drafts.ccAddresses,
       bccAddresses: drafts.bccAddresses,
       // Who the reply would go to when the draft has no recipients of its own
-      // yet. Left-joined, so a draft whose parent message was purged still
-      // loads — the form then opens with an empty `Per a` the reviewer fills.
+      // yet. Left-joined, so a draft whose parent message is gone still loads
+      // and the screen renders instead of 500ing; it cannot be sent either way
+      // — a reply needs the mail it answers, and the send says so by name.
       parentFromAddress: messages.fromAddress,
     })
     .from(drafts)

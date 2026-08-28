@@ -31,6 +31,16 @@ const render = (
     />,
   );
 
+/**
+ * What a named field would submit, read out of the markup — by the field's id
+ * rather than by the attribute string React happens to write, so the assertions
+ * are about the form and not about React's rendering order.
+ */
+const fieldValue = (markup: string, id: string): string | null => {
+  const match = markup.match(new RegExp(`<input id="${id}"[^>]*?value="([^"]*)"`));
+  return match ? match[1]! : null;
+};
+
 describe("DraftOptionsForm", () => {
   it("shows the three recipient fields filled with what the reply would carry", () => {
     const markup = render({
@@ -42,17 +52,20 @@ describe("DraftOptionsForm", () => {
     expect(markup).toContain("Per a");
     expect(markup).toContain("Cc");
     expect(markup).toContain("Cco");
-    expect(markup).toContain('id="toAddresses"');
-    expect(markup).toContain('value="client@example.com"');
-    expect(markup).toContain('value="copia@example.com, segona@example.com"');
-    expect(markup).toContain('value="arxiu@example.com"');
+    // Several addresses in one field, comma-separated, as a mail client writes
+    // them — the same shape the approval action parses back.
+    expect(fieldValue(markup, "toAddresses")).toBe("client@example.com");
+    expect(fieldValue(markup, "ccAddresses")).toBe(
+      "copia@example.com, segona@example.com",
+    );
+    expect(fieldValue(markup, "bccAddresses")).toBe("arxiu@example.com");
   });
 
   it("leaves a field the thread says nothing about empty", () => {
     const markup = render({ ccAddresses: [], bccAddresses: [] });
 
-    expect(markup).toContain('name="ccAddresses" type="text" autoComplete="off" value=""');
-    expect(markup).toContain('name="bccAddresses" type="text" autoComplete="off" value=""');
+    expect(fieldValue(markup, "ccAddresses")).toBe("");
+    expect(fieldValue(markup, "bccAddresses")).toBe("");
   });
 
   it("still carries the draft and its text", () => {

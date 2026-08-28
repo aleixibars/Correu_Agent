@@ -1,10 +1,19 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DraftOption } from "@correu-agent/shared/db/schema";
 
 /** Els contactes recents del tenant que contenen el que s'ha escrit. */
 export type SuggestContacts = (query: string) => Promise<string[]>;
+
+/**
+ * L'estona que s'espera abans de demanar suggeriments. Cada consulta és un
+ * Server Action, i Next els encua d'un en un tornant tot el payload de la
+ * pàgina: sense esperar, escriure una adreça en dispararia una vintena i la
+ * llista aniria sempre una lletra endarrerida. Prou curt perquè aturar-se a
+ * mirar el camp ja els mostri.
+ */
+const SUGGEST_DELAY_MS = 200;
 
 /** El que hi ha després de l'última coma: l'adreça que s'està escrivint ara. */
 const currentFragment = (value: string): string =>
@@ -33,12 +42,16 @@ const RecipientField = ({
   // consultes seguides poden tornar desordenades, i la resposta d'una lletra
   // que ja no hi és no ha de substituir la llista bona.
   const pending = useRef("");
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Una consulta ja encarrilada quan es marxa de la pàgina no serviria a ningú.
+  useEffect(() => () => clearTimeout(timer.current), []);
 
-  const changed = async (text: string): Promise<void> => {
+  const changed = (text: string): void => {
     setValue(text);
 
     const fragment = currentFragment(text);
     pending.current = fragment;
+    clearTimeout(timer.current);
     // Amb l'espai buit no se suggereix res: seria oferir tota la llibreta
     // d'adreces cada vegada que s'esborra una coma.
     if (fragment === "") {
@@ -46,14 +59,20 @@ const RecipientField = ({
       return;
     }
 
-    const found = await suggestContacts(fragment);
-    if (pending.current === fragment) setSuggestions(found);
+    timer.current = setTimeout(() => {
+      void suggestContacts(fragment).then((found) => {
+        if (pending.current === fragment) setSuggestions(found);
+      });
+    }, SUGGEST_DELAY_MS);
   };
 
   const complete = (address: string): void => {
     const kept = value.slice(0, value.lastIndexOf(",") + 1);
     setValue(kept === "" ? address : `${kept} ${address}`);
     setSuggestions([]);
+    // La consulta que hi hagi pendent és del fragment que s'acaba de completar:
+    // deixar-la arribar tornaria a obrir la llista just després de tancar-la.
+    clearTimeout(timer.current);
     pending.current = "";
   };
 
@@ -67,7 +86,7 @@ const RecipientField = ({
         value={value}
         // El desplegable propi del navegador taparia els suggeriments.
         autoComplete="off"
-        onChange={(event) => void changed(event.target.value)}
+        onChange={(event) => changed(event.target.value)}
       />
       {suggestions.length > 0 && (
         <ul className="contact-suggestions">
