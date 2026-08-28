@@ -1,30 +1,264 @@
-// El text d'on parteix l'edició, un cop el revisor arriba a l'etapa de
-// resposta (issue #82). L'autoguardat en si (temporitzador, amagar la pestanya,
-// desmuntar el formulari) no es veu al primer render, que és tot el que
-// `renderToStaticMarkup` produeix; el que desa l'acció el prova `actions.test.ts`.
+// @vitest-environment jsdom
 
+// Dues coses que passen al navegador, i per això el component es munta de debò
+// aquí:
+//
+// - El compte enrere abans d'enviar (issue #80): "Enviar" no crida mai el
+//   Server Action de seguida — obre un pop-up amb 7 segons per penedir-se'n, i
+//   només si arriba a zero surt la petició cap al proveïdor.
+// - El text d'on parteix l'edició un cop el revisor arriba a l'etapa de
+//   resposta (issues #82 i #75). L'autoguardat en si (temporitzador, amagar la
+//   pestanya, desmuntar el formulari) no es veu al primer render, que és tot el
+//   que `renderToStaticMarkup` produeix; el que desa l'acció el prova
+//   `actions.test.ts`.
+
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DraftOption } from "@correu-agent/shared/db/schema";
 import { DraftOptionsForm } from "./DraftOptionsForm";
 
 const DRAFT_ID = "77777777-7777-7777-7777-777777777777";
 const MODEL_TEXT = "Bon dia, us el passem avui mateix.";
 
-const render = (body: string, options: DraftOption[] = []): string =>
+const options: DraftOption[] = [
+  { label: "Afirmativa", body: "Sí, hi comptem." },
+  { label: "Negativa", body: "Ara mateix no ens va bé." },
+];
+
+const approveDraft = vi.fn();
+const saveDraftEdit = vi.fn(async () => {});
+
+const show = (
+  draftOptions: DraftOption[] = options,
+  body: string = draftOptions[0]?.body ?? "",
+): void => {
+  render(
+    <DraftOptionsForm
+      draftId={DRAFT_ID}
+      body={body}
+      options={draftOptions}
+      approveDraft={approveDraft}
+      saveDraftEdit={saveDraftEdit}
+    />,
+  );
+};
+
+/** El primer render sol, per al text i la tria d'on parteix l'edició. */
+const staticMarkup = (body: string, draftOptions: DraftOption[] = []): string =>
   renderToStaticMarkup(
     <DraftOptionsForm
       draftId={DRAFT_ID}
       body={body}
-      options={options}
-      approveDraft={vi.fn()}
-      saveDraftEdit={vi.fn(async () => {})}
+      options={draftOptions}
+      approveDraft={approveDraft}
+      saveDraftEdit={saveDraftEdit}
     />,
   );
 
+const approve = (): void => {
+  fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+};
+
+const tick = (seconds: number): void => {
+  act(() => {
+    vi.advanceTimersByTime(seconds * 1000);
+  });
+};
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  approveDraft.mockReset();
+  saveDraftEdit.mockClear();
+});
+
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
+
 describe("DraftOptionsForm", () => {
+  it("does not send on the click: it opens a countdown of 7 seconds instead", () => {
+    show();
+
+    approve();
+
+    expect(approveDraft).not.toHaveBeenCalled();
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveProperty("ariaModal", "true");
+    expect(dialog.textContent).toContain("7");
+  });
+
+  // Enfocable des del primer moment: qui es penedeix amb el teclat no ha de
+  // buscar el botó a mig compte enrere.
+  it("focuses the cancel button as soon as the countdown opens", () => {
+    show();
+
+    approve();
+
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Cancel·la" }),
+    );
+  });
+
+  it("counts down second by second", () => {
+    show();
+    approve();
+
+    tick(1);
+    expect(screen.getByRole("dialog").textContent).toContain("6");
+
+    tick(5);
+    expect(screen.getByRole("dialog").textContent).toContain("1");
+    expect(approveDraft).not.toHaveBeenCalled();
+  });
+
+  it("sends once the countdown reaches zero, with the text as edited", () => {
+    show();
+    fireEvent.change(screen.getByLabelText("Text de la resposta"), {
+      target: { value: "Text meu" },
+    });
+
+    approve();
+    tick(7);
+
+    expect(approveDraft).toHaveBeenCalledTimes(1);
+    const formData = approveDraft.mock.calls[0]?.[0] as FormData;
+    expect(formData.get("draftId")).toBe(DRAFT_ID);
+    expect(formData.get("body")).toBe("Text meu");
+  });
+
+  // Un navegador carregat pot deixar passar més d'un tic abans que React
+  // reaccioni al zero: el compte enrere s'atura a zero i no en negatiu, perquè
+  // un negatiu no dispararia mai l'enviament.
+  it("still sends once when several seconds elapse between renders", () => {
+    show();
+
+    approve();
+    tick(60);
+
+    expect(approveDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it("never sends when cancelled inside the countdown", () => {
+    show();
+    approve();
+
+    tick(3);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel·la" }));
+    tick(60);
+
+    expect(approveDraft).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("cancels with Escape too", () => {
+    show();
+    approve();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    tick(60);
+
+    expect(approveDraft).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("counts down again after a cancelled attempt, from seven", () => {
+    show();
+    approve();
+    tick(3);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel·la" }));
+
+    approve();
+
+    expect(screen.getByRole("dialog").textContent).toContain("7");
+  });
+
+  // Enviar de debò triga (el proveïdor, i després la revalidació que desmunta
+  // el formulari): un segon clic en aquesta estona seria un segon correu.
+  it("keeps the form blocked while the send is still in flight", () => {
+    approveDraft.mockReturnValue(new Promise(() => {}));
+    show();
+
+    approve();
+    tick(7);
+
+    expect(approveDraft).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Enviant…" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
+  it("re-opens the form with a warning when the send fails", async () => {
+    approveDraft.mockRejectedValue(new Error("el proveïdor no respon"));
+    show();
+
+    approve();
+    tick(7);
+    await act(async () => {});
+
+    expect(screen.getByRole("alert").textContent).toContain(
+      "No s'ha pogut enviar",
+    );
+    expect(
+      screen.getByRole("button", { name: "Enviar" }),
+    ).toHaveProperty("disabled", false);
+  });
+
+  // L'avís d'error es queda a la vista fins al següent intent: deixar-lo sota
+  // el pop-up diria que ha fallat una cosa que encara està en marxa.
+  it("clears the failure notice when a new countdown opens", async () => {
+    approveDraft.mockRejectedValue(new Error("el proveïdor no respon"));
+    show();
+    approve();
+    tick(7);
+    await act(async () => {});
+
+    approve();
+
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("gives the focus back to the approve button after cancelling", () => {
+    show();
+    approve();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel·la" }));
+
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Enviar" }),
+    );
+  });
+
+  // El fons queda tapat: tabular fins al formulari de sota seria sortir del
+  // pop-up sense tancar-lo.
+  it("keeps the tab key inside the countdown", () => {
+    show();
+    approve();
+    screen.getByLabelText("Text de la resposta").focus();
+
+    const notPrevented = fireEvent.keyDown(document, { key: "Tab" });
+
+    expect(notPrevented).toBe(false);
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Cancel·la" }),
+    );
+  });
+
+  it("still lets an option replace the editable text before approving", () => {
+    show();
+
+    fireEvent.click(screen.getByRole("radio", { name: "Negativa" }));
+
+    expect(screen.getByLabelText("Text de la resposta")).toHaveProperty(
+      "value",
+      "Ara mateix no ens va bé.",
+    );
+  });
+
   it("starts the editable field from the text it is given", () => {
-    const markup = render(MODEL_TEXT);
+    const markup = staticMarkup(MODEL_TEXT);
 
     expect(markup).toContain(MODEL_TEXT);
     expect(markup).toContain('name="body"');
@@ -37,7 +271,9 @@ describe("DraftOptionsForm", () => {
   it("offers the autosaved edit back instead of the model's text", () => {
     const edited = "Bon dia, us el passem dilluns.";
 
-    const markup = render(edited, [{ label: "Afirmatiu", body: MODEL_TEXT }]);
+    const markup = staticMarkup(edited, [
+      { label: "Afirmatiu", body: MODEL_TEXT },
+    ]);
 
     expect(markup).toContain(edited);
     expect(markup).not.toContain(MODEL_TEXT);
@@ -46,7 +282,7 @@ describe("DraftOptionsForm", () => {
   // L'edició represa que coincideix amb una de les opcions sí que la marca:
   // qui torna al fil havent triat «Negatiu» retroba la tria feta, no cap.
   it("marks the option the resumed text came from", () => {
-    const markup = render("Ara no podem.", [
+    const markup = staticMarkup("Ara no podem.", [
       { label: "Afirmatiu", body: MODEL_TEXT },
       { label: "Negatiu", body: "Ara no podem." },
     ]);
@@ -58,7 +294,7 @@ describe("DraftOptionsForm", () => {
   // Cap opció marcada quan el text ja no és el de cap d'elles: qui ha reprès
   // una edició pròpia no ha triat cap de les respostes del model.
   it("leaves every option unchecked when the text is a resumed edit", () => {
-    const markup = render("Un text meu", [
+    const markup = staticMarkup("Un text meu", [
       { label: "Afirmatiu", body: MODEL_TEXT },
       { label: "Negatiu", body: "Ara no podem." },
     ]);
