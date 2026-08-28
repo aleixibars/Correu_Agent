@@ -17,6 +17,7 @@ import {
 } from "../../../lib/routes";
 import { db } from "../../../lib/db";
 import { createDraftSender } from "../../../lib/mailbox/draft-sender";
+import { readReplyAttachments } from "../../../lib/mailbox/reply-attachments";
 import { isUuid } from "../../../lib/uuid";
 
 /**
@@ -58,8 +59,8 @@ const showDraftAsItStands = (threadId: string | undefined): void => {
 
 /**
  * Approves the draft and really sends it (context.md §2), with the text as the
- * user edited it in the form. The mailbox it leaves through is read from the
- * draft, never from the submission.
+ * user edited it in the form and the files it carried attached. The mailbox it
+ * leaves through is read from the draft, never from the submission.
  */
 export const approveDraft = async (formData: FormData): Promise<void> => {
   const session = await auth();
@@ -67,6 +68,10 @@ export const approveDraft = async (formData: FormData): Promise<void> => {
 
   const draftId = submittedDraftId(formData.get("draftId"));
   const tenantId = session.user.tenantId;
+  // Before the mailbox is opened: a submission carrying more than a reply may
+  // attach is refused while the draft is still pending, rather than halfway
+  // through a send nobody can tell the outcome of.
+  const attachments = await readReplyAttachments(formData.getAll("attachments"));
   const sender = await createDraftSender(db, { tenantId, draftId });
 
   const sent = await approveAndSendDraft(db, sender, {
@@ -76,6 +81,7 @@ export const approveDraft = async (formData: FormData): Promise<void> => {
     // anything if it names who really approved the mail (context.md §7).
     actorUserId: session.user.id,
     body: submittedText(formData.get("body"), "body"),
+    attachments,
   });
 
   showDraftAsItStands(sent?.threadId);

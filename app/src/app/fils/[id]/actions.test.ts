@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "next-auth";
 import { THREADS_PATH, threadPath } from "../../../lib/routes";
 import { TEST_TENANT_ID } from "../../../lib/auth/test-fixtures";
+import { MAX_ATTACHMENTS_BYTES } from "../../../lib/mailbox/reply-attachments";
 
 const auth = vi.fn<() => Promise<Session | null>>(async () => null);
 const createDraftSender = vi.fn(async () => ({ sendReply: vi.fn() }));
@@ -91,8 +92,51 @@ describe("approveDraft", () => {
         draftId: DRAFT_ID,
         actorUserId: USER_ID,
         body: "Text aprovat",
+        attachments: [],
       },
     );
+  });
+
+  it("sends the files picked in the form with the reply", async () => {
+    signedIn();
+    const form = formData({ draftId: DRAFT_ID, body: "Text" });
+    form.append(
+      "attachments",
+      new File(["%PDF-1.4"], "pressupost.pdf", { type: "application/pdf" }),
+    );
+
+    await approveDraft(form);
+
+    expect(approveAndSendDraft).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        attachments: [
+          {
+            filename: "pressupost.pdf",
+            mimeType: "application/pdf",
+            content: new Uint8Array(Buffer.from("%PDF-1.4")),
+          },
+        ],
+      }),
+    );
+  });
+
+  // Refused before the draft is claimed: a send the provider turns down halfway
+  // leaves an approved draft whose mail may or may not have gone out.
+  it("refuses a submission carrying more than a reply may attach", async () => {
+    signedIn();
+    const form = formData({ draftId: DRAFT_ID, body: "Text" });
+    form.append(
+      "attachments",
+      new File(["a".repeat(MAX_ATTACHMENTS_BYTES + 1)], "gran.pdf", {
+        type: "application/pdf",
+      }),
+    );
+
+    await expect(approveDraft(form)).rejects.toThrow();
+    expect(approveAndSendDraft).not.toHaveBeenCalled();
+    expect(createDraftSender).not.toHaveBeenCalled();
   });
 
   // A submitted tenant is another tenant's mailbox waiting to be sent from: the

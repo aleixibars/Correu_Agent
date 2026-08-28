@@ -101,6 +101,12 @@ export type DraftSentEvent = EventBase & {
   actor: AuditActor;
   draftId: string;
   sentMessageId: string;
+  /**
+   * Names of the files that left with the reply (context.md §2). The files are
+   * never stored, so this is the only record that any went out; absent, or
+   * empty, on a reply that carried only text.
+   */
+  attachmentFilenames?: string[];
 };
 
 /** An auto-reply left the mailbox without anyone approving it — the highest-stakes entry here. */
@@ -248,7 +254,14 @@ const transitionOf = (event: AuditEvent): Transition => {
     case "draft_sent":
       return {
         ...draftTransition("approved", "sent"),
-        details: { sentMessageId: event.sentMessageId },
+        details: {
+          sentMessageId: event.sentMessageId,
+          // Only on a reply that carried files: an empty list on every other
+          // send would say nothing and be written on every mail.
+          ...(event.attachmentFilenames?.length
+            ? { attachmentFilenames: event.attachmentFilenames }
+            : {}),
+        },
       };
     case "auto_reply_rule_changed":
       return {

@@ -404,6 +404,19 @@ select:focus {
   margin-bottom: 16px;
 }
 
+/* Selector de documents del formulari d'aprovació (DraftOptionsForm): els
+   fitxers que surten adjunts a la resposta. */
+input[type="file"] {
+  width: 100%;
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+
 /* Selector d'opcions d'esborrany (DraftOptionsForm): un ràdio per resposta
    proposada, per triar-la abans d'editar-la a l'àrea de text. */
 .draft-options {

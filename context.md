@@ -28,7 +28,7 @@ Opcional, granular per categoria:
 - **Descart automàtic** (auto-discard): activable per categoria/regla, amb el mateix patró que l'auto-resposta però l'acció oposada — el fil es descarta sol just en triar-lo, sense generar mai esborrany ni consumir el pipeline de redacció. Elegible a **totes les categories excepte Urgent** (invariant de seguretat igual que l'auto-resposta). Cada regla pot afinar-se amb patrons de remitent i/o paraules clau a l'assumpte; sense cap dels dos, s'aplica a tota la categoria. Per defecte, sense cap regla desada, Newsletter/Spam ja es descarta sol (no necessita resposta); la resta de categories comencen desactivades.
 
 Flux d'aprovació d'un esborrany:
-- **Aprovar** → envia realment el correu via l'API del proveïdor (Gmail API / Microsoft Graph), amb opció d'editar el text abans d'aprovar.
+- **Aprovar** → envia realment el correu via l'API del proveïdor (Gmail API / Microsoft Graph), amb opció d'editar el text i d'adjuntar-hi documents (fins a 3 MB en total, el límit del més estricte dels dos proveïdors) abans d'aprovar. Els fitxers adjunts no es desen enlloc: viuen de l'enviament del formulari fins que el proveïdor té el correu.
 - **Rebutjar** → l'usuari pot **descartar** (arxiva sense resposta) o **regenerar amb una instrucció de feedback** (nova crida al model amb el comentari afegit).
 
 ---
@@ -38,7 +38,7 @@ Flux d'aprovació d'un esborrany:
 No implementar ara, però no descartat — apuntat aquí perquè no es perdi:
 
 - Base de coneixement / context d'empresa (to de veu, FAQ, info de productes) injectat als esborranys — probablement via RAG. El PoC redacta amb el contingut del fil sol.
-- Processament d'adjunts (PDFs, imatges).
+- Processament d'adjunts **rebuts** (PDFs, imatges) — adjuntar documents a una resposta que surt sí que hi és (§2).
 - Categories configurables per l'usuari (el PoC usa la taxonomia fixa de §4).
 - Multi-tenant real: signup, onboarding d'altres empreses, facturació.
 - Push/webhooks en temps real (Gmail Pub/Sub, Microsoft Graph webhooks) en lloc de polling.
