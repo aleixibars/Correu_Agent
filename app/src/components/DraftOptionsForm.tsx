@@ -12,8 +12,8 @@ const COUNTDOWN_SECONDS = 7;
  * escrit més d'una opció (p.ex. una resposta afirmativa i una de negativa),
  * un selector deixa triar-ne una abans d'editar-la — en triar, el text de
  * l'àrea editable es substitueix pel de l'opció triada. Component de client
- * perquè el selector necessita estat local; l'acció de submit segueix sent el
- * Server Action que rep el formulari com a prop.
+ * perquè el selector necessita estat local; qui envia de debò segueix sent el
+ * Server Action que rep com a prop.
  *
  * Enviar no envia a l'acte: obre un compte enrere de 7 segons amb un botó de
  * cancel·lar, i només quan arriba a zero es crida el Server Action. Tot el
@@ -57,7 +57,10 @@ export const DraftOptionsForm = ({
   useEffect(() => {
     if (!counting) return;
     const timer = setInterval(() => {
-      setSecondsLeft((left) => (left === null ? null : left - 1));
+      // Aturat a zero i no per sota: si el navegador va carregat, dos tics
+      // poden arribar abans que l'efecte de sota s'executi, i un compte enrere
+      // en negatiu no dispararia mai l'enviament.
+      setSecondsLeft((left) => (left === null ? null : Math.max(left - 1, 0)));
     }, 1000);
     return () => clearInterval(timer);
   }, [counting]);
@@ -68,7 +71,6 @@ export const DraftOptionsForm = ({
     pending.current = null;
     setSecondsLeft(null);
     if (formData === null) return;
-    setFailed(false);
     setSending(true);
     void (async () => {
       try {
@@ -110,15 +112,18 @@ export const DraftOptionsForm = ({
 
   return (
     <>
-      {/* `action` es queda com el camí sense JavaScript; amb JavaScript
-          `onSubmit` l'atura i el compte enrere és qui acaba cridant el Server
-          Action. */}
+      {/* Sense `action`: qui crida el Server Action és el compte enrere, mai el
+          submit. Un `action` de recanvi per a navegadors sense JavaScript
+          enviaria el correu a l'acte i sense marge per cancel·lar-lo — i tampoc
+          seria abastable, perquè el formulari només es pinta quan
+          `DraftReviewStages` ja ha passat a l'etapa de resposta, que és estat
+          del navegador. */}
       <form
-        action={approveDraft}
         onSubmit={(event) => {
           // Res surt encara: només s'apunta què s'enviaria d'aquí a 7 segons.
           event.preventDefault();
           pending.current = new FormData(event.currentTarget);
+          setFailed(false);
           setSecondsLeft(COUNTDOWN_SECONDS);
         }}
       >

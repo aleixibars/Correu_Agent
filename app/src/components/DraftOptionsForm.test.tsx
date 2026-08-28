@@ -100,6 +100,18 @@ describe("DraftOptionsForm", () => {
     expect(formData.get("body")).toBe("Text meu");
   });
 
+  // Un navegador carregat pot deixar passar més d'un tic abans que React
+  // reaccioni al zero: el compte enrere s'atura a zero i no en negatiu, perquè
+  // un negatiu no dispararia mai l'enviament.
+  it("still sends once when several seconds elapse between renders", () => {
+    show();
+
+    approve();
+    tick(60);
+
+    expect(approveDraft).toHaveBeenCalledTimes(1);
+  });
+
   it("never sends when cancelled inside the countdown", () => {
     show();
     approve();
@@ -164,6 +176,20 @@ describe("DraftOptionsForm", () => {
     expect(
       screen.getByRole("button", { name: "Enviar" }),
     ).toHaveProperty("disabled", false);
+  });
+
+  // L'avís d'error es queda a la vista fins al següent intent: deixar-lo sota
+  // el pop-up diria que ha fallat una cosa que encara està en marxa.
+  it("clears the failure notice when a new countdown opens", async () => {
+    approveDraft.mockRejectedValue(new Error("el proveïdor no respon"));
+    show();
+    approve();
+    tick(7);
+    await act(async () => {});
+
+    approve();
+
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("gives the focus back to the approve button after cancelling", () => {
