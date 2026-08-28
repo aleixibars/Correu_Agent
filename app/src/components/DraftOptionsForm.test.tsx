@@ -41,7 +41,7 @@ const tick = (seconds: number): void => {
 
 beforeEach(() => {
   vi.useFakeTimers();
-  approveDraft.mockClear();
+  approveDraft.mockReset();
 });
 
 afterEach(() => {
@@ -132,6 +132,64 @@ describe("DraftOptionsForm", () => {
     approve();
 
     expect(screen.getByRole("dialog").textContent).toContain("7");
+  });
+
+  // Enviar de debò triga (el proveïdor, i després la revalidació que desmunta
+  // el formulari): un segon clic en aquesta estona seria un segon correu.
+  it("keeps the form blocked while the send is still in flight", () => {
+    approveDraft.mockReturnValue(new Promise(() => {}));
+    show();
+
+    approve();
+    tick(7);
+
+    expect(approveDraft).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Enviant…" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
+  it("re-opens the form with a warning when the send fails", async () => {
+    approveDraft.mockRejectedValue(new Error("el proveïdor no respon"));
+    show();
+
+    approve();
+    tick(7);
+    await act(async () => {});
+
+    expect(screen.getByRole("alert").textContent).toContain(
+      "No s'ha pogut enviar",
+    );
+    expect(
+      screen.getByRole("button", { name: "Aprova i envia" }),
+    ).toHaveProperty("disabled", false);
+  });
+
+  it("gives the focus back to the approve button after cancelling", () => {
+    show();
+    approve();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel·la" }));
+
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Aprova i envia" }),
+    );
+  });
+
+  // El fons queda tapat: tabular fins al formulari de sota seria sortir del
+  // pop-up sense tancar-lo.
+  it("keeps the tab key inside the countdown", () => {
+    show();
+    approve();
+    screen.getByLabelText("Text de la resposta").focus();
+
+    const notPrevented = fireEvent.keyDown(document, { key: "Tab" });
+
+    expect(notPrevented).toBe(false);
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Cancel·la" }),
+    );
   });
 
   it("still lets an option replace the editable text before approving", () => {

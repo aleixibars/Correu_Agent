@@ -18,7 +18,8 @@ const COUNTDOWN_SECONDS = 7;
  * Aprovar no envia a l'acte: obre un compte enrere de 7 segons amb un botó de
  * cancel·lar, i només quan arriba a zero es crida el Server Action. Tot el
  * marge passa al navegador — si es cancel·la, no surt cap petició i l'esborrany
- * es queda tal com estava.
+ * es queda tal com estava. Un cop disparat, el formulari es queda blocat fins
+ * que la pàgina es refresca sola; només si l'enviament falla es torna a obrir.
  */
 export const DraftOptionsForm = ({
   draftId,
@@ -27,7 +28,7 @@ export const DraftOptionsForm = ({
 }: {
   draftId: string;
   options: DraftOption[];
-  approveDraft: (formData: FormData) => void;
+  approveDraft: (formData: FormData) => void | Promise<void>;
 }) => {
   const [selected, setSelected] = useState(0);
   const [body, setBody] = useState(options[0]?.body ?? "");
@@ -36,9 +37,20 @@ export const DraftOptionsForm = ({
   const pending = useRef<FormData | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const counting = secondsLeft !== null;
+  // Un cop disparat l'enviament el formulari es queda blocat: enviar de debò
+  // triga (el proveïdor, i després la revalidació que desmunta el formulari), i
+  // un segon clic en aquesta estona és un segon correu al remitent.
+  const [sending, setSending] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const approveButton = useRef<HTMLButtonElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
+  // Cancel·lar ha de tornar el focus al botó d'aprovar, però encara està
+  // deshabilitat mentre es pinta aquest mateix render: es fa un cop tancat.
+  const restoreFocus = useRef(false);
 
   const cancel = useCallback(() => {
     pending.current = null;
+    restoreFocus.current = true;
     setSecondsLeft(null);
   }, []);
 
@@ -55,15 +67,42 @@ export const DraftOptionsForm = ({
     const formData = pending.current;
     pending.current = null;
     setSecondsLeft(null);
-    if (formData !== null) approveDraft(formData);
+    if (formData === null) return;
+    setFailed(false);
+    setSending(true);
+    void (async () => {
+      try {
+        await approveDraft(formData);
+      } catch {
+        // El correu no ha sortit: es torna a deixar clicar, dit clarament, en
+        // comptes de deixar el formulari blocat per sempre sense explicació.
+        setSending(false);
+        setFailed(true);
+      }
+    })();
   }, [secondsLeft, approveDraft]);
 
-  // Escapada com a segona sortida del pop-up: qui es penedeix amb el teclat no
-  // hauria de dependre d'arribar al botó a temps.
+  useEffect(() => {
+    if (counting || !restoreFocus.current) return;
+    restoreFocus.current = false;
+    approveButton.current?.focus();
+  }, [counting]);
+
   useEffect(() => {
     if (!counting) return;
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") cancel();
+      // Escapada com a segona sortida del pop-up: qui es penedeix amb el teclat
+      // no hauria de dependre d'arribar al botó a temps.
+      if (event.key === "Escape") {
+        cancel();
+        return;
+      }
+      // El fons queda tapat, i el tabulador no l'ha de poder recórrer: mentre
+      // corren els segons, l'únic que hi ha a mà és cancel·lar.
+      if (event.key === "Tab") {
+        event.preventDefault();
+        cancelButton.current?.focus();
+      }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
@@ -114,9 +153,20 @@ export const DraftOptionsForm = ({
             onChange={(event) => setBody(event.target.value)}
           />
         </div>
-        <button type="submit" className="btn-primary" disabled={counting}>
-          Aprova i envia
+        <button
+          ref={approveButton}
+          type="submit"
+          className="btn-primary"
+          disabled={counting || sending}
+        >
+          {sending ? "Enviant…" : "Aprova i envia"}
         </button>
+        {failed && (
+          <p role="alert">
+            No s&apos;ha pogut enviar la resposta. L&apos;esborrany segueix
+            pendent: torna-ho a provar.
+          </p>
+        )}
       </form>
 
       {secondsLeft !== null && (
@@ -135,6 +185,7 @@ export const DraftOptionsForm = ({
             {/* Enfocat d'entrada: cancel·lar ha de ser la primera cosa a mà,
                 també per a qui navega amb teclat. */}
             <button
+              ref={cancelButton}
               type="button"
               className="btn-primary"
               autoFocus
