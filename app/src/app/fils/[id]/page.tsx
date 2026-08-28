@@ -127,9 +127,13 @@ export default async function ThreadPage({
                         {size !== null && (
                           <span className="attachments__size">{size}</span>
                         )}
+                        {/* Tots els enllaços de la llista diuen "Descarrega",
+                            així que el nom del fitxer va a l'etiqueta: si no,
+                            un lector de pantalla els llegeix tots iguals. */}
                         <a
                           href={attachmentDownloadPath(attachment.id)}
                           className="attachments__download"
+                          aria-label={`Descarrega ${attachment.filename}`}
                         >
                           Descarrega
                         </a>

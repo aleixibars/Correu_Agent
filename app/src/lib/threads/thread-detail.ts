@@ -206,7 +206,9 @@ const loadAttachments = async <
         eq(messageAttachments.inline, false),
       ),
     )
-    .orderBy(asc(messageAttachments.createdAt));
+    // All the attachments of one poll share a `createdAt`, so without the id
+    // the list of a message could come back in a different order each visit.
+    .orderBy(asc(messageAttachments.createdAt), asc(messageAttachments.id));
 
   for (const { messageId, ...attachment } of rows) {
     const group = byMessage.get(messageId);

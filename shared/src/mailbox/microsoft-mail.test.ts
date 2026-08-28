@@ -19,6 +19,7 @@ const graphMessage = (overrides: Record<string, unknown> = {}) => ({
   ccRecipients: [{ emailAddress: { address: "copia@example.com" } }],
   bodyPreview: "Bon dia,",
   body: { contentType: "html", content: "<p>Bon dia</p>" },
+  hasAttachments: false,
   ...overrides,
 });
 
@@ -366,6 +367,29 @@ describe("fetchMicrosoftNewMessages attachments", () => {
 
     expect(sync.messages[0]!.attachments).toEqual([]);
     expect(calls).toHaveLength(1);
+  });
+
+  // A delta link keeps the projection it was minted with, so a mailbox
+  // connected before `hasAttachments` was selected answers without the field
+  // for as long as that link lives. Reading that silence as "no files" would
+  // leave such a mailbox listing no attachment ever, and never fail.
+  it("asks anyway when the page does not say whether there are attachments", async () => {
+    const message: Record<string, unknown> = graphMessage();
+    delete message.hasAttachments;
+    const { fetch, calls } = stubFetch([
+      { body: { value: [message], "@odata.deltaLink": "https://delta/2" } },
+      { body: { value: [fileAttachment()] } },
+    ]);
+
+    const sync = await fetchMicrosoftNewMessages({
+      accessToken: "access-token",
+      deltaLink: "https://delta/1",
+      since: CONNECTED_AT,
+      fetch,
+    });
+
+    expect(sync.messages[0]!.attachments).toHaveLength(1);
+    expect(calls[1]!.url).toContain("/me/messages/message-1/attachments");
   });
 
   it("keeps only the attachments whose bytes Graph can serve", async () => {

@@ -168,7 +168,18 @@ export const persistPolledMessages = async <
       })),
     );
     if (attachmentRows.length > 0) {
-      await db.insert(messageAttachments).values(attachmentRows);
+      // A provider that reports the same attachment twice in one message must
+      // not take the whole poll down with a unique violation: the row is
+      // already there, which is all this write wanted.
+      await db
+        .insert(messageAttachments)
+        .values(attachmentRows)
+        .onConflictDoNothing({
+          target: [
+            messageAttachments.messageId,
+            messageAttachments.providerAttachmentId,
+          ],
+        });
     }
 
     // Mail the previous poll had already stored is not an arrival: auditing it

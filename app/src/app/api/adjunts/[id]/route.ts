@@ -54,15 +54,18 @@ export const GET = async (
     return NextResponse.json({ error: "L'adjunt no existeix." }, { status: 404 });
   }
 
-  const preview =
+  // El tipus del remitent només es repeteix quan és un dels que es poden
+  // ensenyar; qualsevol altre surt opac perquè el navegador no el corri.
+  const previewType =
     isPreviewable(attachment.mimeType) &&
-    !new URL(request.url).searchParams.has(ATTACHMENT_DOWNLOAD_PARAM);
+    !new URL(request.url).searchParams.has(ATTACHMENT_DOWNLOAD_PARAM)
+      ? attachment.mimeType
+      : null;
+  const preview = previewType !== null;
 
   return new NextResponse(attachment.bytes as BodyInit, {
     headers: {
-      // El tipus del remitent només es repeteix quan és un dels que es poden
-      // ensenyar; qualsevol altre surt opac perquè el navegador no el corri.
-      "content-type": preview ? attachment.mimeType! : OPAQUE_TYPE,
+      "content-type": previewType ?? OPAQUE_TYPE,
       "content-disposition": contentDisposition(attachment.filename, preview),
       "content-length": String(attachment.bytes.byteLength),
       // El tipus que va al `content-type` és el que mana: sense això, el

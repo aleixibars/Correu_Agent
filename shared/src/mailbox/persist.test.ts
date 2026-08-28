@@ -211,6 +211,9 @@ describe("persistPolledMessages", () => {
     });
 
     const [attachmentInsert] = inserts(queries, "message_attachments");
+    // A provider repeating one attachment inside a message must not take the
+    // whole poll down with it.
+    expect(attachmentInsert!.sql).toContain("on conflict");
     expect(attachmentInsert!.params).toEqual([
       TENANT_ID,
       MESSAGE_ID,

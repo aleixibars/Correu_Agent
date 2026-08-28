@@ -275,8 +275,11 @@ descàrrega de qualsevol (`context.md` §2).
   el proveïdor ja custodia.
 - El poll les recull dels dos proveïdors: a Gmail, de les parts MIME que porten
   `filename` i `body.attachmentId` (`shared/src/mail/gmail.ts`); a Graph, de
-  `GET /messages/{id}/attachments` per als missatges amb `hasAttachments`
-  (`shared/src/mailbox/microsoft-mail.ts`). De Graph només se'n queden els
+  `GET /messages/{id}/attachments` per a tot missatge que no digui
+  `hasAttachments: false` (`shared/src/mailbox/microsoft-mail.ts`) — un
+  `deltaLink` guardat abans que el camp entrés al `$select` respon sense ell
+  mentre visqui, i llegir-ho com a "cap adjunt" deixaria la bústia sense
+  llistar-ne cap mai. De Graph només se'n queden els
   `fileAttachment`: un adjunt de referència és un enllaç a OneDrive i no té
   bytes per baixar.
 - Els que el correu incrusta al seu propi cos (la imatge d'una signatura) es

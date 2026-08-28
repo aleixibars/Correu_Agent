@@ -249,7 +249,12 @@ const readCollection = async (
     for (const message of page.value ?? []) {
       const parsed = toProviderMessage(message, since);
       if (!parsed) continue;
-      if (message.hasAttachments) {
+      // Only a flat `false` is taken as "no files": a delta link minted before
+      // `hasAttachments` joined `$select` keeps the old projection for as long
+      // as it is followed, and Graph answers those pages without the field.
+      // Reading `undefined` as "none" would leave a mailbox connected before
+      // this change listing no attachment ever, without ever failing.
+      if (message.hasAttachments !== false) {
         parsed.attachments = await readAttachments(parsed.providerMessageId, {
           accessToken,
           fetch,
