@@ -112,6 +112,7 @@ describe("approveAndSendDraft", () => {
       // Threading headers derived from the mail being answered (context.md §4).
       inReplyTo: "<client@mail.example.com>",
       references: "<client@mail.example.com>",
+      attachments: [],
     });
 
     expect(result).toEqual({
@@ -145,6 +146,32 @@ describe("approveAndSendDraft", () => {
     // The audit trail names the user who approved it (context.md §7).
     expect(audits[0]).toContain(USER_ID);
     expect(audits[1]!.join(" ")).toContain(SENT_MESSAGE_ID);
+  });
+
+  it("sends the files the approval carried and names them in the trail", async () => {
+    const { db, queries } = createDb();
+    const { sender, sendReply } = createSender();
+    const attachments = [
+      {
+        filename: "pressupost.pdf",
+        mimeType: "application/pdf",
+        content: Buffer.from("%PDF-1.4 pressupost"),
+      },
+    ];
+
+    await approveAndSendDraft(db, sender, {
+      tenantId: TENANT_ID,
+      draftId: DRAFT_ID,
+      actorUserId: USER_ID,
+      attachments,
+      now: NOW,
+    });
+
+    expect(sendReply).toHaveBeenCalledWith(expect.objectContaining({ attachments }));
+    // The files are not stored anywhere, so the trail keeping their names is
+    // the only record of what left the mailbox with the reply (context.md §7).
+    const sent = auditEntries(queries)[1]!.join(" ");
+    expect(sent).toContain("pressupost.pdf");
   });
 
   it("moves the thread's clock so a replied thread does not sink in the list", async () => {

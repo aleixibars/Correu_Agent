@@ -64,6 +64,7 @@ const REPLY = {
   inReplyToProviderMessageId: "gmail-message-1",
   inReplyTo: "<one@example.com>",
   references: "<one@example.com>",
+  attachments: [],
 };
 
 const jsonResponse = (body: unknown): Response =>

@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DraftOption } from "@correu-agent/shared/db/schema";
+import {
+  MAX_ATTACHMENTS_BYTES,
+  MAX_ATTACHMENTS_LABEL,
+} from "../lib/mailbox/reply-attachments";
 
 /** Els segons de marge per penedir-se d'un "Enviar" abans que el correu
  * surti de debò cap al proveïdor. */
@@ -136,6 +140,12 @@ const RecipientField = ({
  * marge passa al navegador — si es cancel·la, no surt cap petició i l'esborrany
  * es queda tal com estava. Un cop disparat, el formulari es queda blocat fins
  * que la pàgina es refresca sola; només si l'enviament falla es torna a obrir.
+ *
+ * Els fitxers triats surten adjunts a la resposta i no es desen enlloc: viuen
+ * de l'enviament del formulari fins que el proveïdor té el correu. La mida es
+ * comprova aquí per avisar abans d'intentar-ho — i, si se'n va, ni tan sols
+ * s'obre el compte enrere. Qui decideix de debò és el Server Action, que torna
+ * a comptar-la.
  */
 export const DraftOptionsForm = ({
   draftId,
@@ -156,6 +166,8 @@ export const DraftOptionsForm = ({
 }) => {
   const [selected, setSelected] = useState(0);
   const [body, setBody] = useState(options[0]?.body ?? "");
+  const [attachedBytes, setAttachedBytes] = useState(0);
+  const tooLarge = attachedBytes > MAX_ATTACHMENTS_BYTES;
   // El que s'enviarà quan s'acabi el compte enrere, capturat en clicar: el
   // formulari podria canviar mentre corren els segons.
   const pending = useRef<FormData | null>(null);
@@ -241,7 +253,9 @@ export const DraftOptionsForm = ({
           enviaria el correu a l'acte i sense marge per cancel·lar-lo — i tampoc
           seria abastable, perquè el formulari només es pinta quan
           `DraftReviewStages` ja ha passat a l'etapa de resposta, que és estat
-          del navegador. */}
+          del navegador. Els fitxers hi viatgen igualment: el `FormData` el
+          construeix el navegador a partir del formulari, no una codificació
+          d'enviament nadiu que no arriba a passar mai. */}
       <form
         onSubmit={(event) => {
           // Res surt encara: només s'apunta què s'enviaria d'aquí a 7 segons.
@@ -303,11 +317,37 @@ export const DraftOptionsForm = ({
             onChange={(event) => setBody(event.target.value)}
           />
         </div>
+        <div className="field">
+          <label htmlFor="attachments">
+            Adjunta documents (opcional, fins a {MAX_ATTACHMENTS_LABEL} en
+            total)
+          </label>
+          <input
+            id="attachments"
+            type="file"
+            name="attachments"
+            multiple
+            onChange={(event) =>
+              setAttachedBytes(
+                [...(event.target.files ?? [])].reduce(
+                  (bytes, file) => bytes + file.size,
+                  0,
+                ),
+              )
+            }
+          />
+        </div>
+        {tooLarge && (
+          <p role="alert" className="draft-attachments__alert">
+            Els documents adjunts sumen més de {MAX_ATTACHMENTS_LABEL}. Treu-ne
+            algun o envia&apos;ls per separat: el correu no sortiria.
+          </p>
+        )}
         <button
           ref={approveButton}
           type="submit"
           className="btn-primary"
-          disabled={counting || sending}
+          disabled={tooLarge || counting || sending}
         >
           {sending ? "Enviant…" : "Enviar"}
         </button>

@@ -15,7 +15,7 @@ import {
   threads,
   type DraftStatus,
 } from "../db/schema";
-import type { MailSenderClient } from "../mail/types";
+import type { MailSenderClient, ReplyAttachment } from "../mail/types";
 import type { TriageCategory } from "../triage/taxonomy";
 import { buildReplyHeaders, replySubject } from "./reply-headers";
 import { defaultReplyRecipients, type ReplyRecipients } from "./reply-recipients";
@@ -32,6 +32,8 @@ export interface ApproveAndSendDraftInput {
    * §2); absent means the ones the thread implies, `defaultReplyRecipients`.
    */
   recipients?: ReplyRecipients;
+  /** Files the user picked in the approval form; none when the reply is text only. */
+  attachments?: ReplyAttachment[];
   /** Stamp for the send; defaults to the wall clock. */
   now?: Date;
 }
@@ -214,6 +216,7 @@ const dispatchDraft = async <
     draft,
     text,
     recipients,
+    attachments,
     now,
   }: {
     tenantId: string;
@@ -224,6 +227,7 @@ const dispatchDraft = async <
     };
     text: string;
     recipients: ReplyRecipients;
+    attachments: ReplyAttachment[];
     now: Date;
   },
 ): Promise<SentDraft> => {
@@ -245,6 +249,7 @@ const dispatchDraft = async <
     inReplyToProviderMessageId: draft.parentProviderMessageId,
     inReplyTo: replyHeaders.inReplyTo,
     references: replyHeaders.references,
+    attachments,
   });
 
   const sentMessageId = await storeSentMessage(db, {
@@ -310,6 +315,7 @@ export const approveAndSendDraft = async <
     actorUserId,
     body,
     recipients,
+    attachments = [],
     now = new Date(),
   }: ApproveAndSendDraftInput,
 ): Promise<SentDraft | null> => {
@@ -345,6 +351,7 @@ export const approveAndSendDraft = async <
     draft: { ...draft, ...parent },
     text,
     recipients: sendTo,
+    attachments,
     now,
   });
 
@@ -355,6 +362,10 @@ export const approveAndSendDraft = async <
     threadId: draft.threadId,
     draftId,
     sentMessageId: result.sentMessageId,
+    // The files themselves are not kept anywhere once the provider has the mail
+    // (context.md §7), so their names here are the only record of what left the
+    // mailbox with the reply.
+    attachmentFilenames: attachments.map(({ filename }) => filename),
     occurredAt: now,
   });
 
@@ -411,6 +422,8 @@ export const sendAutoReplyDraft = async <
     draft: { ...draft, ...parent },
     text,
     recipients: sendTo,
+    // Nobody is there to pick a file when a rule sends the mail (context.md §2).
+    attachments: [],
     now,
   });
 

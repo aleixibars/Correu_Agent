@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-// El formulari d'aprovació (context.md §2). Tres parts:
+// El formulari d'aprovació (context.md §2). Quatre parts:
 //
 // - Els camps de destinataris (issue #76): `renderToStaticMarkup` comprova el
 //   primer render, que és el que veu qui encara no té JavaScript — els tres
@@ -13,11 +13,18 @@
 //   Server Action de seguida — obre un pop-up amb 7 segons per penedir-se'n. La
 //   prova munta el component de debò perquè tot el retard passa al navegador:
 //   només si el compte enrere arriba a zero surt la petició cap al proveïdor.
+// - El selector de fitxers (issue #81): els adjunts han de ser dins del
+//   `FormData` que el compte enrere acaba enviant, i una tria massa gran no ha
+//   d'arribar ni a obrir-lo.
 
 import { renderToStaticMarkup } from "react-dom/server";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DraftOption } from "@correu-agent/shared/db/schema";
+import {
+  MAX_ATTACHMENTS_BYTES,
+  MAX_ATTACHMENTS_LABEL,
+} from "../lib/mailbox/reply-attachments";
 import {
   DraftOptionsForm,
   SUGGEST_DELAY_MS,
@@ -103,6 +110,16 @@ const settleSuggestions = async (): Promise<void> => {
 const approve = (): void => {
   fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
 };
+
+const attach = (...files: File[]): void => {
+  const input = screen.getByLabelText(/Adjunta documents/);
+  // `files` només té getter a jsdom: assignar-lo amb `fireEvent` no arrelaria.
+  Object.defineProperty(input, "files", { value: files, configurable: true });
+  fireEvent.change(input);
+};
+
+const fileOf = (name: string, bytes: number): File =>
+  new File([new Uint8Array(bytes)], name, { type: "application/pdf" });
 
 const tick = (seconds: number): void => {
   act(() => {
@@ -507,5 +524,63 @@ describe("DraftOptionsForm", () => {
       "value",
       "Ara mateix no ens va bé.",
     );
+  });
+
+  it("offers to attach several files to the reply", () => {
+    show();
+
+    const input = screen.getByLabelText(/Adjunta documents/);
+
+    expect(input).toHaveProperty("type", "file");
+    expect(input).toHaveProperty("name", "attachments");
+    expect(input).toHaveProperty("multiple", true);
+  });
+
+  // El selector ha de viure dins del mateix formulari que el compte enrere
+  // captura: si en quedés fora — el fil el pinta `DraftReviewStages`, amb més
+  // d'un formulari germà —, els fitxers no arribarien al Server Action i el
+  // correu sortiria sense adjunts sense dir-ho enlloc.
+  it("carries the file field in the FormData the countdown sends", () => {
+    show();
+
+    approve();
+    tick(7);
+
+    const formData = approveDraft.mock.calls[0]?.[0] as FormData;
+    // Un selector sense tocar hi posa una part buida, que `readReplyAttachments`
+    // descarta; el que es comprova aquí és que el camp hi viatja.
+    expect(formData.getAll("attachments")).toHaveLength(1);
+    expect(formData.get("attachments")).toBeInstanceOf(File);
+  });
+
+  // La mida és el motiu pel qual un enviament pot fallar a mig camí, així que
+  // el límit es diu abans d'escollir el fitxer, no després d'intentar-ho.
+  it("says out loud how much a reply may carry", () => {
+    show();
+
+    expect(
+      screen.getByLabelText(/Adjunta documents/, { selector: "input" }),
+    ).toBeTruthy();
+    expect(document.body.textContent).toContain(MAX_ATTACHMENTS_LABEL);
+  });
+
+  // El compte enrere no ha de ser el lloc on s'assabenta que el correu no
+  // sortirà: una tria massa gran no arriba ni a obrir-lo.
+  it("refuses to start the countdown when the files are over the limit", () => {
+    show();
+
+    attach(fileOf("gran.pdf", MAX_ATTACHMENTS_BYTES + 1));
+
+    expect(screen.getByRole("alert").textContent).toContain(
+      MAX_ATTACHMENTS_LABEL,
+    );
+    expect(screen.getByRole("button", { name: "Enviar" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    approve();
+    tick(60);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(approveDraft).not.toHaveBeenCalled();
   });
 });
