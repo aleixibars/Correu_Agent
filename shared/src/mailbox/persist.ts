@@ -6,7 +6,11 @@
 import { sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { recordAuditLogEntry } from "../audit";
-import { messages as messagesTable, threads } from "../db/schema";
+import {
+  messageAttachments,
+  messages as messagesTable,
+  threads,
+} from "../db/schema";
 import type { ProviderMessage } from "../mail/types";
 import type { TriageCategory } from "../triage/taxonomy";
 
@@ -136,11 +140,36 @@ export const persistPolledMessages = async <
       .onConflictDoNothing({
         target: [messagesTable.threadId, messagesTable.providerMessageId],
       })
-      .returning({ providerMessageId: messagesTable.providerMessageId });
+      .returning({
+        id: messagesTable.id,
+        providerMessageId: messagesTable.providerMessageId,
+      });
 
     const newProviderMessageIds = inserted.map(
       ({ providerMessageId }) => providerMessageId,
     );
+
+    // Only the mail this statement really inserted has attachments written for
+    // it, which is what keeps the write idempotent: a repeated poll returns no
+    // message row, so it writes no attachment row either. Metadata only — the
+    // bytes stay at the provider (context.md §7).
+    const bySource = new Map(
+      threadMessages.map((message) => [message.providerMessageId, message]),
+    );
+    const attachmentRows = inserted.flatMap(({ id, providerMessageId }) =>
+      (bySource.get(providerMessageId)?.attachments ?? []).map((attachment) => ({
+        tenantId,
+        messageId: id,
+        providerAttachmentId: attachment.providerAttachmentId,
+        filename: attachment.filename,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+        inline: attachment.inline,
+      })),
+    );
+    if (attachmentRows.length > 0) {
+      await db.insert(messageAttachments).values(attachmentRows);
+    }
 
     // Mail the previous poll had already stored is not an arrival: auditing it
     // again would make one mail look like several.

@@ -5,10 +5,13 @@
 import { errorDetail, readJson } from "./google-errors";
 import { buildReplyMime } from "./mime";
 import type {
+  AttachmentRef,
+  MailAttachmentClient,
   MailPollResult,
   MailProviderClient,
   MailSenderClient,
   OutgoingReply,
+  ProviderAttachment,
   ProviderMessage,
   SentReply,
 } from "./types";
@@ -25,7 +28,9 @@ type GmailHeader = { name?: unknown; value?: unknown };
 type GmailPart = {
   mimeType?: unknown;
   headers?: unknown;
-  body?: { data?: unknown } | undefined;
+  /** Set on an attached part; `attachmentId` is the handle its bytes are fetched with. */
+  filename?: unknown;
+  body?: { data?: unknown; attachmentId?: unknown; size?: unknown } | undefined;
   parts?: unknown;
 };
 
@@ -173,6 +178,38 @@ const findBody = (part: GmailPart | undefined, mimeType: string): string | null 
   return null;
 };
 
+/**
+ * Every attached part of a message, walking nested containers like `findBody`
+ * does. A part counts as an attachment when it has both a filename and an
+ * `attachmentId`: the body parts have neither, and the bytes themselves are a
+ * separate request nobody makes until the dashboard asks (context.md §7).
+ */
+const collectAttachments = (
+  part: GmailPart | undefined,
+  found: ProviderAttachment[] = [],
+): ProviderAttachment[] => {
+  if (!part) return found;
+
+  const filename = asString(part.filename);
+  const providerAttachmentId = asString(part.body?.attachmentId);
+  if (filename && providerAttachmentId) {
+    const headers = (Array.isArray(part.headers) ? part.headers : []) as GmailHeader[];
+    const disposition = headerValue(headers, "Content-Disposition");
+    found.push({
+      providerAttachmentId,
+      filename,
+      mimeType: asString(part.mimeType),
+      sizeBytes: typeof part.body?.size === "number" ? part.body.size : null,
+      inline: disposition?.trim().toLowerCase().startsWith("inline") ?? false,
+    });
+  }
+
+  for (const child of (Array.isArray(part.parts) ? part.parts : []) as GmailPart[]) {
+    collectAttachments(child, found);
+  }
+  return found;
+};
+
 const toProviderMessage = (message: GmailMessage): ProviderMessage | null => {
   const providerMessageId = asString(message.id);
   const providerThreadId = asString(message.threadId);
@@ -205,6 +242,7 @@ const toProviderMessage = (message: GmailMessage): ProviderMessage | null => {
     snippet: asString(message.snippet),
     bodyText: findBody(message.payload, "text/plain"),
     bodyHtml: findBody(message.payload, "text/html"),
+    attachments: collectAttachments(message.payload),
     sentAt: internalDate ? new Date(Number(internalDate)) : null,
   };
 };
@@ -402,6 +440,35 @@ export const createGmailClient = (accessToken: string): GmailMailboxClient => ({
     }
 
     return { messages };
+  },
+});
+
+/**
+ * Reads the bytes of one attachment out of the mailbox, on demand: the product
+ * never stores them, so a preview or a download in the dashboard is one Gmail
+ * call made while the reader waits (context.md §7).
+ */
+export const createGmailAttachmentReader = (
+  accessToken: string,
+): MailAttachmentClient => ({
+  async fetchAttachment({
+    providerMessageId,
+    providerAttachmentId,
+  }: AttachmentRef): Promise<Uint8Array | null> {
+    const body = await gmailGet(
+      accessToken,
+      `/messages/${encodeURIComponent(providerMessageId)}/attachments/${encodeURIComponent(providerAttachmentId)}`,
+    );
+    // The mail was deleted since it was polled — nothing to serve, not a fault.
+    if (!body) return null;
+
+    const data = asString(body.data);
+    if (!data) {
+      throw new Error(
+        `Gmail returned no data for attachment ${providerAttachmentId}.`,
+      );
+    }
+    return Buffer.from(data, "base64url");
   },
 });
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  createMicrosoftAttachmentReader,
   createMicrosoftSender,
   fetchMicrosoftNewMessages,
 } from "./microsoft-mail";
@@ -80,6 +81,7 @@ describe("fetchMicrosoftNewMessages", () => {
           snippet: "Bon dia,",
           bodyText: null,
           bodyHtml: "<p>Bon dia</p>",
+          attachments: [],
           sentAt: new Date("2026-01-01T09:00:00Z"),
         },
       ],
@@ -298,6 +300,174 @@ describe("createMicrosoftSender", () => {
       createMicrosoftSender({ accessToken: "access-token", fetch }).sendReply(
         outgoingReply(),
       ),
+    ).rejects.toThrow(/ErrorAccessDenied/);
+  });
+});
+
+describe("fetchMicrosoftNewMessages attachments", () => {
+  const fileAttachment = (overrides: Record<string, unknown> = {}) => ({
+    "@odata.type": "#microsoft.graph.fileAttachment",
+    id: "attachment-1",
+    name: "pressupost.pdf",
+    contentType: "application/pdf",
+    size: 20480,
+    isInline: false,
+    ...overrides,
+  });
+
+  it("lists the attachments of a message that has them", async () => {
+    const { fetch, calls } = stubFetch([
+      {
+        body: {
+          value: [graphMessage({ hasAttachments: true })],
+          "@odata.deltaLink": "https://delta/2",
+        },
+      },
+      { body: { value: [fileAttachment()] } },
+    ]);
+
+    const sync = await fetchMicrosoftNewMessages({
+      accessToken: "access-token",
+      deltaLink: "https://delta/1",
+      since: CONNECTED_AT,
+      fetch,
+    });
+
+    expect(sync.messages[0]!.attachments).toEqual([
+      {
+        providerAttachmentId: "attachment-1",
+        filename: "pressupost.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 20480,
+        inline: false,
+      },
+    ]);
+    // Metadata only: the bytes are fetched when the dashboard asks for them.
+    expect(calls[1]!.url).toContain("/me/messages/message-1/attachments");
+    expect(decodeURIComponent(calls[1]!.url)).toContain("id,name,contentType,size,isInline");
+  });
+
+  it("does not ask for the attachments of a message without any", async () => {
+    const { fetch, calls } = stubFetch([
+      {
+        body: {
+          value: [graphMessage({ hasAttachments: false })],
+          "@odata.deltaLink": "https://delta/2",
+        },
+      },
+    ]);
+
+    const sync = await fetchMicrosoftNewMessages({
+      accessToken: "access-token",
+      deltaLink: "https://delta/1",
+      since: CONNECTED_AT,
+      fetch,
+    });
+
+    expect(sync.messages[0]!.attachments).toEqual([]);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("keeps only the attachments whose bytes Graph can serve", async () => {
+    const { fetch } = stubFetch([
+      {
+        body: {
+          value: [graphMessage({ hasAttachments: true })],
+          "@odata.deltaLink": "https://delta/2",
+        },
+      },
+      {
+        body: {
+          value: [
+            fileAttachment({
+              id: "inline-1",
+              name: "signatura.png",
+              contentType: "image/png",
+              size: 900,
+              isInline: true,
+            }),
+            // A link to a file in OneDrive, not a file: there is nothing to download.
+            {
+              "@odata.type": "#microsoft.graph.referenceAttachment",
+              id: "reference-1",
+              name: "carpeta compartida",
+              contentType: null,
+              size: 0,
+            },
+          ],
+        },
+      },
+    ]);
+
+    const sync = await fetchMicrosoftNewMessages({
+      accessToken: "access-token",
+      deltaLink: "https://delta/1",
+      since: CONNECTED_AT,
+      fetch,
+    });
+
+    expect(sync.messages[0]!.attachments).toEqual([
+      {
+        providerAttachmentId: "inline-1",
+        filename: "signatura.png",
+        mimeType: "image/png",
+        sizeBytes: 900,
+        inline: true,
+      },
+    ]);
+  });
+});
+
+describe("createMicrosoftAttachmentReader", () => {
+  const binaryFetch = (
+    status: number,
+    body: string,
+  ): { fetch: typeof globalThis.fetch; calls: string[] } => {
+    const calls: string[] = [];
+    const fetch: typeof globalThis.fetch = async (input) => {
+      calls.push(new Request(input as RequestInfo).url);
+      return new Response(status === 204 ? null : body, { status });
+    };
+    return { fetch, calls };
+  };
+
+  it("returns the bytes Graph serves for the attachment", async () => {
+    const { fetch, calls } = binaryFetch(200, "hola!");
+
+    const bytes = await createMicrosoftAttachmentReader({
+      accessToken: "access-token",
+      fetch,
+    }).fetchAttachment({
+      providerMessageId: "message-1",
+      providerAttachmentId: "attachment-1",
+    });
+
+    expect(Buffer.from(bytes!).toString("utf8")).toBe("hola!");
+    expect(calls[0]).toContain("/me/messages/message-1/attachments/attachment-1/$value");
+  });
+
+  it("returns null when the mail it belonged to is gone", async () => {
+    const { fetch } = binaryFetch(404, JSON.stringify({ error: { code: "ErrorItemNotFound" } }));
+
+    const bytes = await createMicrosoftAttachmentReader({
+      accessToken: "access-token",
+      fetch,
+    }).fetchAttachment({
+      providerMessageId: "message-1",
+      providerAttachmentId: "attachment-1",
+    });
+
+    expect(bytes).toBeNull();
+  });
+
+  it("surfaces a refusal that is not a missing mail", async () => {
+    const { fetch } = binaryFetch(403, JSON.stringify({ error: { code: "ErrorAccessDenied" } }));
+
+    await expect(
+      createMicrosoftAttachmentReader({ accessToken: "access-token", fetch }).fetchAttachment({
+        providerMessageId: "message-1",
+        providerAttachmentId: "attachment-1",
+      }),
     ).rejects.toThrow(/ErrorAccessDenied/);
   });
 });

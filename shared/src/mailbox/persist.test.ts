@@ -7,6 +7,7 @@ const TENANT_ID = "11111111-1111-1111-1111-111111111111";
 const MAILBOX_ID = "22222222-2222-2222-2222-222222222222";
 const THREAD_ID = "33333333-3333-3333-3333-333333333333";
 const OTHER_THREAD_ID = "44444444-4444-4444-4444-444444444444";
+const MESSAGE_ID = "55555555-5555-5555-5555-555555555555";
 
 const NOW = new Date("2026-01-02T10:00:00.000Z");
 
@@ -24,6 +25,7 @@ const message = (overrides: Partial<ProviderMessage> = {}): ProviderMessage => (
   snippet: "Bon dia,",
   bodyText: "Bon dia, voldria un pressupost.",
   bodyHtml: null,
+  attachments: [],
   sentAt: new Date("2026-01-02T09:00:00.000Z"),
   ...overrides,
 });
@@ -44,7 +46,7 @@ const threadRow = (
  */
 const createDb = ({
   threads = [threadRow(THREAD_ID)],
-  insertedMessages = [["message-1"]] as unknown[][],
+  insertedMessages = [[MESSAGE_ID, "message-1"]] as unknown[][],
 }: {
   threads?: unknown[][];
   insertedMessages?: unknown[][];
@@ -158,7 +160,10 @@ describe("persistPolledMessages", () => {
   it("groups the mail of one poll by provider thread", async () => {
     const { db, queries } = createDb({
       threads: [threadRow(THREAD_ID), threadRow(OTHER_THREAD_ID)],
-      insertedMessages: [["message-1"], ["message-2"]],
+      insertedMessages: [
+        [MESSAGE_ID, "message-1"],
+        ["66666666-6666-6666-6666-666666666666", "message-2"],
+      ],
     });
 
     const persisted = await persistPolledMessages(db, {
@@ -181,6 +186,65 @@ describe("persistPolledMessages", () => {
       "conversation-1",
       "conversation-2",
     ]);
+  });
+
+  it("stores the metadata of the attachments, never their bytes", async () => {
+    const { db, queries } = createDb();
+
+    await persistPolledMessages(db, {
+      tenantId: TENANT_ID,
+      mailboxAccountId: MAILBOX_ID,
+      messages: [
+        message({
+          attachments: [
+            {
+              providerAttachmentId: "att-1",
+              filename: "pressupost.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 20480,
+              inline: false,
+            },
+          ],
+        }),
+      ],
+      now: NOW,
+    });
+
+    const [attachmentInsert] = inserts(queries, "message_attachments");
+    expect(attachmentInsert!.params).toEqual([
+      TENANT_ID,
+      MESSAGE_ID,
+      "att-1",
+      "pressupost.pdf",
+      "application/pdf",
+      20480,
+      false,
+    ]);
+  });
+
+  it("writes no attachment row for mail the poll had already stored", async () => {
+    const { db, queries } = createDb({ insertedMessages: [] });
+
+    await persistPolledMessages(db, {
+      tenantId: TENANT_ID,
+      mailboxAccountId: MAILBOX_ID,
+      messages: [
+        message({
+          attachments: [
+            {
+              providerAttachmentId: "att-1",
+              filename: "pressupost.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 20480,
+              inline: false,
+            },
+          ],
+        }),
+      ],
+      now: NOW,
+    });
+
+    expect(inserts(queries, "message_attachments")).toEqual([]);
   });
 
   it("does not record mail the poll had already stored", async () => {
