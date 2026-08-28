@@ -4,7 +4,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "next-auth";
-import { THREADS_PATH, threadPath } from "../../../lib/routes";
+import { DASHBOARD_PATH, THREADS_PATH, threadPath } from "../../../lib/routes";
 import { TEST_TENANT_ID } from "../../../lib/auth/test-fixtures";
 import { MAX_ATTACHMENTS_BYTES } from "../../../lib/mailbox/reply-attachments";
 
@@ -44,6 +44,13 @@ vi.mock("@correu-agent/shared/drafts", () => ({
 }));
 vi.mock("@correu-agent/shared/triage", () => ({ createAnthropicClient }));
 vi.mock("next/cache", () => ({ revalidatePath }));
+// Stubbed rather than left to Next so a test can read *where* an action sends
+// the reviewer, which the real `redirect` only carries inside an error digest.
+vi.mock("next/navigation", () => ({
+  redirect: (path: string) => {
+    throw new Error(`NEXT_REDIRECT ${path}`);
+  },
+}));
 
 const { approveDraft, rejectDraft, regenerateDraftWithFeedback } = await import(
   "./actions"
@@ -212,7 +219,9 @@ describe("rejectDraft", () => {
   it("discards the draft for the signed-in tenant and user", async () => {
     signedIn();
 
-    await rejectDraft(formData({ draftId: DRAFT_ID }));
+    await expect(rejectDraft(formData({ draftId: DRAFT_ID }))).rejects.toThrow(
+      "NEXT_REDIRECT",
+    );
 
     expect(discardDraft).toHaveBeenCalledWith(expect.anything(), {
       tenantId: TEST_TENANT_ID,
@@ -222,10 +231,23 @@ describe("rejectDraft", () => {
     expect(revalidatePath).toHaveBeenCalledWith(threadPath(THREAD_ID));
   });
 
+  // Discarding ends the review: the thread it leaves behind asks nothing more,
+  // so the reviewer is taken back to the screen that lists what is still open.
+  it("takes the reviewer back to the dashboard once discarded", async () => {
+    signedIn();
+
+    await expect(rejectDraft(formData({ draftId: DRAFT_ID }))).rejects.toThrow(
+      `NEXT_REDIRECT ${DASHBOARD_PATH}`,
+    );
+    expect(discardDraft).toHaveBeenCalled();
+  });
+
   it("never sends anything when a draft is discarded", async () => {
     signedIn();
 
-    await rejectDraft(formData({ draftId: DRAFT_ID }));
+    await expect(rejectDraft(formData({ draftId: DRAFT_ID }))).rejects.toThrow(
+      "NEXT_REDIRECT",
+    );
 
     expect(approveAndSendDraft).not.toHaveBeenCalled();
     expect(createDraftSender).not.toHaveBeenCalled();

@@ -99,6 +99,9 @@ export const rejectDraft = async (formData: FormData): Promise<void> => {
   });
 
   showDraftAsItStands(discarded?.threadId);
+  // Discarding closes the review: the thread it leaves behind asks nothing
+  // more, so the reviewer goes back to the screen listing what still does.
+  redirect(DASHBOARD_PATH);
 };
 
 /**
