@@ -6,11 +6,11 @@
 // - El compte enrere abans d'enviar (issue #80): "Enviar" no crida mai el
 //   Server Action de seguida — obre un pop-up amb 7 segons per penedir-se'n, i
 //   només si arriba a zero surt la petició cap al proveïdor.
-// - El text d'on parteix l'edició un cop el revisor arriba a l'etapa de
-//   resposta (issues #82 i #75). L'autoguardat en si (temporitzador, amagar la
-//   pestanya, desmuntar el formulari) no es veu al primer render, que és tot el
-//   que `renderToStaticMarkup` produeix; el que desa l'acció el prova
-//   `actions.test.ts`.
+// - L'autoguardat del text mentre s'edita (issue #75): d'on parteix l'edició en
+//   arribar a l'etapa de resposta (issue #82), i quan surt la crida que el
+//   desa — cada minut, en amagar la pestanya i en marxar del fil. Què escriu
+//   l'acció a la base de dades el proven `actions.test.ts` i
+//   `save-draft-edit.test.ts`.
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -27,7 +27,9 @@ const options: DraftOption[] = [
 ];
 
 const approveDraft = vi.fn();
-const saveDraftEdit = vi.fn(async () => {});
+const saveDraftEdit = vi.fn<(formData: FormData) => Promise<void>>(
+  async () => {},
+);
 
 const show = (
   draftOptions: DraftOption[] = options,
@@ -64,6 +66,38 @@ const tick = (seconds: number): void => {
   act(() => {
     vi.advanceTimersByTime(seconds * 1000);
   });
+};
+
+const typeInto = (text: string): void => {
+  fireEvent.change(screen.getByLabelText("Text de la resposta"), {
+    target: { value: text },
+  });
+};
+
+/** Els minuts sencers entre autoguardats. */
+const minutes = (count: number): void => tick(count * 60);
+
+/** El text que ha arribat a l'acció d'autoguardar, en ordre de crida. */
+const saved = (): string[] =>
+  saveDraftEdit.mock.calls.map(([form]) => String(form.get("body")));
+
+/**
+ * Amagar la pestanya, i tornar-la a deixar visible: `document` viu tot el
+ * fitxer, així que una prova que l'amagués i prou deixaria les següents
+ * corrent amb la pestanya amagada.
+ */
+const hideTab = (): void => {
+  const visibility = (state: string): void => {
+    Object.defineProperty(document, "visibilityState", {
+      value: state,
+      configurable: true,
+    });
+  };
+  visibility("hidden");
+  act(() => {
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  visibility("visible");
 };
 
 beforeEach(() => {
@@ -301,5 +335,89 @@ describe("DraftOptionsForm", () => {
 
     expect(markup).toContain("Afirmatiu");
     expect(markup).not.toContain("checked");
+  });
+  // L'autoguardat (issue #75): tot el que decideix quan surt la crida passa al
+  // navegador, i per això es prova amb el component muntat de debò.
+  describe("autoguardat", () => {
+    it("parks what the reviewer has written a minute after they write it", () => {
+      show();
+
+      typeInto("Un text a mitges");
+      expect(saveDraftEdit).not.toHaveBeenCalled();
+      minutes(1);
+
+      expect(saveDraftEdit).toHaveBeenCalledTimes(1);
+      const [form] = saveDraftEdit.mock.calls[0]!;
+      expect(form.get("draftId")).toBe(DRAFT_ID);
+      expect(form.get("body")).toBe("Un text a mitges");
+    });
+
+    // Ni una escriptura per minut mentre el revisor només llegeix.
+    it("writes nothing while the text has not changed", () => {
+      show();
+
+      minutes(5);
+
+      expect(saveDraftEdit).not.toHaveBeenCalled();
+    });
+
+    it("does not park the same text twice", () => {
+      show();
+
+      typeInto("Un text a mitges");
+      minutes(3);
+
+      expect(saved()).toEqual(["Un text a mitges"]);
+    });
+
+    // Un camp buit no es desa: deixaria el fil sense cap text on hi havia el
+    // del model, i sense manera de recuperar-lo des de la pantalla.
+    it("refuses to park an emptied field", () => {
+      show();
+
+      typeInto("   \n ");
+      minutes(1);
+
+      expect(saveDraftEdit).not.toHaveBeenCalled();
+    });
+
+    // Canviar de pestanya o tancar-la: no cal esperar el minut que ve.
+    it("parks the text when the tab is hidden", () => {
+      show();
+
+      typeInto("Un text a mitges");
+      hideTab();
+
+      expect(saved()).toEqual(["Un text a mitges"]);
+    });
+
+    // Marxar del fil dins del dashboard desmunta el formulari sense amagar la
+    // pestanya, que és l'altra manera de perdre el que s'ha escrit.
+    it("parks the text when the reviewer leaves the thread", () => {
+      show();
+
+      typeInto("Un text a mitges");
+      act(() => {
+        cleanup();
+      });
+
+      expect(saved()).toEqual(["Un text a mitges"]);
+    });
+
+    // Un guardat que no arriba (xarxa caiguda, servidor que falla) no pot
+    // deixar el text marcat com a desat: es perdria en silenci fins que el
+    // revisor tornés a teclejar.
+    it("tries again the minute after a save that does not land", async () => {
+      saveDraftEdit.mockRejectedValueOnce(new Error("xarxa caiguda"));
+      show();
+
+      typeInto("Un text a mitges");
+      minutes(1);
+      // Que el rebuig arribi al `catch` abans del minut següent.
+      await act(async () => {});
+      minutes(1);
+
+      expect(saved()).toEqual(["Un text a mitges", "Un text a mitges"]);
+    });
   });
 });
