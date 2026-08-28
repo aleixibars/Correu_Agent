@@ -2,6 +2,7 @@ import { Fragment } from "react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { APP_NAME } from "@correu-agent/shared";
+import { cleanMessageBody } from "@correu-agent/shared/mail";
 import { auth } from "../../../auth";
 import { LOGIN_PATH, THREADS_PATH } from "../../../lib/routes";
 import { db } from "../../../lib/db";
@@ -85,10 +86,14 @@ export default async function ThreadPage({
                 </>
               )}
             </p>
-            {/* El cos es buida als 90 dies de retenció (context.md §7) i només
-                en queda el fragment; sense això l'article es veuria buit. */}
+            {/* Es mostra només el contingut nou, sense la cua citada ni la
+                signatura (issue #83). El cos es buida als 90 dies de retenció
+                (context.md §7) i només en queda el fragment; sense això
+                l'article es veuria buit. */}
             <p className="message__body">
-              {message.bodyText ?? message.snippet ?? "(Sense contingut)"}
+              {cleanMessageBody(message.bodyText) ??
+                message.snippet ??
+                "(Sense contingut)"}
             </p>
           </article>
         ))}
