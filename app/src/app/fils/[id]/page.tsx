@@ -1,7 +1,7 @@
-import { Fragment } from "react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { APP_NAME } from "@correu-agent/shared";
+import { cleanMessageBody } from "@correu-agent/shared/mail";
 import { auth } from "../../../auth";
 import {
   LOGIN_PATH,
@@ -19,7 +19,7 @@ import { loadThreadDetail } from "../../../lib/threads/thread-detail";
 import { threadStatusLabel } from "../../../lib/threads/thread-status";
 import { AppHeader } from "../../../components/AppHeader";
 import { CategoryStamp } from "../../../components/CategoryStamp";
-import { DraftOptionsForm } from "../../../components/DraftOptionsForm";
+import { DraftReviewStages } from "../../../components/DraftReviewStages";
 import {
   approveDraft,
   regenerateDraftWithFeedback,
@@ -94,10 +94,14 @@ export default async function ThreadPage({
                 </>
               )}
             </p>
-            {/* El cos es buida als 90 dies de retenció (context.md §7) i només
-                en queda el fragment; sense això l'article es veuria buit. */}
+            {/* Es mostra només el contingut nou, sense la cua citada ni la
+                signatura (issue #83). El cos es buida als 90 dies de retenció
+                (context.md §7) i només en queda el fragment; sense això
+                l'article es veuria buit. */}
             <p className="message__body">
-              {message.bodyText ?? message.snippet ?? "(Sense contingut)"}
+              {cleanMessageBody(message.bodyText) ??
+                message.snippet ??
+                "(Sense contingut)"}
             </p>
             {message.attachments.length > 0 && (
               <div className="attachments">
@@ -144,40 +148,23 @@ export default async function ThreadPage({
         {draft === null ? (
           <p>Cap esborrany per revisar en aquest fil.</p>
         ) : draft.status === "pending" ? (
-          // Keyed on the draft, not just present unconditionally: regenerating
-          // writes a *new* draft row (a different id) in the same JSX position,
-          // so without this React reconciles the old textarea in place instead
-          // of remounting it — and a `defaultValue` only applies on mount, so
-          // the editable field would keep showing the rejected text until the
-          // reader refreshed by hand.
-          <Fragment key={draft.id}>
-            <p>
-              {draft.options.length > 1
-                ? "Tria una de les respostes proposades i edita-la si cal: en aprovar-la, s'envia al remitent del fil."
-                : "Edita el text si cal: en aprovar-lo, s'envia la resposta al remitent del fil."}
-            </p>
-            <DraftOptionsForm
-              draftId={draft.id}
-              options={draft.options}
-              approveDraft={approveDraft}
-            />
-            {/* Formularis germans i no imbricats: l'HTML no permet imbricar-los,
-                i cada botó envia només el seu camp. */}
-            <form action={rejectDraft} style={{ marginTop: 14 }}>
-              <input type="hidden" name="draftId" value={draft.id} />
-              <button type="submit" className="btn-ghost">
-                Descarta sense respondre
-              </button>
-            </form>
-            <form action={regenerateDraftWithFeedback} style={{ marginTop: 14 }}>
-              <input type="hidden" name="draftId" value={draft.id} />
-              <div className="field">
-                <label htmlFor="feedback">Què vols canviar de l'esborrany</label>
-                <textarea id="feedback" name="feedback" rows={3} required />
-              </div>
-              <button type="submit">Regenera amb aquest comentari</button>
-            </form>
-          </Fragment>
+          // Reviewed in stages rather than all at once: which of the three
+          // actions is on screen is state the browser holds, so the whole
+          // pending branch belongs to a Client Component.
+          // Keyed on the thread, not the draft: which stage the reviewer is on
+          // belongs to the review of *this* thread. `/fils/[id]` is one route
+          // segment, so moving between two threads reconciles this component in
+          // place and would otherwise carry the previous thread's stage over —
+          // a draft regenerated within the thread keeps the same key, which is
+          // what lets the stage survive it.
+          <DraftReviewStages
+            key={thread.id}
+            draftId={draft.id}
+            options={draft.options}
+            approveDraft={approveDraft}
+            rejectDraft={rejectDraft}
+            regenerateDraftWithFeedback={regenerateDraftWithFeedback}
+          />
         ) : (
           <>
             <p className="status">{threadStatusLabel(thread.status)}</p>
