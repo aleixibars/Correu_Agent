@@ -3,9 +3,11 @@
 // stubbed so no database is needed. What each button then does is covered by
 // `actions.test.ts`.
 
+import { isValidElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "next-auth";
+import { DraftReviewStages } from "../../../components/DraftReviewStages";
 import { THREADS_PATH } from "../../../lib/routes";
 import { CATEGORY_LABELS } from "../../../lib/category-labels";
 import { TEST_TENANT_ID } from "../../../lib/auth/test-fixtures";
@@ -31,6 +33,39 @@ const DRAFT_ID = "77777777-7777-7777-7777-777777777777";
 
 const render = async (threadId = THREAD_ID): Promise<string> =>
   renderToStaticMarkup(await ThreadPage({ params: Promise.resolve({ id: threadId }) }));
+
+/**
+ * The props the page hands the component that drives the review. Read from the
+ * element tree rather than from the markup: the review opens on its first stage
+ * (issue #82), so the text it would edit is nowhere in what a request renders.
+ */
+const reviewStagesProps = (
+  node: ReactNode,
+): Parameters<typeof DraftReviewStages>[0] | null => {
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const found = reviewStagesProps(child);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (!isValidElement(node)) return null;
+  if (node.type === DraftReviewStages) {
+    return node.props as Parameters<typeof DraftReviewStages>[0];
+  }
+  return reviewStagesProps(
+    (node.props as { children?: ReactNode }).children ?? null,
+  );
+};
+
+const renderedReview = async (): Promise<
+  Parameters<typeof DraftReviewStages>[0]
+> => {
+  const page = await ThreadPage({ params: Promise.resolve({ id: THREAD_ID }) });
+  const props = reviewStagesProps(page);
+  if (!props) throw new Error("The page rendered no draft review.");
+  return props;
+};
 
 const signedIn = (): void => {
   auth.mockResolvedValue({
@@ -149,6 +184,29 @@ describe("ThreadPage", () => {
       expect(markup).not.toContain('name="body"');
       expect(markup).not.toContain('name="feedback"');
       expect(markup).not.toContain("Bon dia, us el passem avui mateix.");
+    });
+
+    // The wiring the reviewer only meets one stage later: what the field starts
+    // from once they answer (issue #75).
+    it("starts the reply from the text the model wrote", async () => {
+      signedIn();
+
+      expect((await renderedReview()).body).toBe(
+        "Bon dia, us el passem avui mateix.",
+      );
+    });
+
+    it("starts the reply from the autosaved edit when there is one", async () => {
+      signedIn();
+      const base = detail();
+      loadThreadDetail.mockResolvedValue({
+        ...base,
+        draft: { ...base.draft!, editedBody: "Bon dia, us el passem dilluns." },
+      });
+
+      expect((await renderedReview()).body).toBe(
+        "Bon dia, us el passem dilluns.",
+      );
     });
 
     // Answering really sends the mail (context.md §2), which is not something

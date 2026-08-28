@@ -43,6 +43,18 @@ describe("DraftOptionsForm", () => {
     expect(markup).not.toContain(MODEL_TEXT);
   });
 
+  // L'edició represa que coincideix amb una de les opcions sí que la marca:
+  // qui torna al fil havent triat «Negatiu» retroba la tria feta, no cap.
+  it("marks the option the resumed text came from", () => {
+    const markup = render("Ara no podem.", [
+      { label: "Afirmatiu", body: MODEL_TEXT },
+      { label: "Negatiu", body: "Ara no podem." },
+    ]);
+
+    expect(markup.split("Negatiu")[0]).toContain("checked");
+    expect(markup.split("Afirmatiu")[0]).not.toContain("checked");
+  });
+
   // Cap opció marcada quan el text ja no és el de cap d'elles: qui ha reprès
   // una edició pròpia no ha triat cap de les respostes del model.
   it("leaves every option unchecked when the text is a resumed edit", () => {
