@@ -9,11 +9,15 @@ import type { ReplyAttachment } from "@correu-agent/shared/mail";
  * How much a reply may carry, over every file it attaches.
  *
  * The tighter of the two providers: Gmail caps the whole message near 25 MB,
- * while Graph refuses a file posted in one request past about 3 MB and wants an
+ * while Graph refuses a file posted in one request past 3 MB and wants an
  * upload session instead. Approving a draft has to behave the same whichever
  * mailbox it leaves through, so the limit is Graph's.
+ *
+ * Decimal megabytes, not binary ones: a file travels to Graph base64-encoded,
+ * so 3 MB of bytes is the 4 MB request Graph's own limit is drawn around, and
+ * 3 MiB would be the one just over it.
  */
-export const MAX_ATTACHMENTS_BYTES = 3 * 1024 * 1024;
+export const MAX_ATTACHMENTS_BYTES = 3 * 1000 * 1000;
 
 /** The same limit as the form says it out loud. */
 export const MAX_ATTACHMENTS_LABEL = "3 MB";

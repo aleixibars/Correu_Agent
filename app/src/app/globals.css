@@ -404,6 +404,12 @@ select:focus {
   margin-bottom: 16px;
 }
 
+/* Avís de mida dels adjunts (DraftOptionsForm): separa l'alerta del botó
+   d'enviar igual que un camp del formulari se separa del següent. */
+.draft-attachments__alert {
+  margin-bottom: 16px;
+}
+
 /* Selector de documents del formulari d'aprovació (DraftOptionsForm): els
    fitxers que surten adjunts a la resposta. */
 input[type="file"] {

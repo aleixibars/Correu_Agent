@@ -89,7 +89,7 @@ export const DraftOptionsForm = ({
         />
       </div>
       {tooLarge && (
-        <p role="alert" style={{ marginBottom: 16 }}>
+        <p role="alert" className="draft-attachments__alert">
           Els documents adjunts sumen més de {MAX_ATTACHMENTS_LABEL}. Treu-ne
           algun o envia&apos;ls per separat: el correu no sortiria.
         </p>

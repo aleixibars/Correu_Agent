@@ -117,6 +117,32 @@ const quotedFilename = (filename: string): string => {
 };
 
 /**
+ * RFC 2231 §4: a parameter value that names its own charset and percent-encodes
+ * everything a parameter may not carry bare. `encodeURIComponent` already
+ * leaves only US-ASCII, but it spares `'*()`, which are the parameter syntax's
+ * own characters rather than a filename's.
+ */
+const extendedFilename = (filename: string): string =>
+  `UTF-8''${encodeURIComponent(singleLine(filename)).replace(
+    /['()*]/g,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  )}`;
+
+/**
+ * How a client is told what to call the file. An accented name also travels as
+ * an RFC 2231 `filename*`, which is where the format actually puts a non-ASCII
+ * name — RFC 2047 §5 forbids an encoded word inside a quoted string, so the
+ * quoted `filename` beside it is only the fallback for a client that reads
+ * nothing else.
+ */
+const contentDisposition = (filename: string): string => {
+  const disposition = `Content-Disposition: attachment; filename=${quotedFilename(filename)}`;
+  return NON_ASCII.test(filename)
+    ? `${disposition}; filename*=${extendedFilename(filename)}`
+    : disposition;
+};
+
+/**
  * A `multipart/mixed` boundary. Random, so it cannot appear inside a body or a
  * file the message carries — a boundary the content repeats would cut the
  * message in a place the sender never meant.
@@ -139,7 +165,7 @@ const bodyPart = (bodyText: string): string =>
 const attachmentPart = (attachment: ReplyAttachment): string =>
   [
     `Content-Type: ${mediaType(attachment.mimeType)}; name=${quotedFilename(attachment.filename)}`,
-    `Content-Disposition: attachment; filename=${quotedFilename(attachment.filename)}`,
+    contentDisposition(attachment.filename),
     "Content-Transfer-Encoding: base64",
     "",
     foldBase64(Buffer.from(attachment.content).toString("base64")),

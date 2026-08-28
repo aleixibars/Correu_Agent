@@ -791,6 +791,59 @@ describe("createGmailSender", () => {
     const attachment = part(multipart(sentRawMime(fetchMock)).parts[2]!.slice(2));
     expect(attachment.headers).toContain('filename="=?UTF-8?B?');
     expect(attachment.headers).not.toContain("informaci\u00f3");
+    // RFC 2047 §5 forbids an encoded word inside a quoted string, so the name a
+    // client is meant to read is the RFC 2231 one; the quoted word above is the
+    // fallback for a client that knows only `filename`.
+    expect(attachment.headers).toContain(
+      "filename*=UTF-8''informaci%C3%B3.pdf",
+    );
+  });
+
+  // A parameter carries the name percent-encoded, so what a filename holds
+  // cannot end the parameter or open one of its own.
+  it("percent-encodes what a filename may not carry bare in a parameter", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(
+      outgoingReply({
+        attachments: [
+          {
+            filename: "n\u00f2mines (2026); x'y*z.pdf",
+            mimeType: "application/pdf",
+            content: Buffer.from("dades"),
+          },
+        ],
+      }),
+    );
+
+    const attachment = part(multipart(sentRawMime(fetchMock)).parts[2]!.slice(2));
+    expect(attachment.headers).toContain(
+      "filename*=UTF-8''n%C3%B2mines%20%282026%29%3B%20x%27y%2Az.pdf",
+    );
+  });
+
+  // Only a name that cannot travel quoted needs the second parameter: an
+  // all-ASCII name is already exactly what every client reads.
+  it("leaves an ASCII filename with nothing but the quoted parameter", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(
+      outgoingReply({
+        attachments: [
+          {
+            filename: "pressupost.pdf",
+            mimeType: "application/pdf",
+            content: Buffer.from("dades"),
+          },
+        ],
+      }),
+    );
+
+    const attachment = part(multipart(sentRawMime(fetchMock)).parts[2]!.slice(2));
+    expect(attachment.headers).toContain(
+      'Content-Disposition: attachment; filename="pressupost.pdf"',
+    );
+    expect(attachment.headers).not.toContain("filename*=");
   });
 
   // The browser reports the type, so it is as untrusted as the name: anything
