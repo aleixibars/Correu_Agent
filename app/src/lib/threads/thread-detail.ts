@@ -7,6 +7,7 @@ import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import type { TablesRelationalConfig } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import type { TriageCategory } from "@correu-agent/shared";
+import { defaultReplyRecipients } from "@correu-agent/shared/drafts";
 import {
   drafts,
   messageAttachments,
@@ -57,6 +58,15 @@ export interface ThreadDetailDraft {
    * one entry here too, so the reviewer screen has one shape to render.
    */
   options: DraftOption[];
+  /**
+   * The addresses the reply leaves with, which the reviewer edits before
+   * approving (context.md §2). On a draft still pending these are the ones the
+   * thread implies; on one already sent they are the ones it really went to,
+   * blind copies included — nothing else records those.
+   */
+  toAddresses: string[];
+  ccAddresses: string[];
+  bccAddresses: string[];
 }
 
 export interface ThreadDetail {
@@ -80,6 +90,36 @@ export interface LoadThreadDetailOptions {
 }
 
 export const DEFAULT_THREAD_MESSAGE_LIMIT = 50;
+
+/**
+ * The draft as the review screen needs it: at least one option to approve, and
+ * the recipients to show in the form — its own once it has any, the thread's
+ * until then.
+ */
+const draftDetail = (draft: {
+  id: string;
+  body: string;
+  status: DraftStatus;
+  model: string | null;
+  createdAt: Date;
+  options: DraftOption[] | null;
+  toAddresses: string[];
+  ccAddresses: string[];
+  bccAddresses: string[];
+  parentFromAddress: string | null;
+}): ThreadDetailDraft => {
+  const { parentFromAddress, options, ...rest } = draft;
+  const stored =
+    draft.toAddresses.length > 0 ||
+    draft.ccAddresses.length > 0 ||
+    draft.bccAddresses.length > 0;
+
+  return {
+    ...rest,
+    options: options ?? [{ label: "Resposta", body: draft.body }],
+    ...(stored ? {} : defaultReplyRecipients(parentFromAddress)),
+  };
+};
 
 /**
  * One thread with its mail and its live draft, or null when the tenant has no
@@ -125,8 +165,17 @@ export const loadThreadDetail = async <
       model: drafts.model,
       createdAt: drafts.createdAt,
       options: drafts.options,
+      toAddresses: drafts.toAddresses,
+      ccAddresses: drafts.ccAddresses,
+      bccAddresses: drafts.bccAddresses,
+      // Who the reply would go to when the draft has no recipients of its own
+      // yet. Left-joined, so a draft whose parent message is gone still loads
+      // and the screen renders instead of 500ing; it cannot be sent either way
+      // — a reply needs the mail it answers, and the send says so by name.
+      parentFromAddress: messages.fromAddress,
     })
     .from(drafts)
+    .leftJoin(messages, eq(messages.id, drafts.inReplyToMessageId))
     // A regeneration supersedes the draft it replaces (context.md §2), so those
     // are skipped: the text they hold is no longer the thread's answer.
     .where(
@@ -166,9 +215,7 @@ export const loadThreadDetail = async <
       ...message,
       attachments: attachments.get(message.id) ?? [],
     })),
-    draft: draft
-      ? { ...draft, options: draft.options ?? [{ label: "Resposta", body: draft.body }] }
-      : null,
+    draft: draft ? draftDetail(draft) : null,
   };
 };
 

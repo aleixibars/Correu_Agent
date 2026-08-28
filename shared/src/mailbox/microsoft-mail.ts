@@ -438,6 +438,9 @@ export const createMicrosoftSender = ({
           subject: reply.subject,
           toRecipients: recipients(reply.toAddresses),
           ccRecipients: recipients(reply.ccAddresses),
+          // Graph keeps the blind copies out of the delivered headers itself,
+          // so they are sent as a field rather than written into the message.
+          bccRecipients: recipients(reply.bccAddresses),
           body: { contentType: "Text", content: reply.bodyText },
         },
       },

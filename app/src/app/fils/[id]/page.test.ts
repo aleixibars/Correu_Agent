@@ -25,6 +25,7 @@ vi.mock("./actions", () => ({
   approveDraft: vi.fn(),
   rejectDraft: vi.fn(),
   regenerateDraftWithFeedback: vi.fn(),
+  suggestRecentContacts: vi.fn(async () => []),
 }));
 
 const { default: ThreadPage } = await import("./page");
@@ -68,6 +69,9 @@ const detail = (overrides: Partial<ThreadDetail> = {}): ThreadDetail => ({
     model: "claude-sonnet-5",
     createdAt: new Date("2026-08-18T09:05:00Z"),
     options: [{ label: "Resposta", body: "Bon dia, us el passem avui mateix." }],
+    toAddresses: ["client@example.com"],
+    ccAddresses: [],
+    bccAddresses: [],
   },
   ...overrides,
 });

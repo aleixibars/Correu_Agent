@@ -18,6 +18,7 @@ import {
 import type { MailSenderClient } from "../mail/types";
 import type { TriageCategory } from "../triage/taxonomy";
 import { buildReplyHeaders, replySubject } from "./reply-headers";
+import { defaultReplyRecipients, type ReplyRecipients } from "./reply-recipients";
 
 export interface ApproveAndSendDraftInput {
   tenantId: string;
@@ -26,6 +27,11 @@ export interface ApproveAndSendDraftInput {
   actorUserId: string;
   /** The text as the user edited it before approving; absent means the model's. */
   body?: string;
+  /**
+   * The recipients as the reviewer left them in the approval form (context.md
+   * §2); absent means the ones the thread implies, `defaultReplyRecipients`.
+   */
+  recipients?: ReplyRecipients;
   /** Stamp for the send; defaults to the wall clock. */
   now?: Date;
 }
@@ -133,6 +139,22 @@ const requireSendable = (
 };
 
 /**
+ * The recipients, or a throw when there is nobody to send to. A form the
+ * reviewer emptied would otherwise reach the provider as a mail with no `To`,
+ * which Gmail refuses and Graph sends to nobody — and the draft would already
+ * be claimed by then.
+ */
+const requireRecipients = (
+  recipients: ReplyRecipients,
+  draftId: string,
+): ReplyRecipients => {
+  if (recipients.toAddresses.length === 0) {
+    throw new Error(`Draft ${draftId} cannot be sent with no recipient.`);
+  }
+  return recipients;
+};
+
+/**
  * Moves the draft off `pending` and answers whether this caller is the one that
  * got it. Whoever wins sends the mail; a second approval — or an auto-reply
  * racing the user's click — matches nothing and sends nothing.
@@ -146,12 +168,22 @@ const claimDraft = async <
     tenantId,
     draftId,
     body,
+    recipients,
     now,
-  }: { tenantId: string; draftId: string; body: string; now: Date },
+  }: {
+    tenantId: string;
+    draftId: string;
+    body: string;
+    recipients: ReplyRecipients;
+    now: Date;
+  },
 ): Promise<boolean> => {
   const [claimed] = await db
     .update(drafts)
-    .set({ status: "approved", body, updatedAt: now })
+    // The recipients are stored with the claim rather than with the send: they
+    // are what was approved, and the trail has to hold them even when the
+    // provider then refuses the mail.
+    .set({ status: "approved", body, ...recipients, updatedAt: now })
     .where(
       and(
         eq(drafts.id, draftId),
@@ -181,6 +213,7 @@ const dispatchDraft = async <
     draftId,
     draft,
     text,
+    recipients,
     now,
   }: {
     tenantId: string;
@@ -190,6 +223,7 @@ const dispatchDraft = async <
       parentFromAddress: string;
     };
     text: string;
+    recipients: ReplyRecipients;
     now: Date;
   },
 ): Promise<SentDraft> => {
@@ -201,14 +235,10 @@ const dispatchDraft = async <
   // `||`, not `??`: a thread whose subject was stored as an empty string falls
   // back to the mail being answered just as a null one does.
   const subject = replySubject(draft.threadSubject || draft.parentSubject);
-  // A reply, never a reply-all: the mail answers whoever wrote, and the PoC
-  // sends without anyone checking the recipient list afterwards.
-  const toAddresses = [draft.parentFromAddress];
 
   const sent = await sender.sendReply({
     fromAddress: draft.mailboxAddress,
-    toAddresses,
-    ccAddresses: [],
+    ...recipients,
     subject,
     bodyText: text,
     providerThreadId: draft.providerThreadId,
@@ -225,7 +255,10 @@ const dispatchDraft = async <
     inReplyTo: replyHeaders.inReplyTo,
     references: replyHeaders.references,
     fromAddress: draft.mailboxAddress,
-    toAddresses,
+    toAddresses: recipients.toAddresses,
+    // The visible copies only: a blind copy stays on the draft, where the trail
+    // has it, and out of the message the thread shows.
+    ccAddresses: recipients.ccAddresses,
     subject,
     bodyText: text,
     sentAt: now,
@@ -271,15 +304,28 @@ export const approveAndSendDraft = async <
 >(
   db: PgDatabase<T, TSchema>,
   sender: MailSenderClient,
-  { tenantId, draftId, actorUserId, body, now = new Date() }: ApproveAndSendDraftInput,
+  {
+    tenantId,
+    draftId,
+    actorUserId,
+    body,
+    recipients,
+    now = new Date(),
+  }: ApproveAndSendDraftInput,
 ): Promise<SentDraft | null> => {
   const draft = await loadSendableDraft(db, { tenantId, draftId });
   if (!draft || draft.status !== "pending") return null;
 
   const text = body ?? draft.body;
   const parent = requireSendable(draft, draftId, text);
+  const sendTo = requireRecipients(
+    recipients ?? defaultReplyRecipients(parent.parentFromAddress),
+    draftId,
+  );
 
-  if (!(await claimDraft(db, { tenantId, draftId, body: text, now }))) return null;
+  if (!(await claimDraft(db, { tenantId, draftId, body: text, recipients: sendTo, now }))) {
+    return null;
+  }
 
   await recordAuditLogEntry(db, {
     action: "draft_approved",
@@ -298,6 +344,7 @@ export const approveAndSendDraft = async <
     draftId,
     draft: { ...draft, ...parent },
     text,
+    recipients: sendTo,
     now,
   });
 
@@ -350,14 +397,20 @@ export const sendAutoReplyDraft = async <
 
   const text = draft.body;
   const parent = requireSendable(draft, draftId, text);
+  // Nobody edited anything here, so the recipients are the ones the thread
+  // implies — the same mail an untouched approval sends.
+  const sendTo = defaultReplyRecipients(parent.parentFromAddress);
 
-  if (!(await claimDraft(db, { tenantId, draftId, body: text, now }))) return null;
+  if (!(await claimDraft(db, { tenantId, draftId, body: text, recipients: sendTo, now }))) {
+    return null;
+  }
 
   const result = await dispatchDraft(db, sender, {
     tenantId,
     draftId,
     draft: { ...draft, ...parent },
     text,
+    recipients: sendTo,
     now,
   });
 
@@ -384,6 +437,7 @@ interface SentMessageRow {
   references: string | null;
   fromAddress: string;
   toAddresses: string[];
+  ccAddresses: string[];
   subject: string;
   bodyText: string;
   sentAt: Date;
@@ -407,7 +461,7 @@ const storeSentMessage = async <
 ): Promise<string> => {
   const [stored] = await db
     .insert(messages)
-    .values({ ...row, direction: "outbound", ccAddresses: [] })
+    .values({ ...row, direction: "outbound" })
     .onConflictDoNothing({
       target: [messages.threadId, messages.providerMessageId],
     })
