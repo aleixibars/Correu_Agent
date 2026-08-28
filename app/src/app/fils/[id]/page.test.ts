@@ -128,34 +128,40 @@ describe("ThreadPage", () => {
     expect(await render()).toContain("Ens podeu passar");
   });
 
+  // The thread opens in stages (issue #82): the mail and the choice between
+  // answering and discarding first, with the editable reply and the refining
+  // box revealed only once the reviewer has chosen — which happens in the
+  // browser, so the markup a request produces is always the first stage.
   describe("with a draft waiting for review", () => {
-    it("offers the draft text as an editable field", async () => {
+    it("offers answering or discarding when the thread opens", async () => {
       signedIn();
 
       const markup = await render();
 
-      expect(markup).toContain("Bon dia, us el passem avui mateix.");
-      expect(markup).toContain('name="body"');
+      expect(markup).toContain("Respondre");
+      expect(markup).toContain("Descartar");
       expect(markup).toContain(`value="${DRAFT_ID}"`);
     });
 
-    it("offers approving, discarding and regenerating with feedback", async () => {
+    it("keeps the reply and the refining box out of the first stage", async () => {
       signedIn();
 
       const markup = await render();
 
-      expect(markup).toContain("Aprova i envia");
-      expect(markup).toContain("Descarta");
-      expect(markup).toContain("Regenera");
-      expect(markup).toContain('name="feedback"');
+      expect(markup).not.toContain('name="body"');
+      expect(markup).not.toContain('name="feedback"');
+      expect(markup).not.toContain("Bon dia, us el passem avui mateix.");
     });
 
-    // Approving really sends the mail (context.md §2), which is not something
+    // Answering really sends the mail (context.md §2), which is not something
     // the reviewer should discover afterwards.
-    it("says that approving sends the reply", async () => {
+    it("says that answering ends in a mail being sent", async () => {
       signedIn();
 
-      expect(await render()).toContain("envia");
+      const markup = await render();
+
+      expect(markup).toContain("enviï");
+      expect(markup).toContain("remitent");
     });
   });
 
@@ -172,7 +178,7 @@ describe("ThreadPage", () => {
 
     expect(markup).toContain("Resposta enviada");
     expect(markup).toContain("Bon dia, us el passem avui mateix.");
-    expect(markup).not.toContain("Aprova i envia");
+    expect(markup).not.toContain("Respondre");
     expect(markup).not.toContain('name="feedback"');
   });
 
@@ -188,7 +194,7 @@ describe("ThreadPage", () => {
     const markup = await render();
 
     expect(markup).toContain("Esborrany descartat");
-    expect(markup).not.toContain("Aprova i envia");
+    expect(markup).not.toContain("Descartar");
   });
 
   it("says so when the thread has no draft to review", async () => {
@@ -202,7 +208,7 @@ describe("ThreadPage", () => {
     const markup = await render();
 
     expect(markup).toContain("Cap esborrany");
-    expect(markup).not.toContain("Aprova i envia");
+    expect(markup).not.toContain("Descartar");
   });
 
   it("leads back to the thread list", async () => {

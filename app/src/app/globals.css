@@ -637,6 +637,14 @@ select:focus {
 
 /* ── Digest ────────────────────────────────────────────────────────────── */
 
+/* Els fils del dia es desplacen dins del bloc en comptes d'allargar la
+   pantalla inicial: el digest és consulta, i el que ha d'actuar el revisor ja
+   surt a la taula de sobre. */
+.digest-scroll {
+  max-height: 22rem;
+  overflow-y: auto;
+}
+
 .digest-summary p {
   font-size: 1rem;
   color: var(--ink);

@@ -104,7 +104,7 @@ const RecipientField = ({
 };
 
 /**
- * El formulari d'aprovació d'un esborrany (context.md §2): quan el model ha
+ * El formulari d'enviament d'un esborrany (context.md §2): quan el model ha
  * escrit més d'una opció (p.ex. una resposta afirmativa i una de negativa),
  * un selector deixa triar-ne una abans d'editar-la — en triar, el text de
  * l'àrea editable es substitueix pel de l'opció triada. Els destinataris
@@ -185,7 +185,7 @@ export const DraftOptionsForm = ({
         />
       </div>
       <button type="submit" className="btn-primary">
-        Aprova i envia
+        Enviar
       </button>
     </form>
   );

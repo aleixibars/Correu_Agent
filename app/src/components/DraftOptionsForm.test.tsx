@@ -73,7 +73,9 @@ describe("DraftOptionsForm", () => {
 
     expect(markup).toContain(`name="draftId" value="${DRAFT_ID}"`);
     expect(markup).toContain("Bon dia");
-    expect(markup).toContain("Aprova i envia");
+    // El botó es diu "Enviar" des de la revisió per etapes (issue #82): qui hi
+    // arriba ja ha triat respondre, així que l'aprovació ja no es torna a dir.
+    expect(markup).toContain("Enviar");
   });
 
   it("offers the options when the model wrote more than one", () => {
