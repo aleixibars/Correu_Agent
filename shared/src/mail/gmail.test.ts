@@ -465,6 +465,7 @@ const outgoingReply = (overrides: Record<string, unknown> = {}) => ({
   fromAddress: "bustia@example.com",
   toAddresses: ["client@example.com"],
   ccAddresses: [] as string[],
+  bccAddresses: [] as string[],
   subject: "Re: Pressupost anual",
   bodyText: "Bon dia,\n\nUs enviem el pressupost.",
   providerThreadId: "thread-1",
@@ -530,6 +531,31 @@ describe("createGmailSender", () => {
     // RFC 2045 §6.8: the canonical form of a text body ends its lines with CRLF.
     expect(body).toBe("Bon dia,\r\n\r\nUs enviem el pressupost.");
     expect(result).toEqual({ providerMessageId: "sent-1", messageIdHeader: null });
+  });
+
+  // Gmail delivers a `Bcc` and strips it on the way out, so the copy the other
+  // recipients get never names who else was sent one.
+  it("carries the blind copies the reviewer added as a Bcc header", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(
+      outgoingReply({
+        ccAddresses: ["copia@example.com"],
+        bccAddresses: ["arxiu@example.com", "cap@example.com"],
+      }),
+    );
+
+    const { headers } = sentMime(fetchMock);
+    expect(headers).toContain("Cc: copia@example.com");
+    expect(headers).toContain("Bcc: arxiu@example.com, cap@example.com");
+  });
+
+  it("sends a reply with no blind copies without an empty Bcc header", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(outgoingReply());
+
+    expect(sentMime(fetchMock).headers).not.toContain("Bcc");
   });
 
   it("encodes a subject a header cannot carry as it stands", async () => {

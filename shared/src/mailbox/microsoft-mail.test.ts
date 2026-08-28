@@ -239,6 +239,7 @@ const outgoingReply = (overrides: Record<string, unknown> = {}) => ({
   fromAddress: "bustia@example.com",
   toAddresses: ["client@example.com"],
   ccAddresses: [] as string[],
+  bccAddresses: [] as string[],
   subject: "Re: Pressupost",
   bodyText: "Bon dia,\n\nUs enviem el pressupost.",
   providerThreadId: "conversation-1",
@@ -271,6 +272,7 @@ describe("createMicrosoftSender", () => {
         subject: "Re: Pressupost",
         toRecipients: [{ emailAddress: { address: "client@example.com" } }],
         ccRecipients: [],
+        bccRecipients: [],
         body: {
           contentType: "Text",
           content: "Bon dia,\n\nUs enviem el pressupost.",
@@ -284,6 +286,24 @@ describe("createMicrosoftSender", () => {
       providerMessageId: "reply-draft-1",
       messageIdHeader: "<reply-1@example.com>",
     });
+  });
+
+  it("sends the blind copies as Graph's own bccRecipients", async () => {
+    const { fetch, calls } = stubFetch([
+      { body: { id: "reply-draft-1" } },
+      { status: 202, body: undefined },
+    ]);
+
+    await createMicrosoftSender({ accessToken: "access-token", fetch }).sendReply(
+      outgoingReply({ bccAddresses: ["arxiu@example.com"] }),
+    );
+
+    const payload = (await calls[0]!.json()) as {
+      message: { bccRecipients: unknown };
+    };
+    expect(payload.message.bccRecipients).toEqual([
+      { emailAddress: { address: "arxiu@example.com" } },
+    ]);
   });
 
   it("fails loudly when Graph refuses to create the reply", async () => {

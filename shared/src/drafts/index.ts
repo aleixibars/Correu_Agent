@@ -8,5 +8,6 @@ export * from "./generate";
 export * from "./generate-draft";
 export * from "./reject-draft";
 export * from "./reply-headers";
+export * from "./reply-recipients";
 export * from "./send";
 export * from "./thread-messages";

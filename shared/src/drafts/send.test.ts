@@ -104,6 +104,7 @@ describe("approveAndSendDraft", () => {
       fromAddress: "bustia@example.com",
       toAddresses: ["client@example.com"],
       ccAddresses: [],
+      bccAddresses: [],
       subject: "Re: Pressupost",
       bodyText: BODY,
       providerThreadId: "provider-thread-1",
@@ -185,6 +186,66 @@ describe("approveAndSendDraft", () => {
     const approved = auditEntries(queries)[0]!.join(" ");
     expect(approved).toContain(JSON.stringify(BODY).slice(1, -1));
     expect(approved).toContain(JSON.stringify(edited).slice(1, -1));
+  });
+
+  it("sends to the recipients the reviewer approved and stores them", async () => {
+    const { db, queries } = createDb();
+    const { sender, sendReply } = createSender();
+
+    await approveAndSendDraft(db, sender, {
+      tenantId: TENANT_ID,
+      draftId: DRAFT_ID,
+      actorUserId: USER_ID,
+      recipients: {
+        toAddresses: ["client@example.com", "segon@example.com"],
+        ccAddresses: ["copia@example.com"],
+        bccAddresses: ["arxiu@example.com"],
+      },
+      now: NOW,
+    });
+
+    expect(sendReply.mock.calls[0]![0]).toMatchObject({
+      toAddresses: ["client@example.com", "segon@example.com"],
+      ccAddresses: ["copia@example.com"],
+      bccAddresses: ["arxiu@example.com"],
+    });
+
+    // Stored on the draft, so the trail says who the mail went to and not only
+    // what it said (context.md §7) — blind copies included, since nothing else
+    // records them.
+    const claim = queries.find(({ sql }) => sql.startsWith('update "drafts"'))!;
+    expect(claim.params).toContain(
+      '{"client@example.com","segon@example.com"}',
+    );
+    expect(claim.params).toContain('{"copia@example.com"}');
+    expect(claim.params).toContain('{"arxiu@example.com"}');
+
+    // The mail stored as the thread's outbound message carries the visible
+    // recipients; a blind copy is not disclosed there either.
+    const storedMessage = queries.find(({ sql }) =>
+      sql.includes('insert into "messages"'),
+    )!;
+    expect(storedMessage.params).toContain('{"copia@example.com"}');
+    expect(storedMessage.params).not.toContain('{"arxiu@example.com"}');
+  });
+
+  it("refuses to send a reply the reviewer left with no recipient", async () => {
+    const { db, queries } = createDb();
+    const { sender, sendReply } = createSender();
+
+    await expect(
+      approveAndSendDraft(db, sender, {
+        tenantId: TENANT_ID,
+        draftId: DRAFT_ID,
+        actorUserId: USER_ID,
+        recipients: { toAddresses: [], ccAddresses: [], bccAddresses: [] },
+        now: NOW,
+      }),
+    ).rejects.toThrow(/no recipient/);
+
+    expect(sendReply).not.toHaveBeenCalled();
+    // Refused before the claim, so the draft is still there to be approved.
+    expect(queries.filter(({ sql }) => sql.startsWith('update "drafts"'))).toHaveLength(0);
   });
 
   it("does not send a draft that is no longer pending", async () => {

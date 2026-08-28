@@ -2,6 +2,7 @@
 // asks the Gmail API what changed since the mailbox's stored `historyId` and
 // hands the new messages back in the provider-agnostic shape of `./types`.
 
+import { parseAddressList } from "./addresses";
 import { errorDetail, readJson } from "./google-errors";
 import { buildReplyMime } from "./mime";
 import type {
@@ -104,52 +105,6 @@ const headerValue = (headers: GmailHeader[], name: string): string | null => {
       header.name.toLowerCase() === name.toLowerCase(),
   );
   return match ? asString(match.value) : null;
-};
-
-/**
- * Pulls the addresses out of an address header. Commas inside a quoted display
- * name (`"Ibars, Aleix" <a@example.com>`) do not separate addresses, so the
- * split tracks quotes and angle brackets instead of using `split(",")`.
- */
-const parseAddressList = (value: string | null): string[] => {
-  if (!value) return [];
-
-  const entries: string[] = [];
-  let current = "";
-  let quoted = false;
-  let angled = false;
-
-  for (const character of value) {
-    if (character === '"') quoted = !quoted;
-    else if (character === "<" && !quoted) angled = true;
-    else if (character === ">" && !quoted) angled = false;
-
-    if (character === "," && !quoted && !angled) {
-      entries.push(current);
-      current = "";
-      continue;
-    }
-    current += character;
-  }
-  entries.push(current);
-
-  return entries
-    .map((entry) => parseAddress(entry))
-    .filter((address): address is string => address !== null);
-};
-
-const parseAddress = (entry: string): string | null => {
-  const trimmed = entry.trim();
-  if (!trimmed) return null;
-
-  const opening = trimmed.lastIndexOf("<");
-  const closing = trimmed.lastIndexOf(">");
-  const address =
-    opening !== -1 && closing > opening
-      ? trimmed.slice(opening + 1, closing)
-      : trimmed;
-
-  return address.trim().toLowerCase() || null;
 };
 
 const decodeBody = (data: unknown): string | null => {

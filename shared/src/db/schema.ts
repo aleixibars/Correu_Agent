@@ -266,6 +266,17 @@ export const drafts = pgTable(
      * reasonable reply; `body` alone covers those.
      */
     options: jsonb("options").$type<DraftOption[]>(),
+    /**
+     * The recipients the reply really left with, stored when the draft is sent
+     * (context.md §7): the reviewer can add or remove addresses on approval, so
+     * the trail has to hold who was written to and not only what was written.
+     * Empty on a draft that has not been sent yet — the form starts from the
+     * addresses the thread implies, which are `defaultReplyRecipients`.
+     */
+    toAddresses: text("to_addresses").array().notNull().default(sql`'{}'`),
+    ccAddresses: text("cc_addresses").array().notNull().default(sql`'{}'`),
+    /** Blind copies: never disclosed to the other recipients, only recorded here. */
+    bccAddresses: text("bcc_addresses").array().notNull().default(sql`'{}'`),
     /** Rejection feedback fed back into the model on regeneration (context.md §2). */
     feedback: text("feedback"),
     /** Set when the draft was produced by an auto-reply rule rather than on demand. */

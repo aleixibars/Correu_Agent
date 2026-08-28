@@ -27,6 +27,7 @@ const regenerateDraft = vi.fn(async () => ({
   model: "claude-sonnet-5",
 }));
 const createAnthropicClient = vi.fn(() => ({ messages: { create: vi.fn() } }));
+const listRecentContacts = vi.fn(async () => ["client@example.com"]);
 const revalidatePath = vi.fn();
 
 const DRAFT_ID = "77777777-7777-7777-7777-777777777777";
@@ -42,11 +43,15 @@ vi.mock("@correu-agent/shared/drafts", () => ({
   regenerateDraft,
 }));
 vi.mock("@correu-agent/shared/triage", () => ({ createAnthropicClient }));
+vi.mock("../../../lib/contacts/recent-contacts", () => ({ listRecentContacts }));
 vi.mock("next/cache", () => ({ revalidatePath }));
 
-const { approveDraft, rejectDraft, regenerateDraftWithFeedback } = await import(
-  "./actions"
-);
+const {
+  approveDraft,
+  rejectDraft,
+  regenerateDraftWithFeedback,
+  suggestRecentContacts,
+} = await import("./actions");
 
 const signedIn = (): void => {
   auth.mockResolvedValue({
@@ -93,6 +98,51 @@ describe("approveDraft", () => {
         body: "Text aprovat",
       },
     );
+  });
+
+  it("sends to the recipients the reviewer left in the three fields", async () => {
+    signedIn();
+
+    await approveDraft(
+      formData({
+        draftId: DRAFT_ID,
+        body: "Text",
+        toAddresses: "client@example.com, Segon <segon@example.com>",
+        ccAddresses: "copia@example.com",
+        bccAddresses: "arxiu@example.com",
+      }),
+    );
+
+    expect(approveAndSendDraft).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        recipients: {
+          toAddresses: ["client@example.com", "segon@example.com"],
+          ccAddresses: ["copia@example.com"],
+          bccAddresses: ["arxiu@example.com"],
+        },
+      }),
+    );
+  });
+
+  // Nothing is sent to an address nobody can have: the reviewer gets the error
+  // instead of the client getting a bounce.
+  it("refuses a recipient field that is not addresses", async () => {
+    signedIn();
+
+    await expect(
+      approveDraft(
+        formData({
+          draftId: DRAFT_ID,
+          body: "Text",
+          toAddresses: "client@example.com",
+          ccAddresses: "a qui correspongui",
+          bccAddresses: "",
+        }),
+      ),
+    ).rejects.toThrow(/is not an email address/);
+    expect(approveAndSendDraft).not.toHaveBeenCalled();
   });
 
   // A submitted tenant is another tenant's mailbox waiting to be sent from: the
@@ -247,5 +297,26 @@ describe("regenerateDraftWithFeedback", () => {
     );
 
     expect(approveAndSendDraft).not.toHaveBeenCalled();
+  });
+});
+
+describe("suggestRecentContacts", () => {
+  it("suggests the contacts of the session's tenant alone", async () => {
+    signedIn();
+
+    const contacts = await suggestRecentContacts("cli");
+
+    expect(contacts).toEqual(["client@example.com"]);
+    expect(listRecentContacts).toHaveBeenCalledWith(expect.anything(), {
+      tenantId: TEST_TENANT_ID,
+      query: "cli",
+    });
+  });
+
+  // Read by whoever is typing in the form, so a request without a session gets
+  // nothing rather than another tenant's address book.
+  it("suggests nothing to a visitor without a session", async () => {
+    expect(await suggestRecentContacts("cli")).toEqual([]);
+    expect(listRecentContacts).not.toHaveBeenCalled();
   });
 });

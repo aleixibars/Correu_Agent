@@ -15,6 +15,7 @@ import {
   approveDraft,
   regenerateDraftWithFeedback,
   rejectDraft,
+  suggestRecentContacts,
 } from "./actions";
 
 export const metadata = {
@@ -108,13 +109,17 @@ export default async function ThreadPage({
           <Fragment key={draft.id}>
             <p>
               {draft.options.length > 1
-                ? "Tria una de les respostes proposades i edita-la si cal: en aprovar-la, s'envia al remitent del fil."
-                : "Edita el text si cal: en aprovar-lo, s'envia la resposta al remitent del fil."}
+                ? "Tria una de les respostes proposades i edita-la si cal: en aprovar-la, s'envia als destinataris del formulari."
+                : "Edita el text i els destinataris si cal: en aprovar-lo, s'envia la resposta."}
             </p>
             <DraftOptionsForm
               draftId={draft.id}
               options={draft.options}
+              toAddresses={draft.toAddresses}
+              ccAddresses={draft.ccAddresses}
+              bccAddresses={draft.bccAddresses}
               approveDraft={approveDraft}
+              suggestContacts={suggestRecentContacts}
             />
             {/* Formularis germans i no imbricats: l'HTML no permet imbricar-los,
                 i cada botó envia només el seu camp. */}

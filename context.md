@@ -28,7 +28,7 @@ Opcional, granular per categoria:
 - **Descart automàtic** (auto-discard): activable per categoria/regla, amb el mateix patró que l'auto-resposta però l'acció oposada — el fil es descarta sol just en triar-lo, sense generar mai esborrany ni consumir el pipeline de redacció. Elegible a **totes les categories excepte Urgent** (invariant de seguretat igual que l'auto-resposta). Cada regla pot afinar-se amb patrons de remitent i/o paraules clau a l'assumpte; sense cap dels dos, s'aplica a tota la categoria. Per defecte, sense cap regla desada, Newsletter/Spam ja es descarta sol (no necessita resposta); la resta de categories comencen desactivades.
 
 Flux d'aprovació d'un esborrany:
-- **Aprovar** → envia realment el correu via l'API del proveïdor (Gmail API / Microsoft Graph), amb opció d'editar el text abans d'aprovar.
+- **Aprovar** → envia realment el correu via l'API del proveïdor (Gmail API / Microsoft Graph), amb opció d'editar el text i els destinataris (Per a / Cc / Cco) abans d'aprovar. Els camps arrenquen amb el que el fil implica (respondre a qui ha escrit) i autocompleten amb els contactes recents del tenant, llegits de les adreces que `messages` ja acumula — no hi ha taula de contactes. Els tres camps es desen a l'esborrany en aprovar-lo, perquè l'audit log tingui a qui es va enviar i no només què (§7).
 - **Rebutjar** → l'usuari pot **descartar** (arxiva sense resposta) o **regenerar amb una instrucció de feedback** (nova crida al model amb el comentari afegit).
 
 ---
