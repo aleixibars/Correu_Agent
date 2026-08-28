@@ -57,6 +57,7 @@ const REPLY = {
   fromAddress: "bustia@example.com",
   toAddresses: ["client@example.com"],
   ccAddresses: [],
+  bccAddresses: [],
   subject: "Re: Pressupost",
   bodyText: "Bon dia, us el passem avui.",
   providerThreadId: "gmail-thread-1",

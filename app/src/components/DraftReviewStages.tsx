@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { DraftOption } from "@correu-agent/shared/db/schema";
-import { DraftOptionsForm } from "./DraftOptionsForm";
+import { DraftOptionsForm, type SuggestContacts } from "./DraftOptionsForm";
 
 /**
  * Les etapes de la revisió: primer la tria, després la resposta editable i,
@@ -20,18 +20,26 @@ type Stage = "choose" | "reply" | "refine";
 export const DraftReviewStages = ({
   draftId,
   options,
+  toAddresses,
+  ccAddresses,
+  bccAddresses,
   approveDraft,
   rejectDraft,
   regenerateDraftWithFeedback,
+  suggestContacts,
 }: {
   draftId: string;
   options: DraftOption[];
+  toAddresses: string[];
+  ccAddresses: string[];
+  bccAddresses: string[];
   // Enviar espera la resposta del proveïdor per poder avisar si falla
   // (`DraftOptionsForm`), així que la promesa del Server Action ha d'arribar-hi
   // sencera i no reduïda a `void` en passar per aquí.
   approveDraft: (formData: FormData) => void | Promise<void>;
   rejectDraft: (formData: FormData) => void;
   regenerateDraftWithFeedback: (formData: FormData) => void;
+  suggestContacts: SuggestContacts;
 }) => {
   const [stage, setStage] = useState<Stage>("choose");
 
@@ -76,8 +84,8 @@ export const DraftReviewStages = ({
     <>
       <p>
         {options.length > 1
-          ? "Tria una de les respostes proposades i edita-la si cal: en enviar-la, arriba al remitent del fil."
-          : "Edita el text si cal: en enviar-lo, la resposta arriba al remitent del fil."}
+          ? "Tria una de les respostes proposades i edita-la si cal: en enviar-la, arriba als destinataris del formulari."
+          : "Edita el text i els destinataris si cal: en enviar-lo, la resposta arriba a qui hi hagi al formulari."}
       </p>
       {/* Keyed on the draft, not just present unconditionally: regenerating
           writes a *new* draft row (a different id) in the same JSX position,
@@ -89,7 +97,11 @@ export const DraftReviewStages = ({
         key={draftId}
         draftId={draftId}
         options={options}
+        toAddresses={toAddresses}
+        ccAddresses={ccAddresses}
+        bccAddresses={bccAddresses}
         approveDraft={approveDraft}
+        suggestContacts={suggestContacts}
       />
       {/* Botó i formularis germans i no imbricats: l'HTML no permet imbricar
           formularis, i cada botó envia només el seu camp. */}

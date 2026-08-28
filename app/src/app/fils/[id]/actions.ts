@@ -6,7 +6,9 @@ import {
   approveAndSendDraft,
   discardDraft,
   regenerateDraft,
+  type ReplyRecipients,
 } from "@correu-agent/shared/drafts";
+import { parseRecipientField } from "@correu-agent/shared/mail";
 import { createAnthropicClient } from "@correu-agent/shared/triage";
 import { auth } from "../../../auth";
 import {
@@ -16,6 +18,7 @@ import {
   threadPath,
 } from "../../../lib/routes";
 import { db } from "../../../lib/db";
+import { listRecentContacts } from "../../../lib/contacts/recent-contacts";
 import { createDraftSender } from "../../../lib/mailbox/draft-sender";
 import { readReplyAttachments } from "../../../lib/mailbox/reply-attachments";
 import { isUuid } from "../../../lib/uuid";
@@ -45,6 +48,27 @@ const submittedText = (value: FormDataEntryValue | null, field: string): string 
 };
 
 /**
+ * The recipients the approval form carried, or `undefined` when it carried
+ * none — the send then falls back to the addresses the thread implies, which is
+ * the mail the product sent before these fields existed. A field that is there
+ * but empty means nobody, and `Per a` empty is refused further down, where the
+ * draft is still safely pending.
+ */
+const submittedRecipients = (formData: FormData): ReplyRecipients | undefined => {
+  const toAddresses = formData.get("toAddresses");
+  if (typeof toAddresses !== "string") return undefined;
+
+  const field = (value: FormDataEntryValue | null): string =>
+    typeof value === "string" ? value : "";
+
+  return {
+    toAddresses: parseRecipientField(toAddresses, "Per a"),
+    ccAddresses: parseRecipientField(field(formData.get("ccAddresses")), "Cc"),
+    bccAddresses: parseRecipientField(field(formData.get("bccAddresses")), "Cco"),
+  };
+};
+
+/**
  * The screens that show the draft after it moved: the thread itself, the
  * list, and the dashboard home — all three draw the thread's status from the
  * same draft, and the dashboard also offers to discard it inline (`app/page.tsx`).
@@ -58,9 +82,10 @@ const showDraftAsItStands = (threadId: string | undefined): void => {
 };
 
 /**
- * Approves the draft and really sends it (context.md §2), with the text as the
- * user edited it in the form and the files it carried attached. The mailbox it
- * leaves through is read from the draft, never from the submission.
+ * Approves the draft and really sends it (context.md §2), with the text and the
+ * recipients as the user edited them in the form and the files it carried
+ * attached. The mailbox it leaves through is read from the draft, never from
+ * the submission.
  */
 export const approveDraft = async (formData: FormData): Promise<void> => {
   const session = await auth();
@@ -68,9 +93,12 @@ export const approveDraft = async (formData: FormData): Promise<void> => {
 
   const draftId = submittedDraftId(formData.get("draftId"));
   const tenantId = session.user.tenantId;
-  // Before the mailbox is opened: a submission carrying more than a reply may
-  // attach is refused while the draft is still pending, rather than halfway
-  // through a send nobody can tell the outcome of.
+  // Parsed before the mailbox is reached: a field that names no address is the
+  // reviewer's typo, and there is no reason to mint a token to find that out.
+  const recipients = submittedRecipients(formData);
+  // Before the mailbox is opened, for the same reason: a submission carrying
+  // more than a reply may attach is refused while the draft is still pending,
+  // rather than halfway through a send nobody can tell the outcome of.
   const attachments = await readReplyAttachments(formData.getAll("attachments"));
   const sender = await createDraftSender(db, { tenantId, draftId });
 
@@ -82,6 +110,7 @@ export const approveDraft = async (formData: FormData): Promise<void> => {
     actorUserId: session.user.id,
     body: submittedText(formData.get("body"), "body"),
     attachments,
+    ...(recipients ? { recipients } : {}),
   });
 
   showDraftAsItStands(sent?.threadId);
@@ -136,4 +165,22 @@ export const regenerateDraftWithFeedback = async (
   });
 
   showDraftAsItStands(regenerated?.threadId);
+};
+
+/**
+ * The recent contacts the approval form suggests while the reviewer types in
+ * `Per a` / `Cc` / `Cco` (context.md §2). Called from the browser on every few
+ * keystrokes, so it answers an empty list rather than redirecting when the
+ * session has gone: the field stops suggesting, and the submission is what
+ * takes the reviewer back to the login page.
+ */
+export const suggestRecentContacts = async (query: string): Promise<string[]> => {
+  const session = await auth();
+  if (!session) return [];
+
+  return listRecentContacts(db, {
+    tenantId: session.user.tenantId,
+    // Arrives from the client, so it is text of any shape or none.
+    query: typeof query === "string" ? query : "",
+  });
 };

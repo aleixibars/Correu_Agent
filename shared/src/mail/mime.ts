@@ -254,6 +254,12 @@ export const buildReplyMime = (reply: OutgoingReply): string => {
   if (reply.ccAddresses.length > 0) {
     headers.push(["Cc", addressList(reply.ccAddresses)]);
   }
+  // Gmail accepts the header on a raw send and takes it off before delivering,
+  // which is the standard way a blind copy travels; omitted when empty so no
+  // recipient is handed an empty `Bcc` to wonder about.
+  if (reply.bccAddresses.length > 0) {
+    headers.push(["Bcc", addressList(reply.bccAddresses)]);
+  }
   headers.push(["Subject", encodeHeaderValue(reply.subject)]);
   // Absent when the mail being answered arrived without a `Message-ID`:
   // pointing at a fabricated id would break threading in every client.

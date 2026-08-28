@@ -46,12 +46,24 @@ const threadRow = (
 };
 
 /** In the column order the draft select asks for. */
-const draftRow = (status = "pending"): unknown[] => [
+const draftRow = (
+  status = "pending",
+  recipients: Partial<{
+    toAddresses: string[];
+    ccAddresses: string[];
+    bccAddresses: string[];
+  }> = {},
+): unknown[] => [
   "77777777-7777-7777-7777-777777777777",
   "Bon dia, us passem el pressupost.",
   status,
   "claude-sonnet-5",
   "2026-08-18 09:05:00+00",
+  null,
+  recipients.toAddresses ?? [],
+  recipients.ccAddresses ?? [],
+  recipients.bccAddresses ?? [],
+  "client@example.com",
 ];
 
 /** In the column order the message select asks for. */
@@ -157,6 +169,54 @@ describe("loadThreadDetail", () => {
       fromAddress: "client@example.com",
       bodyText: "Ens podeu passar un pressupost?",
       sentAt: new Date("2026-08-18T08:30:00.000Z"),
+    });
+  });
+
+  // The approval form starts from the addresses the reply would leave with
+  // (context.md §2), so the reviewer sees what they are editing.
+  it("starts a pending draft's recipients from the mail it answers", async () => {
+    const { db } = recordingDatabase([
+      [threadRow()],
+      [draftRow()],
+      [messageRow()],
+    ]);
+
+    const detail = await loadThreadDetail(db, {
+      tenantId: TENANT_ID,
+      threadId: THREAD_ID,
+    });
+
+    expect(detail?.draft).toMatchObject({
+      toAddresses: ["client@example.com"],
+      ccAddresses: [],
+      bccAddresses: [],
+    });
+  });
+
+  // Once the mail has left, the fields hold who it really went to — which is
+  // not the same thing as who it would have gone to (context.md §7).
+  it("shows a sent draft's own recipients instead of the thread's", async () => {
+    const { db } = recordingDatabase([
+      [threadRow()],
+      [
+        draftRow("sent", {
+          toAddresses: ["altre@example.com"],
+          ccAddresses: ["copia@example.com"],
+          bccAddresses: ["arxiu@example.com"],
+        }),
+      ],
+      [messageRow()],
+    ]);
+
+    const detail = await loadThreadDetail(db, {
+      tenantId: TENANT_ID,
+      threadId: THREAD_ID,
+    });
+
+    expect(detail?.draft).toMatchObject({
+      toAddresses: ["altre@example.com"],
+      ccAddresses: ["copia@example.com"],
+      bccAddresses: ["arxiu@example.com"],
     });
   });
 

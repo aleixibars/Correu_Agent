@@ -89,6 +89,12 @@ export interface OutgoingReply {
   fromAddress: string;
   toAddresses: string[];
   ccAddresses: string[];
+  /**
+   * Blind copies the reviewer added on approval (context.md §2). The other
+   * recipients must never learn of them: Gmail strips the `Bcc` header on
+   * delivery, and Graph sends `bccRecipients` without writing a header at all.
+   */
+  bccAddresses: string[];
   /** Subject of the reply, already carrying its `Re:` prefix. */
   subject: string;
   bodyText: string;

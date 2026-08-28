@@ -24,6 +24,7 @@ import {
   approveDraft,
   regenerateDraftWithFeedback,
   rejectDraft,
+  suggestRecentContacts,
 } from "./actions";
 
 export const metadata = {
@@ -165,9 +166,13 @@ export default async function ThreadPage({
             key={thread.id}
             draftId={draft.id}
             options={draft.options}
+            toAddresses={draft.toAddresses}
+            ccAddresses={draft.ccAddresses}
+            bccAddresses={draft.bccAddresses}
             approveDraft={approveDraft}
             rejectDraft={rejectDraft}
             regenerateDraftWithFeedback={regenerateDraftWithFeedback}
+            suggestContacts={suggestRecentContacts}
           />
         ) : (
           <>
