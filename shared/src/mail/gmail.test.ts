@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MAX_MESSAGES_PER_POLL,
+  createGmailAttachmentReader,
   createGmailClient,
   createGmailSender,
 } from "./gmail";
@@ -123,6 +124,7 @@ describe("createGmailClient", () => {
         snippet: "Bon dia,",
         bodyText: "Bon dia, voldria un pressupost.",
         bodyHtml: "<p>Bon dia, voldria un pressupost.</p>",
+        attachments: [],
         sentAt: new Date(1700000000000),
       },
     ]);
@@ -620,5 +622,160 @@ describe("createGmailSender", () => {
     await expect(
       createGmailSender(ACCESS_TOKEN).sendReply(outgoingReply()),
     ).rejects.toThrow(/Insufficient Permission/);
+  });
+});
+
+describe("createGmailClient() attachments", () => {
+  /** A message whose payload mixes the readable body with attached parts. */
+  const withParts = (parts: unknown[]) => ({
+    ...gmailMessage(),
+    payload: {
+      mimeType: "multipart/mixed",
+      headers: [{ name: "Subject", value: "Pressupost" }],
+      parts: [
+        {
+          mimeType: "text/plain",
+          body: { data: base64url("Bon dia, us adjunto el pressupost.") },
+        },
+        ...parts,
+      ],
+    },
+  });
+
+  const poll = async (message: unknown) => {
+    gmailResponds({
+      history: [{ history: [{ id: "1001", messagesAdded: [added("msg-1")] }], historyId: "1100" }],
+      messages: { "msg-1": message },
+    });
+    const { messages } = await createGmailClient(ACCESS_TOKEN).fetchNewMessages("1000");
+    return messages[0]!;
+  };
+
+  it("reports the metadata of every attached part", async () => {
+    const message = await poll(
+      withParts([
+        {
+          mimeType: "application/pdf",
+          filename: "pressupost.pdf",
+          body: { attachmentId: "att-1", size: 20480 },
+        },
+      ]),
+    );
+
+    expect(message.attachments).toEqual([
+      {
+        providerAttachmentId: "att-1",
+        filename: "pressupost.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 20480,
+        inline: false,
+      },
+    ]);
+    // The bytes are never polled — only the handle they can be fetched with.
+    expect(JSON.stringify(message)).not.toContain("attachmentId");
+  });
+
+  it("marks a part the mail embeds in its own body as inline", async () => {
+    const message = await poll(
+      withParts([
+        {
+          mimeType: "image/png",
+          filename: "signatura.png",
+          headers: [{ name: "Content-Disposition", value: 'inline; filename="signatura.png"' }],
+          body: { attachmentId: "att-2", size: 900 },
+        },
+      ]),
+    );
+
+    expect(message.attachments).toEqual([
+      {
+        providerAttachmentId: "att-2",
+        filename: "signatura.png",
+        mimeType: "image/png",
+        sizeBytes: 900,
+        inline: true,
+      },
+    ]);
+  });
+
+  it("finds attachments nested inside a multipart container", async () => {
+    const message = await poll(
+      withParts([
+        {
+          mimeType: "multipart/related",
+          parts: [
+            {
+              mimeType: "text/csv",
+              filename: "comandes.csv",
+              body: { attachmentId: "att-3", size: 120 },
+            },
+          ],
+        },
+      ]),
+    );
+
+    expect(message.attachments.map(({ filename }) => filename)).toEqual([
+      "comandes.csv",
+    ]);
+  });
+
+  it("leaves the body parts out: they carry no filename and no attachment id", async () => {
+    const message = await poll(gmailMessage());
+
+    expect(message.attachments).toEqual([]);
+  });
+});
+
+describe("createGmailAttachmentReader", () => {
+  const attachmentResponds = (
+    body: unknown,
+    status = 200,
+  ): { requested: string[] } => {
+    const requested: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) => {
+        requested.push(new URL(String(input)).pathname);
+        return jsonResponse(body, status);
+      }),
+    );
+    return { requested };
+  };
+
+  it("returns the bytes Gmail holds for the attachment", async () => {
+    const { requested } = attachmentResponds({
+      size: 5,
+      data: Buffer.from("hola!", "utf8").toString("base64url"),
+    });
+
+    const bytes = await createGmailAttachmentReader(ACCESS_TOKEN).fetchAttachment({
+      providerMessageId: "msg-1",
+      providerAttachmentId: "att-1",
+    });
+
+    expect(Buffer.from(bytes!).toString("utf8")).toBe("hola!");
+    expect(requested[0]).toContain("/messages/msg-1/attachments/att-1");
+  });
+
+  it("returns null when the mail it belonged to is gone", async () => {
+    attachmentResponds({ error: { message: "not found" } }, 404);
+
+    const bytes = await createGmailAttachmentReader(ACCESS_TOKEN).fetchAttachment({
+      providerMessageId: "msg-1",
+      providerAttachmentId: "att-1",
+    });
+
+    expect(bytes).toBeNull();
+  });
+
+  it("fails when Gmail answers without the data", async () => {
+    attachmentResponds({ size: 5 });
+
+    await expect(
+      createGmailAttachmentReader(ACCESS_TOKEN).fetchAttachment({
+        providerMessageId: "msg-1",
+        providerAttachmentId: "att-1",
+      }),
+    ).rejects.toThrow(/no data/i);
   });
 });

@@ -638,6 +638,49 @@ select:focus {
   margin: 0;
 }
 
+/* ── Adjunts ───────────────────────────────────────────────────────────── */
+
+.attachments {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+
+.attachments__title {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+  margin: 0 0 6px;
+}
+
+.attachments__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.attachments__list li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.attachments__size {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+}
+
+.attachments__download {
+  font-size: 0.8rem;
+}
+
 /* ── Digest ────────────────────────────────────────────────────────────── */
 
 /* Els fils del dia es desplacen dins del bloc en comptes d'allargar la

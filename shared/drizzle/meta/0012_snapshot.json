@@ -1,6 +1,6 @@
 {
-  "id": "b9b5a685-2fc2-4b55-9f11-682a27ba936f",
-  "prevId": "f3c56672-bbae-4a47-aa4f-37c70f562df3",
+  "id": "c6d59902-4627-4c37-9faf-178d890e5046",
+  "prevId": "b9b5a685-2fc2-4b55-9f11-682a27ba936f",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -649,6 +649,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "edited_body": {
+          "name": "edited_body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "options": {
           "name": "options",

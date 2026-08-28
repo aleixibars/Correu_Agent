@@ -80,6 +80,7 @@ const graphPage = (messageId: string) => ({
       subject: "Pressupost",
       receivedDateTime: "2026-01-01T08:00:00Z",
       isDraft: false,
+      hasAttachments: false,
     },
   ],
   "@odata.deltaLink": "https://delta/next",

@@ -240,6 +240,37 @@ export const messages = pgTable(
   ],
 );
 
+/**
+ * The files that travelled with a message (context.md §7). Metadata only: the
+ * bytes stay at the provider and are fetched on demand when the dashboard
+ * previews or downloads one, so a mailbox full of PDFs costs the PoC nothing.
+ * `providerAttachmentId` is the handle that fetch is made with — Gmail's
+ * `body.attachmentId`, Graph's attachment id.
+ */
+export const messageAttachments = pgTable(
+  "message_attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    providerAttachmentId: text("provider_attachment_id").notNull(),
+    filename: text("filename").notNull(),
+    mimeType: text("mime_type"),
+    sizeBytes: integer("size_bytes"),
+    /** A part the mail embeds in its own body (a signature logo) rather than a file sent. */
+    inline: boolean("inline").notNull().default(false),
+    createdAt: createdAt(),
+  },
+  // A poll that died after writing is repeated from the same cursor, so the
+  // same attachment can reach here twice; this is what settles it. It doubles
+  // as the index the thread view reads a message's attachments by.
+  (table) => [unique().on(table.messageId, table.providerAttachmentId)],
+);
+
 export const drafts = pgTable(
   "drafts",
   {
@@ -486,6 +517,8 @@ export type Thread = typeof threads.$inferSelect;
 export type NewThread = typeof threads.$inferInsert;
 export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
+export type MessageAttachment = typeof messageAttachments.$inferSelect;
+export type NewMessageAttachment = typeof messageAttachments.$inferInsert;
 export type Draft = typeof drafts.$inferSelect;
 export type NewDraft = typeof drafts.$inferInsert;
 export type AutoReplyRule = typeof autoReplyRules.$inferSelect;
