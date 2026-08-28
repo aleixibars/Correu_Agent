@@ -263,6 +263,39 @@ se n'ha pogut triar cap la feina falla perquè pg-boss la reintenti.
 - Variable necessària al worker: `ANTHROPIC_API_KEY`. Es llegeix en arrencar: si
   falta, el worker no arrenca, en lloc de fallar un fil rere l'altre.
 
+## Adjunts d'un correu
+
+A `/fils/[id]`, cada missatge llista els fitxers que li han arribat: nom, mida,
+previsualització dels tipus que el navegador pinta sense executar-los i
+descàrrega de qualsevol (`context.md` §2).
+
+- **Només se'n desen les metadades** (`message_attachments`: nom, `mime_type`,
+  mida i l'identificador del proveïdor). Els bytes no es guarden mai enlloc
+  (`context.md` §7): un PoC a €0/mes no paga per tenir una còpia de cada PDF que
+  el proveïdor ja custodia.
+- El poll les recull dels dos proveïdors: a Gmail, de les parts MIME que porten
+  `filename` i `body.attachmentId` (`shared/src/mail/gmail.ts`); a Graph, de
+  `GET /messages/{id}/attachments` per als missatges amb `hasAttachments`
+  (`shared/src/mailbox/microsoft-mail.ts`). De Graph només se'n queden els
+  `fileAttachment`: un adjunt de referència és un enllaç a OneDrive i no té
+  bytes per baixar.
+- Els que el correu incrusta al seu propi cos (la imatge d'una signatura) es
+  desen marcats com a `inline` i no surten a la llista del fil.
+- `GET /api/adjunts/[id]` és qui els serveix: comprova la sessió, llegeix les
+  metadades del tenant, en treu un token viu de la bústia
+  (`app/src/lib/mailbox/access-token.ts`, el mateix que fa servir l'enviament
+  d'un esborrany) i baixa el fitxer del proveïdor en aquell moment
+  (`app/src/lib/mailbox/attachment-download.ts`). Res no queda desat al servidor.
+- Un adjunt l'escriu qui envia el correu i el serveix el mateix origen que el
+  tauler, així que **només s'ofereixen en línia els tipus que el navegador no
+  executa** (imatges menys SVG, i PDF). La resta surt com a
+  `application/octet-stream`, com a descàrrega i amb
+  `Content-Security-Policy: sandbox`, que la deixa en un origen opac. Tot surt
+  amb `nosniff` i `Cache-Control: private, no-store`. La previsualització no
+  porta `sandbox` a posta: el visor de PDF del navegador no s'hi carrega, i
+  allà qui talla el risc és la llista de tipus inerts. Amb `?descarrega=1` fins
+  i tot un PDF baixa en lloc d'obrir-se.
+
 ## Retenció de correu (90 dies)
 
 El cos complet dels missatges es desa a la base de dades, però només durant **90

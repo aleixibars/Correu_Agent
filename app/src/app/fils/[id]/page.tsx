@@ -3,7 +3,16 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { APP_NAME } from "@correu-agent/shared";
 import { auth } from "../../../auth";
-import { LOGIN_PATH, THREADS_PATH } from "../../../lib/routes";
+import {
+  LOGIN_PATH,
+  THREADS_PATH,
+  attachmentDownloadPath,
+  attachmentPath,
+} from "../../../lib/routes";
+import {
+  formatAttachmentSize,
+  isPreviewable,
+} from "../../../lib/attachments/preview";
 import { db } from "../../../lib/db";
 import { subjectLabel } from "../../../lib/subject-label";
 import { loadThreadDetail } from "../../../lib/threads/thread-detail";
@@ -90,6 +99,42 @@ export default async function ThreadPage({
             <p className="message__body">
               {message.bodyText ?? message.snippet ?? "(Sense contingut)"}
             </p>
+            {message.attachments.length > 0 && (
+              <div className="attachments">
+                <p className="attachments__title">Adjunts</p>
+                <ul className="attachments__list">
+                  {message.attachments.map((attachment) => {
+                    const size = formatAttachmentSize(attachment.sizeBytes);
+                    return (
+                      <li key={attachment.id}>
+                        {/* Només s'ofereix obrir el que el navegador pinta
+                            sense executar-ho; la resta, només baixar-ho. */}
+                        {isPreviewable(attachment.mimeType) ? (
+                          <a
+                            href={attachmentPath(attachment.id)}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {attachment.filename}
+                          </a>
+                        ) : (
+                          <span>{attachment.filename}</span>
+                        )}
+                        {size !== null && (
+                          <span className="attachments__size">{size}</span>
+                        )}
+                        <a
+                          href={attachmentDownloadPath(attachment.id)}
+                          className="attachments__download"
+                        >
+                          Descarrega
+                        </a>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
           </article>
         ))}
       </section>

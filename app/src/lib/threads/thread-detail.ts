@@ -3,14 +3,31 @@
 // fa regenerar. Fora del Server Component perquè les consultes es puguin provar
 // sense arrencar Next.
 
-import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import type { TablesRelationalConfig } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import type { TriageCategory } from "@correu-agent/shared";
-import { drafts, messages, threads } from "@correu-agent/shared/db/schema";
+import {
+  drafts,
+  messageAttachments,
+  messages,
+  threads,
+} from "@correu-agent/shared/db/schema";
 import type { DraftOption, DraftStatus } from "@correu-agent/shared/db/schema";
 import { isUuid } from "../uuid";
 import { threadStatus, type ThreadStatus } from "./thread-status";
+
+/**
+ * Un fitxer que va arribar amb el missatge. Només se'n guarden les metadades:
+ * els bytes es demanen al proveïdor quan el tauler els serveix (context.md §7),
+ * i `id` és el que la ruta de descàrrega rep.
+ */
+export interface ThreadDetailAttachment {
+  id: string;
+  filename: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+}
 
 export interface ThreadDetailMessage {
   id: string;
@@ -23,6 +40,8 @@ export interface ThreadDetailMessage {
   bodyText: string | null;
   snippet: string | null;
   sentAt: Date | null;
+  /** Els adjunts del missatge, sense els que el correu incrusta al cos mateix. */
+  attachments: ThreadDetailAttachment[];
 }
 
 export interface ThreadDetailDraft {
@@ -134,13 +153,65 @@ export const loadThreadDetail = async <
     .orderBy(sql`${messages.sentAt} desc nulls last`)
     .limit(messageLimit);
 
+  const attachments = await loadAttachments(
+    db,
+    mail.map(({ id }) => id),
+  );
+
   const { triagedAt, ...rest } = thread;
   return {
     ...rest,
     status: threadStatus({ triagedAt, draftStatus: draft?.status ?? null }),
-    messages: [...mail].reverse(),
+    messages: [...mail].reverse().map((message) => ({
+      ...message,
+      attachments: attachments.get(message.id) ?? [],
+    })),
     draft: draft
       ? { ...draft, options: draft.options ?? [{ label: "Resposta", body: draft.body }] }
       : null,
   };
+};
+
+/**
+ * Els adjunts del correu que la pàgina ensenya, per missatge. Els incrustats al
+ * cos (la imatge d'una signatura) no hi són: qui llegeix el fil espera la
+ * llista de fitxers que li han enviat, no la dels trossos del missatge.
+ *
+ * No cal filtrar per tenant: els missatges ja venen del fil que s'ha comprovat
+ * que és del tenant.
+ */
+const loadAttachments = async <
+  TResult extends PgQueryResultHKT,
+  TFullSchema extends Record<string, unknown>,
+  TSchema extends TablesRelationalConfig,
+>(
+  db: PgDatabase<TResult, TFullSchema, TSchema>,
+  messageIds: string[],
+): Promise<Map<string, ThreadDetailAttachment[]>> => {
+  const byMessage = new Map<string, ThreadDetailAttachment[]>();
+  if (messageIds.length === 0) return byMessage;
+
+  const rows = await db
+    .select({
+      id: messageAttachments.id,
+      messageId: messageAttachments.messageId,
+      filename: messageAttachments.filename,
+      mimeType: messageAttachments.mimeType,
+      sizeBytes: messageAttachments.sizeBytes,
+    })
+    .from(messageAttachments)
+    .where(
+      and(
+        inArray(messageAttachments.messageId, messageIds),
+        eq(messageAttachments.inline, false),
+      ),
+    )
+    .orderBy(asc(messageAttachments.createdAt));
+
+  for (const { messageId, ...attachment } of rows) {
+    const group = byMessage.get(messageId);
+    if (group) group.push(attachment);
+    else byMessage.set(messageId, [attachment]);
+  }
+  return byMessage;
 };
