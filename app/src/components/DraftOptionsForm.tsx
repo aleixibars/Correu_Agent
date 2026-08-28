@@ -17,7 +17,7 @@ export type SuggestContacts = (query: string) => Promise<string[]>;
  * llista aniria sempre una lletra endarrerida. Prou curt perquè aturar-se a
  * mirar el camp ja els mostri.
  */
-const SUGGEST_DELAY_MS = 200;
+export const SUGGEST_DELAY_MS = 200;
 
 /** El que hi ha després de l'última coma: l'adreça que s'està escrivint ara. */
 const currentFragment = (value: string): string =>
@@ -67,9 +67,19 @@ const RecipientField = ({
     }
 
     timer.current = setTimeout(() => {
-      void suggestContacts(fragment).then((found) => {
-        if (pending.current === fragment) setSuggestions(found);
-      });
+      void suggestContacts(fragment).then(
+        (found) => {
+          if (pending.current === fragment) setSuggestions(found);
+        },
+        // Els suggeriments són una comoditat, no el formulari: si la consulta
+        // no arriba (xarxa, desplegament a mitges), el camp segueix escrivint-se
+        // a mà. Sense aquesta branca la promesa quedaria rebutjada sense ningú
+        // que l'agafi, i el que hauria de ser una llista buida es convertiria en
+        // un error de pàgina.
+        () => {
+          if (pending.current === fragment) setSuggestions([]);
+        },
+      );
     }, SUGGEST_DELAY_MS);
   };
 
