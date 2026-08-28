@@ -259,6 +259,16 @@ export const drafts = pgTable(
     /** The option the reviewer would send as-is: `options[0].body` when there is more than one. */
     body: text("body").notNull(),
     /**
+     * What the reviewer has typed into the field so far, autosaved while the
+     * draft is still `pending` so a closed tab does not throw the edit away.
+     * Null until they change something, and again once the draft leaves
+     * `pending` — the approved text is `body` by then. Kept apart from `body`
+     * on purpose: `body` stays the text the model wrote, which is what the
+     * audit trail compares the sent mail against to say whether a human
+     * rewrote it (context.md §7).
+     */
+    editedBody: text("edited_body"),
+    /**
      * The alternative replies the model wrote alongside `body`, when the
      * thread had a genuine either/or answer (context.md §2) — e.g. one
      * option confirming a request and one declining it. Null on drafts

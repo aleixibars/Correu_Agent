@@ -21,6 +21,7 @@ vi.mock("./actions", () => ({
   approveDraft: vi.fn(),
   rejectDraft: vi.fn(),
   regenerateDraftWithFeedback: vi.fn(),
+  saveDraftEdit: vi.fn(),
 }));
 
 const { default: ThreadPage } = await import("./page");
@@ -59,6 +60,7 @@ const detail = (overrides: Partial<ThreadDetail> = {}): ThreadDetail => ({
   draft: {
     id: DRAFT_ID,
     body: "Bon dia, us el passem avui mateix.",
+    editedBody: null,
     status: "pending",
     model: "claude-sonnet-5",
     createdAt: new Date("2026-08-18T09:05:00Z"),
@@ -133,6 +135,23 @@ describe("ThreadPage", () => {
       expect(markup).toContain("Bon dia, us el passem avui mateix.");
       expect(markup).toContain('name="body"');
       expect(markup).toContain(`value="${DRAFT_ID}"`);
+    });
+
+    // The reviewer left the thread mid-edit and came back: what they see is
+    // what the screen autosaved for them (context.md §2), not the first thing
+    // the model wrote.
+    it("offers the autosaved edit back instead of the model's text", async () => {
+      signedIn();
+      const base = detail();
+      loadThreadDetail.mockResolvedValue({
+        ...base,
+        draft: { ...base.draft!, editedBody: "Bon dia, us el passem dilluns." },
+      });
+
+      const markup = await render();
+
+      expect(markup).toContain("Bon dia, us el passem dilluns.");
+      expect(markup).not.toContain("Bon dia, us el passem avui mateix.");
     });
 
     it("offers approving, discarding and regenerating with feedback", async () => {

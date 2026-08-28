@@ -71,6 +71,9 @@ const claimPendingDraft = async <
     .set({
       status,
       ...(feedback === undefined ? {} : { feedback }),
+      // A draft nobody will send takes its unfinished autosaved edit with it
+      // (`save-draft-edit.ts`); the regenerated draft starts from the model.
+      editedBody: null,
       updatedAt: now,
     })
     .where(
@@ -156,6 +159,7 @@ export const regenerateDraft = async <
       threadId: drafts.threadId,
       inReplyToMessageId: drafts.inReplyToMessageId,
       body: drafts.body,
+      editedBody: drafts.editedBody,
       subject: threads.subject,
       category: threads.category,
       // Grounds the regenerated reply in whose mailbox it is, same as the
@@ -193,7 +197,12 @@ export const regenerateDraft = async <
     subject: rejected.subject,
     category: rejected.category,
     messages: [...recent].reverse(),
-    revision: { previousBody: rejected.body, feedback: instruction },
+    // The reviewer may have rewritten the draft before asking for another one
+    // (`save-draft-edit.ts`): their version is the text the feedback is about.
+    revision: {
+      previousBody: rejected.editedBody ?? rejected.body,
+      feedback: instruction,
+    },
     mailbox: {
       emailAddress: rejected.mailboxEmail,
       ownerName: rejected.ownerName,

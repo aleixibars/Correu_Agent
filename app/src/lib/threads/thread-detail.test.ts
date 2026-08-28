@@ -46,9 +46,13 @@ const threadRow = (
 };
 
 /** In the column order the draft select asks for. */
-const draftRow = (status = "pending"): unknown[] => [
+const draftRow = (
+  status = "pending",
+  editedBody: string | null = null,
+): unknown[] => [
   "77777777-7777-7777-7777-777777777777",
   "Bon dia, us passem el pressupost.",
+  editedBody,
   status,
   "claude-sonnet-5",
   "2026-08-18 09:05:00+00",
@@ -148,6 +152,7 @@ describe("loadThreadDetail", () => {
       draft: {
         id: "77777777-7777-7777-7777-777777777777",
         body: "Bon dia, us passem el pressupost.",
+        editedBody: null,
         status: "pending",
       },
     });
@@ -157,6 +162,26 @@ describe("loadThreadDetail", () => {
       fromAddress: "client@example.com",
       bodyText: "Ens podeu passar un pressupost?",
       sentAt: new Date("2026-08-18T08:30:00.000Z"),
+    });
+  });
+
+  // What the reviewer typed and left behind is what they expect to find when
+  // they come back to the thread (`save-draft-edit.ts`).
+  it("carries the autosaved edit alongside the text the model wrote", async () => {
+    const { db } = recordingDatabase([
+      [threadRow()],
+      [draftRow("pending", "Bon dia, us passem el pressupost dilluns.")],
+      [messageRow()],
+    ]);
+
+    const detail = await loadThreadDetail(db, {
+      tenantId: TENANT_ID,
+      threadId: THREAD_ID,
+    });
+
+    expect(detail?.draft).toMatchObject({
+      body: "Bon dia, us passem el pressupost.",
+      editedBody: "Bon dia, us passem el pressupost dilluns.",
     });
   });
 

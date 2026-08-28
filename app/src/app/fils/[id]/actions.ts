@@ -6,6 +6,7 @@ import {
   approveAndSendDraft,
   discardDraft,
   regenerateDraft,
+  saveDraftEdit as storeDraftEdit,
 } from "@correu-agent/shared/drafts";
 import { createAnthropicClient } from "@correu-agent/shared/triage";
 import { auth } from "../../../auth";
@@ -79,6 +80,24 @@ export const approveDraft = async (formData: FormData): Promise<void> => {
   });
 
   showDraftAsItStands(sent?.threadId);
+};
+
+/**
+ * Keeps what the reviewer has typed so far, while the draft is still theirs to
+ * edit (context.md §2). Called on a timer by the review screen rather than by a
+ * button, so it revalidates nothing: no screen shows anything different because
+ * of it, and refreshing this one under the reviewer's cursor while they write
+ * is exactly what an autosave must not do.
+ */
+export const saveDraftEdit = async (formData: FormData): Promise<void> => {
+  const session = await auth();
+  if (!session) redirect(LOGIN_PATH);
+
+  await storeDraftEdit(db, {
+    tenantId: session.user.tenantId,
+    draftId: submittedDraftId(formData.get("draftId")),
+    body: submittedText(formData.get("body"), "body"),
+  });
 };
 
 /** Discards the draft: the thread is left without an answer (context.md §2). */

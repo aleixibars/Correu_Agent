@@ -35,6 +35,7 @@ const createClient = (text = JSON.stringify(REPLY)) => {
 /** In the column order the draft-with-thread select asks for. */
 const draftRow = ({
   category = "comercial" as string | null,
+  editedBody = null as string | null,
   inReplyToMessageId = MESSAGE_ID as string | null,
   mailboxEmail = "aleix@empresa.example" as string | null,
   ownerName = "Aleix" as string | null,
@@ -44,6 +45,7 @@ const draftRow = ({
   THREAD_ID,
   inReplyToMessageId,
   OLD_BODY,
+  editedBody,
   "Pressupost",
   category,
   mailboxEmail,
@@ -123,6 +125,9 @@ describe("discardDraft", () => {
     // Only a draft still waiting for the user can be discarded — one already
     // approved or sent is not the user's to take back here.
     expect(claim.params).toContain("pending");
+    // Nobody will finish the autosaved edit of a discarded draft
+    // (`save-draft-edit.ts`), so it does not outlive the draft's review.
+    expect(claim.sql).toContain('"edited_body" = ');
 
     const audit = queryOf(queries, "audit");
     expect(audit.params).toContain("draft_discarded");
@@ -205,6 +210,26 @@ describe("regenerateDraft", () => {
     expect(regenerated!.params.join(" ")).toContain(FEEDBACK);
     expect(generated!.params).toContain("draft_generated");
     expect(generated!.params).toContain(NEW_DRAFT_ID);
+  });
+
+  // The reviewer asks for another draft after having rewritten the text: it is
+  // their version, not the model's first attempt, that the feedback is about.
+  it("revises the text the reviewer had autosaved, when there is one", async () => {
+    const edited = "Bon dia,\n\nUs enviem el pressupost aquesta setmana.";
+    const { db } = createDb({ draft: draftRow({ editedBody: edited }) });
+    const { client, create } = createClient();
+
+    await regenerateDraft(db, client, {
+      tenantId: TENANT_ID,
+      draftId: DRAFT_ID,
+      userId: USER_ID,
+      feedback: FEEDBACK,
+      now: NOW,
+    });
+
+    const prompt = String(create.mock.calls[0]![0].messages[0]!.content);
+    expect(prompt).toContain(edited);
+    expect(prompt).not.toContain(OLD_BODY);
   });
 
   // Same bug the first draft has to avoid (`generate-draft.test.ts`): a

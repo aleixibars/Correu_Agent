@@ -27,7 +27,14 @@ export interface ThreadDetailMessage {
 
 export interface ThreadDetailDraft {
   id: string;
+  /** The text the model wrote; on a draft already sent, the text that left. */
   body: string;
+  /**
+   * What the reviewer had typed into the field the last time the screen
+   * autosaved it, or null while they have not changed anything. It is what the
+   * review screen has to show back, not `body` (context.md §2).
+   */
+  editedBody: string | null;
   status: DraftStatus;
   /** The model that wrote it (context.md §6); null on a draft stored without one. */
   model: string | null;
@@ -102,6 +109,7 @@ export const loadThreadDetail = async <
     .select({
       id: drafts.id,
       body: drafts.body,
+      editedBody: drafts.editedBody,
       status: drafts.status,
       model: drafts.model,
       createdAt: drafts.createdAt,
