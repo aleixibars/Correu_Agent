@@ -151,7 +151,9 @@ const claimDraft = async <
 ): Promise<boolean> => {
   const [claimed] = await db
     .update(drafts)
-    .set({ status: "approved", body, updatedAt: now })
+    // `editedBody` is cleared because the text the reviewer was autosaving is
+    // exactly the `body` being approved here (`save-draft-edit.ts`).
+    .set({ status: "approved", body, editedBody: null, updatedAt: now })
     .where(
       and(
         eq(drafts.id, draftId),

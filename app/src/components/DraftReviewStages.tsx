@@ -14,17 +14,25 @@ type Stage = "choose" | "reply" | "refine";
  * La revisió d'un esborrany pendent, pas a pas (context.md §2): en obrir el
  * fil només hi ha el missatge i la tria Respondre/Descartar; el text editable
  * i el quadre de refinar apareixen quan el revisor tria, no tots alhora.
- * Component de client perquè l'etapa és estat local; les tres accions segueixen
- * sent els Server Actions que rep com a props, sense cap canvi de comportament.
+ * Component de client perquè l'etapa és estat local; les accions segueixen sent
+ * els Server Actions que rep com a props, sense cap canvi de comportament.
+ *
+ * L'autoguardat del text (issue #75) viu al formulari editable, que només es
+ * munta en arribar a l'etapa de resposta: mentre el revisor encara tria, no hi
+ * ha res escrit que es pugui perdre.
  */
 export const DraftReviewStages = ({
   draftId,
+  body,
   options,
   approveDraft,
   rejectDraft,
   regenerateDraftWithFeedback,
+  saveDraftEdit,
 }: {
   draftId: string;
+  /** El text d'on parteix l'edició: l'últim autoguardat, o el del model. */
+  body: string;
   options: DraftOption[];
   // Enviar espera la resposta del proveïdor per poder avisar si falla
   // (`DraftOptionsForm`), així que la promesa del Server Action ha d'arribar-hi
@@ -32,6 +40,7 @@ export const DraftReviewStages = ({
   approveDraft: (formData: FormData) => void | Promise<void>;
   rejectDraft: (formData: FormData) => void;
   regenerateDraftWithFeedback: (formData: FormData) => void;
+  saveDraftEdit: (formData: FormData) => Promise<void>;
 }) => {
   const [stage, setStage] = useState<Stage>("choose");
 
@@ -88,8 +97,10 @@ export const DraftReviewStages = ({
       <DraftOptionsForm
         key={draftId}
         draftId={draftId}
+        body={body}
         options={options}
         approveDraft={approveDraft}
+        saveDraftEdit={saveDraftEdit}
       />
       {/* Botó i formularis germans i no imbricats: l'HTML no permet imbricar
           formularis, i cada botó envia només el seu camp. */}

@@ -180,6 +180,9 @@ describe("approveAndSendDraft", () => {
     // The draft stored is the mail that really left, not the model's version.
     const claim = queries.find(({ sql }) => sql.startsWith('update "drafts"'))!;
     expect(claim.params).toContain(edited);
+    // The autosaved edit becomes that body, so it is dropped rather than left
+    // behind as a second copy of the same text (`save-draft-edit.ts`).
+    expect(claim.sql).toContain('"edited_body" = ');
 
     // The trail keeps both sides of the rewrite, JSON-encoded in the metadata.
     const approved = auditEntries(queries)[0]!.join(" ");

@@ -85,6 +85,13 @@
       "when": 1787923575646,
       "tag": "0011_message_attachments",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1787923675646,
+      "tag": "0012_drafts_edited_body",
+      "breakpoints": true
     }
   ]
 }

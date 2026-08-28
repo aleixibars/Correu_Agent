@@ -24,6 +24,7 @@ import {
   approveDraft,
   regenerateDraftWithFeedback,
   rejectDraft,
+  saveDraftEdit,
 } from "./actions";
 
 export const metadata = {
@@ -164,10 +165,14 @@ export default async function ThreadPage({
           <DraftReviewStages
             key={thread.id}
             draftId={draft.id}
+            // L'edició que el revisor va deixar a mitges mana sobre el text
+            // del model: és el que esperen retrobar en tornar al fil.
+            body={draft.editedBody ?? draft.body}
             options={draft.options}
             approveDraft={approveDraft}
             rejectDraft={rejectDraft}
             regenerateDraftWithFeedback={regenerateDraftWithFeedback}
+            saveDraftEdit={saveDraftEdit}
           />
         ) : (
           <>

@@ -26,6 +26,10 @@ const regenerateDraft = vi.fn(async () => ({
   language: "ca",
   model: "claude-sonnet-5",
 }));
+const saveDraftEditWrite = vi.fn(async () => ({
+  draftId: DRAFT_ID,
+  threadId: THREAD_ID,
+}));
 const createAnthropicClient = vi.fn(() => ({ messages: { create: vi.fn() } }));
 const revalidatePath = vi.fn();
 
@@ -40,6 +44,7 @@ vi.mock("@correu-agent/shared/drafts", () => ({
   approveAndSendDraft,
   discardDraft,
   regenerateDraft,
+  saveDraftEdit: saveDraftEditWrite,
 }));
 vi.mock("@correu-agent/shared/triage", () => ({ createAnthropicClient }));
 vi.mock("next/cache", () => ({ revalidatePath }));
@@ -51,9 +56,12 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
-const { approveDraft, rejectDraft, regenerateDraftWithFeedback } = await import(
-  "./actions"
-);
+const {
+  approveDraft,
+  rejectDraft,
+  regenerateDraftWithFeedback,
+  saveDraftEdit,
+} = await import("./actions");
 
 const signedIn = (): void => {
   auth.mockResolvedValue({
@@ -269,5 +277,49 @@ describe("regenerateDraftWithFeedback", () => {
     );
 
     expect(approveAndSendDraft).not.toHaveBeenCalled();
+  });
+});
+
+// The review screen autosaves the field while it is being edited (context.md
+// §2), so a closed tab does not throw away what the reviewer wrote.
+describe("saveDraftEdit", () => {
+  it("sends a visitor without a session to the login page", async () => {
+    await expect(
+      saveDraftEdit(formData({ draftId: DRAFT_ID, body: "Text a mitges" })),
+    ).rejects.toThrow("NEXT_REDIRECT");
+    expect(saveDraftEditWrite).not.toHaveBeenCalled();
+  });
+
+  it("keeps the text for the draft of the signed-in tenant", async () => {
+    signedIn();
+
+    await saveDraftEdit(formData({ draftId: DRAFT_ID, body: "Text a mitges" }));
+
+    expect(saveDraftEditWrite).toHaveBeenCalledWith(expect.anything(), {
+      tenantId: TEST_TENANT_ID,
+      draftId: DRAFT_ID,
+      body: "Text a mitges",
+    });
+  });
+
+  // Autosaving is not an approval: nothing about the thread has changed, and
+  // refreshing the screen under the reviewer's cursor while they type would.
+  it("sends nothing and refreshes no screen", async () => {
+    signedIn();
+
+    await saveDraftEdit(formData({ draftId: DRAFT_ID, body: "Text a mitges" }));
+
+    expect(approveAndSendDraft).not.toHaveBeenCalled();
+    expect(createDraftSender).not.toHaveBeenCalled();
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("refuses a submission whose draft is not an id", async () => {
+    signedIn();
+
+    await expect(
+      saveDraftEdit(formData({ draftId: "not-an-id", body: "Text a mitges" })),
+    ).rejects.toThrow(/draft/i);
+    expect(saveDraftEditWrite).not.toHaveBeenCalled();
   });
 });
