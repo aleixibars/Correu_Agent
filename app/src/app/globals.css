@@ -433,6 +433,39 @@ select:focus {
   cursor: pointer;
 }
 
+/* Compte enrere abans d'enviar un esborrany (DraftOptionsForm): tapa la
+   pantalla perquè el botó de cancel·lar sigui l'única cosa a mà mentre corren
+   els segons. */
+.countdown-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 22, 24, 0.55);
+}
+
+.countdown {
+  background: var(--paper-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 24px 26px;
+  max-width: 26rem;
+  text-align: center;
+}
+
+.countdown h2 {
+  margin: 0 0 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.countdown p {
+  margin: 0 0 18px;
+  color: var(--ink-soft);
+}
+
 /* Checkbox rendered as a settings switch. */
 .switch-row {
   display: flex;
