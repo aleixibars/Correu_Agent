@@ -142,31 +142,35 @@ export default async function HomePage({
             {/* Un dia mogut deixa prou fils com per allargar la pantalla
                 inicial sense fi, així que el recompte per categoria es
                 desplaça dins del bloc. El contenidor ha de poder rebre el
-                focus o el teclat no arriba a les entrades de sota. */}
-            <div
-              className="digest-scroll"
-              role="region"
-              aria-label="Fils del digest"
-              tabIndex={0}
-            >
-              {digestContent.sections.map(({ category, threads: sectionThreads }) => (
-                <section key={category}>
-                  <h3 style={{ color: CATEGORY_COLOR_VARS[category] }}>
-                    {categoryLabel(category)} ({sectionThreads.length})
-                  </h3>
-                  <ul>
-                    {/* Llegir el fil és l'única cosa que ofereix el digest:
-                        les accions (Respondre, Descarta) són de la taula de
-                        "Pendents i urgents". */}
-                    {sectionThreads.map(({ id, subject }) => (
-                      <li key={id}>
-                        <Link href={threadPath(id)}>{subjectLabel(subject)}</Link>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ))}
-            </div>
+                focus o el teclat no arriba a les entrades de sota; per això
+                només es pinta quan hi ha fils, i no com una parada del
+                tabulador cap a una regió buida. */}
+            {digestContent.sections.length > 0 && (
+              <div
+                className="digest-scroll"
+                role="region"
+                aria-label="Fils del digest"
+                tabIndex={0}
+              >
+                {digestContent.sections.map(({ category, threads: sectionThreads }) => (
+                  <section key={category}>
+                    <h3 style={{ color: CATEGORY_COLOR_VARS[category] }}>
+                      {categoryLabel(category)} ({sectionThreads.length})
+                    </h3>
+                    <ul>
+                      {/* Llegir el fil és l'única cosa que ofereix el digest:
+                          les accions (Respondre, Descarta) són de la taula de
+                          "Pendents i urgents". */}
+                      {sectionThreads.map(({ id, subject }) => (
+                        <li key={id}>
+                          <Link href={threadPath(id)}>{subjectLabel(subject)}</Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+              </div>
+            )}
           </>
         )}
       </section>

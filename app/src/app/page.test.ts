@@ -264,7 +264,28 @@ describe("HomePage", () => {
     );
 
     expect(wrapper).not.toBeNull();
-    expect(wrapper![1] + wrapper![2]).toContain('tabindex="0"');
+    const attributes = wrapper![1] + wrapper![2];
+    expect(attributes).toContain('tabindex="0"');
+    expect(attributes).toContain('role="region"');
+  });
+
+  // The threads are read back from the database each time (a recategorised or
+  // removed thread must not linger in the digest), so a written digest can end
+  // up with nothing left to list. An empty scroller would still be a tab stop
+  // onto a region announcing nothing.
+  it("leaves out the scrollable region when the day lists no threads", async () => {
+    signedIn();
+    latestDailyDigest.mockResolvedValue({
+      day: DAY,
+      summary: "Dia tranquil.",
+      updatedAt: new Date("2026-08-19T06:00:00Z"),
+    });
+    collectDailyDigest.mockResolvedValue(emptyDigestContent());
+
+    const markup = await render();
+
+    expect(markup).toContain("<p>Dia tranquil.</p>");
+    expect(markup).not.toContain("digest-scroll");
   });
 
   // Reading a thread is the only thing the digest offers: the buttons that act
