@@ -90,11 +90,13 @@ export const DraftReviewStages = ({
       />
       {/* Botó i formularis germans i no imbricats: l'HTML no permet imbricar
           formularis, i cada botó envia només el seu camp. */}
-      <div className="row-actions" style={{ marginTop: 14 }}>
-        <button type="button" onClick={() => setStage("refine")}>
-          Refinar
-        </button>
-      </div>
+      <button
+        type="button"
+        style={{ marginTop: 14 }}
+        onClick={() => setStage("refine")}
+      >
+        Refinar
+      </button>
       {stage === "refine" && (
         <form action={regenerateDraftWithFeedback} style={{ marginTop: 14 }}>
           <input type="hidden" name="draftId" value={draftId} />

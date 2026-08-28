@@ -101,7 +101,14 @@ export default async function ThreadPage({
           // Reviewed in stages rather than all at once: which of the three
           // actions is on screen is state the browser holds, so the whole
           // pending branch belongs to a Client Component.
+          // Keyed on the thread, not the draft: which stage the reviewer is on
+          // belongs to the review of *this* thread. `/fils/[id]` is one route
+          // segment, so moving between two threads reconciles this component in
+          // place and would otherwise carry the previous thread's stage over —
+          // a draft regenerated within the thread keeps the same key, which is
+          // what lets the stage survive it.
           <DraftReviewStages
+            key={thread.id}
             draftId={draft.id}
             options={draft.options}
             approveDraft={approveDraft}
