@@ -21,6 +21,7 @@ Nucli (sempre actiu):
 - **Triatge automàtic**: cada fil de correu nou es classifica en una de 6 categories fixes (§4).
 - **Esborranys de resposta**: per a fils que ho necessiten, es genera un esborrany de resposta que l'usuari revisa al dashboard.
 - **Digest diari**: resum dins del dashboard (no per correu) dels fils processats el dia.
+- **Adjunts**: a la vista d'un fil, cada missatge llista els fitxers que li han arribat, amb previsualització dels tipus que el navegador pinta sense executar-los (imatges, PDF) i descàrrega de qualsevol. Només se'n desen les metadades: els bytes es demanen al proveïdor en el moment de servir-los (§7).
 
 Opcional, granular per categoria:
 
@@ -38,7 +39,7 @@ Flux d'aprovació d'un esborrany:
 No implementar ara, però no descartat — apuntat aquí perquè no es perdi:
 
 - Base de coneixement / context d'empresa (to de veu, FAQ, info de productes) injectat als esborranys — probablement via RAG. El PoC redacta amb el contingut del fil sol.
-- Processament d'adjunts **rebuts** (PDFs, imatges) — adjuntar documents a una resposta que surt sí que hi és (§2).
+- Processament d'adjunts amb IA: llegir el contingut d'un PDF o d'una imatge per a triar el fil o per a redactar-ne l'esborrany. Llistar els adjunts rebuts, previsualitzar-los i descarregar-los, i adjuntar documents a una resposta que surt, sí que hi és (§2).
 - Categories configurables per l'usuari (el PoC usa la taxonomia fixa de §4).
 - Multi-tenant real: signup, onboarding d'altres empreses, facturació.
 - Push/webhooks en temps real (Gmail Pub/Sub, Microsoft Graph webhooks) en lloc de polling.
@@ -89,9 +90,10 @@ Separació de model per tasca:
 
 ## 7. Model de dades i retenció
 
-Entitats principals (esquema Drizzle sobre Postgres): `Tenant`, `User` (login via Auth.js), `MailboxAccount` (proveïdor, tokens OAuth xifrats, per tenant), `Thread`, `Message`, `Draft`, `AutoReplyRule` (per categoria, per tenant), `AuditLogEntry`.
+Entitats principals (esquema Drizzle sobre Postgres): `Tenant`, `User` (login via Auth.js), `MailboxAccount` (proveïdor, tokens OAuth xifrats, per tenant), `Thread`, `Message`, `MessageAttachment` (metadades d'un adjunt), `Draft`, `AutoReplyRule` (per categoria, per tenant), `AuditLogEntry`.
 
 - **`tenant_id` present des del principi** a totes les taules multi-tenant, encara que el PoC només tingui un tenant — evita una migració dolorosa quan arribi el segon client.
+- **Dels adjunts, només les metadades** (nom, mida, `mimeType` i l'identificador del proveïdor): els bytes no es desen mai, ni a BD ni a disc. Quan el dashboard n'ha de servir un, el baixa del proveïdor en aquell moment amb el token de la bústia. Guardar-los costaria emmagatzematge que el PoC no té (§10) i duplicaria dades que el proveïdor ja custodia.
 - **Cos complet del correu emmagatzemat** a BD (no es recupera en directe de l'API cada vegada — més lent i consumeix quota). **Retenció: 90 dies**, després es purga a una versió esquemàtica (metadades + categoria + resum), configurable per tenant en el futur (no al PoC).
 - **Xifratge a nivell d'aplicació** només per als **tokens OAuth** (credencial d'accés directe al correu — el risc més crític). El cos del correu queda cobert pel xifratge de disc per defecte de Neon; xifrar-lo també a nivell d'aplicació és desproporcionat per al PoC.
 - **Audit log**: cada acció rellevant (correu classificat, esborrany generat, aprovat/rebutjat/regenerat, auto-resposta enviada) es registra — per poder respondre "per què es va enviar aquest correu" davant d'un client real.
@@ -205,7 +207,7 @@ Resolt durant la sessió de grilling (50 preguntes) que ha donat forma a aquest 
 | Idioma del dashboard | Català |
 | Models d'IA | Haiku (triatge) + Sonnet (redacció/digest) |
 | Autenticació del dashboard | Auth.js complet des del PoC |
-| Adjunts | Fora d'abast al PoC |
+| Adjunts | Metadades a BD i bytes servits a demanda des del proveïdor; processar-ne el contingut amb IA, fora d'abast |
 | Xifratge en repòs | Nivell aplicació només per tokens OAuth |
 | Secrets de CI | Nous i separats de Reviu |
 | Plugin caveman a CI | Mantingut |

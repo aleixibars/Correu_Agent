@@ -5,6 +5,26 @@
 /** Mail the mailbox received vs. mail it sent; mirrors `messageDirectionEnum`. */
 export type MailMessageDirection = "inbound" | "outbound";
 
+/**
+ * One file that travelled with a message. Only its metadata crosses this
+ * boundary: the bytes are never polled and never stored, they are fetched from
+ * the provider when the dashboard actually asks for them (context.md §7 — a PoC
+ * at €0/month does not pay to keep a copy of every attachment).
+ */
+export interface ProviderAttachment {
+  /** The provider's handle for the bytes: Gmail `body.attachmentId`, Graph attachment id. */
+  providerAttachmentId: string;
+  filename: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  /**
+   * A part the mail embeds inside its own body (a signature logo), rather than
+   * a file the sender attached. Listed apart so the thread view is not buried
+   * under the images of every signature.
+   */
+  inline: boolean;
+}
+
 /** One message as the provider reports it, ready to be persisted (context.md §7). */
 export interface ProviderMessage {
   providerMessageId: string;
@@ -22,6 +42,7 @@ export interface ProviderMessage {
   snippet: string | null;
   bodyText: string | null;
   bodyHtml: string | null;
+  attachments: ProviderAttachment[];
   sentAt: Date | null;
 }
 
@@ -87,6 +108,23 @@ export interface SentReply {
   providerMessageId: string;
   /** The `Message-ID` the provider stamped; null when it does not report one. */
   messageIdHeader: string | null;
+}
+
+/** Which attachment of which message the bytes are wanted for. */
+export interface AttachmentRef {
+  providerMessageId: string;
+  providerAttachmentId: string;
+}
+
+/**
+ * Fetching the bytes of one attachment on demand, so the dashboard can preview
+ * or download it without the product ever storing it. Kept apart from
+ * `MailProviderClient` for the same reason `MailSenderClient` is: polling is
+ * the worker's job, serving an attachment is the dashboard's.
+ */
+export interface MailAttachmentClient {
+  /** `null` when the provider no longer has it — a deleted mail is not an error. */
+  fetchAttachment(ref: AttachmentRef): Promise<Uint8Array | null>;
 }
 
 /**

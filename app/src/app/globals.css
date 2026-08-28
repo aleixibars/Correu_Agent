@@ -452,6 +452,39 @@ input[type="file"] {
   cursor: pointer;
 }
 
+/* Compte enrere abans d'enviar un esborrany (DraftOptionsForm): tapa la
+   pantalla perquè el botó de cancel·lar sigui l'única cosa a mà mentre corren
+   els segons. */
+.countdown-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 22, 24, 0.55);
+}
+
+.countdown {
+  background: var(--paper-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 24px 26px;
+  max-width: 26rem;
+  text-align: center;
+}
+
+.countdown h2 {
+  margin: 0 0 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.countdown p {
+  margin: 0 0 18px;
+  color: var(--ink-soft);
+}
+
 /* Checkbox rendered as a settings switch. */
 .switch-row {
   display: flex;
@@ -622,6 +655,49 @@ input[type="file"] {
 .message__body {
   white-space: pre-wrap;
   margin: 0;
+}
+
+/* ── Adjunts ───────────────────────────────────────────────────────────── */
+
+.attachments {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+
+.attachments__title {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+  margin: 0 0 6px;
+}
+
+.attachments__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.attachments__list li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.attachments__size {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+}
+
+.attachments__download {
+  font-size: 0.8rem;
 }
 
 /* ── Digest ────────────────────────────────────────────────────────────── */

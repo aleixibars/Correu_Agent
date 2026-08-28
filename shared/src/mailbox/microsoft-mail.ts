@@ -3,8 +3,11 @@
 // this client so Gmail and Graph stay swappable behind one message shape.
 
 import type {
+  AttachmentRef,
+  MailAttachmentClient,
   MailSenderClient,
   OutgoingReply,
+  ProviderAttachment,
   ProviderMessage,
   ReplyAttachment,
   SentReply,
@@ -19,7 +22,17 @@ const MESSAGES_URL = `${GRAPH_BASE_URL}/me/messages`;
  * so persisting it does not cost a second Graph call per message.
  */
 const MESSAGE_FIELDS =
-  "id,conversationId,internetMessageId,subject,receivedDateTime,isDraft,from,sender,toRecipients,ccRecipients,bodyPreview,body";
+  "id,conversationId,internetMessageId,subject,receivedDateTime,isDraft,from,sender,toRecipients,ccRecipients,bodyPreview,body,hasAttachments";
+
+/**
+ * What an attachment row needs (context.md §7): the metadata alone. `$select`
+ * matters more here than elsewhere — without it Graph hands back `contentBytes`
+ * for every file, which is the one thing this product deliberately never keeps.
+ */
+const ATTACHMENT_FIELDS = "id,name,contentType,size,isInline";
+
+/** The only attachment kind whose bytes Graph can serve; the others are links or nested mail. */
+const FILE_ATTACHMENT_TYPE = "#microsoft.graph.fileAttachment";
 
 interface GraphRecipient {
   emailAddress?: { address?: string | null } | null;
@@ -38,8 +51,18 @@ interface GraphMessage {
   ccRecipients?: GraphRecipient[];
   bodyPreview?: string | null;
   body?: { contentType?: string | null; content?: string | null } | null;
+  hasAttachments?: boolean;
   /** Present on a delta entry that reports a deletion rather than a message. */
   "@removed"?: { reason?: string };
+}
+
+interface GraphAttachment {
+  "@odata.type"?: string;
+  id?: string;
+  name?: string | null;
+  contentType?: string | null;
+  size?: number | null;
+  isInline?: boolean;
 }
 
 /** The error envelope Graph answers a refused request with, on any endpoint. */
@@ -47,8 +70,8 @@ interface GraphError {
   error?: { code?: string; message?: string };
 }
 
-interface GraphPage extends GraphError {
-  value?: GraphMessage[];
+interface GraphPage<T = GraphMessage> extends GraphError {
+  value?: T[];
   "@odata.nextLink"?: string;
   "@odata.deltaLink"?: string;
 }
@@ -93,18 +116,18 @@ const requestFailed = (status: number, body: GraphError | null): Error =>
     }`,
   );
 
-const readPage = async (
+const readPage = async <T = GraphMessage>(
   url: string,
   accessToken: string,
   fetch: typeof globalThis.fetch,
-): Promise<GraphPage> => {
+): Promise<GraphPage<T>> => {
   const response = await fetch(url, {
     headers: { authorization: `Bearer ${accessToken}` },
   });
 
-  let body: GraphPage;
+  let body: GraphPage<T>;
   try {
-    body = (await response.json()) as GraphPage;
+    body = (await response.json()) as GraphPage<T>;
   } catch {
     throw nonJsonError(response.status);
   }
@@ -123,6 +146,42 @@ const addresses = (recipients: GraphRecipient[] | undefined): string[] =>
   (recipients ?? [])
     .map(address)
     .filter((value): value is string => value !== null);
+
+/**
+ * The files attached to one message, metadata only. Graph does not carry them
+ * in the delta or the list, so this is a call per message that has any — the
+ * price of not storing a copy of every attachment (context.md §7).
+ */
+const readAttachments = async (
+  providerMessageId: string,
+  { accessToken, fetch }: { accessToken: string; fetch: typeof globalThis.fetch },
+): Promise<ProviderAttachment[]> => {
+  const page = await readPage<GraphAttachment>(
+    `${MESSAGES_URL}/${encodeURIComponent(providerMessageId)}/attachments?${query({
+      $select: ATTACHMENT_FIELDS,
+    })}`,
+    accessToken,
+    fetch,
+  );
+
+  const attachments: ProviderAttachment[] = [];
+  for (const attachment of page.value ?? []) {
+    // A reference attachment is a link to a file in OneDrive and an item
+    // attachment is a mail inside a mail: neither has bytes to download, so
+    // listing them would only offer the reader a button that cannot work.
+    if (attachment["@odata.type"] !== FILE_ATTACHMENT_TYPE || !attachment.id) {
+      continue;
+    }
+    attachments.push({
+      providerAttachmentId: attachment.id,
+      filename: attachment.name ?? attachment.id,
+      mimeType: attachment.contentType ?? null,
+      sizeBytes: attachment.size ?? null,
+      inline: attachment.isInline ?? false,
+    });
+  }
+  return attachments;
+};
 
 const toProviderMessage = (
   message: GraphMessage,
@@ -159,6 +218,9 @@ const toProviderMessage = (
     snippet: message.bodyPreview ?? null,
     bodyText: isHtml ? null : content,
     bodyHtml: isHtml ? content : null,
+    // Filled in by `readCollection`, which is where a second Graph call can be
+    // made; this one only reshapes what the page already carried.
+    attachments: [],
     // Graph dates a message by when the mailbox received it, which is the
     // instant the thread is ordered by.
     sentAt: receivedAt,
@@ -187,7 +249,19 @@ const readCollection = async (
     const page: GraphPage = await readPage(next, accessToken, fetch);
     for (const message of page.value ?? []) {
       const parsed = toProviderMessage(message, since);
-      if (parsed) messages.set(parsed.providerMessageId, parsed);
+      if (!parsed) continue;
+      // Only a flat `false` is taken as "no files": a delta link minted before
+      // `hasAttachments` joined `$select` keeps the old projection for as long
+      // as it is followed, and Graph answers those pages without the field.
+      // Reading `undefined` as "none" would leave a mailbox connected before
+      // this change listing no attachment ever, without ever failing.
+      if (message.hasAttachments !== false) {
+        parsed.attachments = await readAttachments(parsed.providerMessageId, {
+          accessToken,
+          fetch,
+        });
+      }
+      messages.set(parsed.providerMessageId, parsed);
     }
     deltaLink = page["@odata.deltaLink"] ?? deltaLink;
     next = page["@odata.nextLink"];
@@ -260,6 +334,45 @@ const sortedByArrival = (
   [...messages.values()].sort(
     (a, b) => (a.sentAt?.getTime() ?? 0) - (b.sentAt?.getTime() ?? 0),
   );
+
+/**
+ * Reads the bytes of one attachment out of the mailbox, on demand — the mirror
+ * of `createGmailAttachmentReader`. `/$value` answers with the file itself
+ * rather than with the JSON envelope every other Graph endpoint uses.
+ */
+export const createMicrosoftAttachmentReader = ({
+  accessToken,
+  fetch = globalThis.fetch,
+}: {
+  accessToken: string;
+  fetch?: typeof globalThis.fetch;
+}): MailAttachmentClient => ({
+  async fetchAttachment({
+    providerMessageId,
+    providerAttachmentId,
+  }: AttachmentRef): Promise<Uint8Array | null> {
+    const response = await fetch(
+      `${MESSAGES_URL}/${encodeURIComponent(providerMessageId)}/attachments/${encodeURIComponent(
+        providerAttachmentId,
+      )}/$value`,
+      { headers: { authorization: `Bearer ${accessToken}` } },
+    );
+
+    // The mail was deleted since it was polled — nothing to serve, not a fault.
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      let body: GraphError | null = null;
+      try {
+        body = (await response.json()) as GraphError;
+      } catch {
+        body = null;
+      }
+      throw requestFailed(response.status, body);
+    }
+
+    return new Uint8Array(await response.arrayBuffer());
+  },
+});
 
 /**
  * A Graph request that writes. `readPage` is for enumerating the inbox; this one

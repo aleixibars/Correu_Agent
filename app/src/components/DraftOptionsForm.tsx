@@ -1,24 +1,35 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { DraftOption } from "@correu-agent/shared/db/schema";
 import {
   MAX_ATTACHMENTS_BYTES,
   MAX_ATTACHMENTS_LABEL,
 } from "../lib/mailbox/reply-attachments";
 
+/** Els segons de marge per penedir-se d'un "Enviar" abans que el correu
+ * surti de debò cap al proveïdor. */
+const COUNTDOWN_SECONDS = 7;
+
 /**
  * El formulari d'enviament d'un esborrany (context.md §2): quan el model ha
  * escrit més d'una opció (p.ex. una resposta afirmativa i una de negativa),
  * un selector deixa triar-ne una abans d'editar-la — en triar, el text de
  * l'àrea editable es substitueix pel de l'opció triada. Component de client
- * perquè el selector necessita estat local; l'acció de submit segueix sent el
- * Server Action que rep el formulari com a prop.
+ * perquè el selector necessita estat local; qui envia de debò segueix sent el
+ * Server Action que rep com a prop.
+ *
+ * Enviar no envia a l'acte: obre un compte enrere de 7 segons amb un botó de
+ * cancel·lar, i només quan arriba a zero es crida el Server Action. Tot el
+ * marge passa al navegador — si es cancel·la, no surt cap petició i l'esborrany
+ * es queda tal com estava. Un cop disparat, el formulari es queda blocat fins
+ * que la pàgina es refresca sola; només si l'enviament falla es torna a obrir.
  *
  * Els fitxers triats surten adjunts a la resposta i no es desen enlloc: viuen
  * de l'enviament del formulari fins que el proveïdor té el correu. La mida es
- * comprova aquí per avisar abans d'intentar-ho — qui decideix de debò és el
- * Server Action, que torna a comptar-la.
+ * comprova aquí per avisar abans d'intentar-ho — i, si se'n va, ni tan sols
+ * s'obre el compte enrere. Qui decideix de debò és el Server Action, que torna
+ * a comptar-la.
  */
 export const DraftOptionsForm = ({
   draftId,
@@ -27,76 +38,209 @@ export const DraftOptionsForm = ({
 }: {
   draftId: string;
   options: DraftOption[];
-  approveDraft: (formData: FormData) => void;
+  approveDraft: (formData: FormData) => void | Promise<void>;
 }) => {
   const [selected, setSelected] = useState(0);
   const [body, setBody] = useState(options[0]?.body ?? "");
   const [attachedBytes, setAttachedBytes] = useState(0);
   const tooLarge = attachedBytes > MAX_ATTACHMENTS_BYTES;
+  // El que s'enviarà quan s'acabi el compte enrere, capturat en clicar: el
+  // formulari podria canviar mentre corren els segons.
+  const pending = useRef<FormData | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
+  const counting = secondsLeft !== null;
+  // Un cop disparat l'enviament el formulari es queda blocat: enviar de debò
+  // triga (el proveïdor, i després la revalidació que desmunta el formulari), i
+  // un segon clic en aquesta estona és un segon correu al remitent.
+  const [sending, setSending] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const approveButton = useRef<HTMLButtonElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
+  // Cancel·lar ha de tornar el focus al botó d'enviar, però encara està
+  // deshabilitat mentre es pinta aquest mateix render: es fa un cop tancat.
+  const restoreFocus = useRef(false);
+
+  const cancel = useCallback(() => {
+    pending.current = null;
+    restoreFocus.current = true;
+    setSecondsLeft(null);
+  }, []);
+
+  useEffect(() => {
+    if (!counting) return;
+    const timer = setInterval(() => {
+      // Aturat a zero i no per sota: si el navegador va carregat, dos tics
+      // poden arribar abans que l'efecte de sota s'executi, i un compte enrere
+      // en negatiu no dispararia mai l'enviament.
+      setSecondsLeft((left) => (left === null ? null : Math.max(left - 1, 0)));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [counting]);
+
+  useEffect(() => {
+    if (secondsLeft !== 0) return;
+    const formData = pending.current;
+    pending.current = null;
+    setSecondsLeft(null);
+    if (formData === null) return;
+    setSending(true);
+    void (async () => {
+      try {
+        await approveDraft(formData);
+      } catch {
+        // El correu no ha sortit: es torna a deixar clicar, dit clarament, en
+        // comptes de deixar el formulari blocat per sempre sense explicació.
+        setSending(false);
+        setFailed(true);
+      }
+    })();
+  }, [secondsLeft, approveDraft]);
+
+  useEffect(() => {
+    if (counting || !restoreFocus.current) return;
+    restoreFocus.current = false;
+    approveButton.current?.focus();
+  }, [counting]);
+
+  useEffect(() => {
+    if (!counting) return;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      // Escapada com a segona sortida del pop-up: qui es penedeix amb el teclat
+      // no hauria de dependre d'arribar al botó a temps.
+      if (event.key === "Escape") {
+        cancel();
+        return;
+      }
+      // El fons queda tapat, i el tabulador no l'ha de poder recórrer: mentre
+      // corren els segons, l'únic que hi ha a mà és cancel·lar.
+      if (event.key === "Tab") {
+        event.preventDefault();
+        cancelButton.current?.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [counting, cancel]);
 
   return (
-    // Sense `multipart/form-data` el navegador enviaria només el nom del fitxer,
-    // no el fitxer.
-    <form action={approveDraft} encType="multipart/form-data">
-      <input type="hidden" name="draftId" value={draftId} />
-      {options.length > 1 && (
-        <fieldset className="draft-options">
-          <legend>Tria una resposta</legend>
-          {options.map((option, index) => (
-            <label key={index} className="draft-option">
-              <input
-                type="radio"
-                name="draftOption"
-                checked={selected === index}
-                onChange={() => {
-                  setSelected(index);
-                  setBody(option.body);
-                }}
-              />
-              {option.label}
-            </label>
-          ))}
-        </fieldset>
+    <>
+      {/* Sense `action`: qui crida el Server Action és el compte enrere, mai el
+          submit. Un `action` de recanvi per a navegadors sense JavaScript
+          enviaria el correu a l'acte i sense marge per cancel·lar-lo — i tampoc
+          seria abastable, perquè el formulari només es pinta quan
+          `DraftReviewStages` ja ha passat a l'etapa de resposta, que és estat
+          del navegador. Els fitxers hi viatgen igualment: el `FormData` el
+          construeix el navegador a partir del formulari, no una codificació
+          d'enviament nadiu que no arriba a passar mai. */}
+      <form
+        onSubmit={(event) => {
+          // Res surt encara: només s'apunta què s'enviaria d'aquí a 7 segons.
+          event.preventDefault();
+          pending.current = new FormData(event.currentTarget);
+          setFailed(false);
+          setSecondsLeft(COUNTDOWN_SECONDS);
+        }}
+      >
+        <input type="hidden" name="draftId" value={draftId} />
+        {options.length > 1 && (
+          <fieldset className="draft-options">
+            <legend>Tria una resposta</legend>
+            {options.map((option, index) => (
+              <label key={index} className="draft-option">
+                <input
+                  type="radio"
+                  name="draftOption"
+                  checked={selected === index}
+                  onChange={() => {
+                    setSelected(index);
+                    setBody(option.body);
+                  }}
+                />
+                {option.label}
+              </label>
+            ))}
+          </fieldset>
+        )}
+        <div className="field">
+          <label htmlFor="body">Text de la resposta</label>
+          <textarea
+            id="body"
+            name="body"
+            rows={12}
+            required
+            value={body}
+            onChange={(event) => setBody(event.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="attachments">
+            Adjunta documents (opcional, fins a {MAX_ATTACHMENTS_LABEL} en
+            total)
+          </label>
+          <input
+            id="attachments"
+            type="file"
+            name="attachments"
+            multiple
+            onChange={(event) =>
+              setAttachedBytes(
+                [...(event.target.files ?? [])].reduce(
+                  (bytes, file) => bytes + file.size,
+                  0,
+                ),
+              )
+            }
+          />
+        </div>
+        {tooLarge && (
+          <p role="alert" className="draft-attachments__alert">
+            Els documents adjunts sumen més de {MAX_ATTACHMENTS_LABEL}. Treu-ne
+            algun o envia&apos;ls per separat: el correu no sortiria.
+          </p>
+        )}
+        <button
+          ref={approveButton}
+          type="submit"
+          className="btn-primary"
+          disabled={tooLarge || counting || sending}
+        >
+          {sending ? "Enviant…" : "Enviar"}
+        </button>
+        {failed && (
+          <p role="alert">
+            No s&apos;ha pogut enviar la resposta. L&apos;esborrany segueix
+            pendent: torna-ho a provar.
+          </p>
+        )}
+      </form>
+
+      {secondsLeft !== null && (
+        <div className="countdown-backdrop">
+          <div
+            className="countdown"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="countdown-title"
+          >
+            <h2 id="countdown-title">S&apos;enviarà en {secondsLeft} s</h2>
+            <p>
+              El correu sortirà sol quan s&apos;acabi el compte enrere. Encara
+              hi ets a temps.
+            </p>
+            {/* Enfocat d'entrada: cancel·lar ha de ser la primera cosa a mà,
+                també per a qui navega amb teclat. */}
+            <button
+              ref={cancelButton}
+              type="button"
+              className="btn-primary"
+              autoFocus
+              onClick={cancel}
+            >
+              Cancel·la
+            </button>
+          </div>
+        </div>
       )}
-      <div className="field">
-        <label htmlFor="body">Text de la resposta</label>
-        <textarea
-          id="body"
-          name="body"
-          rows={12}
-          required
-          value={body}
-          onChange={(event) => setBody(event.target.value)}
-        />
-      </div>
-      <div className="field">
-        <label htmlFor="attachments">
-          Adjunta documents (opcional, fins a {MAX_ATTACHMENTS_LABEL} en total)
-        </label>
-        <input
-          id="attachments"
-          type="file"
-          name="attachments"
-          multiple
-          onChange={(event) =>
-            setAttachedBytes(
-              [...(event.target.files ?? [])].reduce(
-                (bytes, file) => bytes + file.size,
-                0,
-              ),
-            )
-          }
-        />
-      </div>
-      {tooLarge && (
-        <p role="alert" className="draft-attachments__alert">
-          Els documents adjunts sumen més de {MAX_ATTACHMENTS_LABEL}. Treu-ne
-          algun o envia&apos;ls per separat: el correu no sortiria.
-        </p>
-      )}
-      <button type="submit" className="btn-primary" disabled={tooLarge}>
-        Enviar
-      </button>
-    </form>
+    </>
   );
 };
