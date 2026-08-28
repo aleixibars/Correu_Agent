@@ -1,6 +1,6 @@
 {
-  "id": "b9b5a685-2fc2-4b55-9f11-682a27ba936f",
-  "prevId": "f3c56672-bbae-4a47-aa4f-37c70f562df3",
+  "id": "6278f478-2ec2-416d-829b-572b3255ce68",
+  "prevId": "b9b5a685-2fc2-4b55-9f11-682a27ba936f",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -655,6 +655,27 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
+        },
+        "to_addresses": {
+          "name": "to_addresses",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
+        "cc_addresses": {
+          "name": "cc_addresses",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
+        "bcc_addresses": {
+          "name": "bcc_addresses",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
         },
         "feedback": {
           "name": "feedback",

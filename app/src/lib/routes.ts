@@ -21,3 +21,18 @@ export const DIGEST_PATH = "/digest";
 
 /** Where the per-category auto-reply switches are configured (context.md §2). */
 export const AUTO_REPLY_PATH = "/auto-resposta";
+
+/** What tells a download apart from a preview on `attachmentPath`. */
+export const ATTACHMENT_DOWNLOAD_PARAM = "descarrega";
+
+/**
+ * Where the browser asks for one attachment. Not a screen: the route is the way
+ * to bytes the provider still holds and the product deliberately never stores
+ * (context.md §7).
+ */
+export const attachmentPath = (attachmentId: string): string =>
+  `/api/adjunts/${encodeURIComponent(attachmentId)}`;
+
+/** The same attachment, asked for to be saved to disk rather than to be read here. */
+export const attachmentDownloadPath = (attachmentId: string): string =>
+  `${attachmentPath(attachmentId)}?${ATTACHMENT_DOWNLOAD_PARAM}=1`;

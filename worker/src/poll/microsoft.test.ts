@@ -37,6 +37,7 @@ const DELTA_PAGE = {
       from: { emailAddress: { address: "client@example.com" } },
       toRecipients: [{ emailAddress: { address: "bustia@example.com" } }],
       body: { contentType: "text", content: "Bon dia" },
+      hasAttachments: false,
     },
   ],
   "@odata.deltaLink": "https://delta/2",

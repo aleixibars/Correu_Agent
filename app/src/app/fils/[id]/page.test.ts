@@ -6,7 +6,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "next-auth";
-import { THREADS_PATH } from "../../../lib/routes";
+import {
+  THREADS_PATH,
+  attachmentDownloadPath,
+  attachmentPath,
+} from "../../../lib/routes";
 import { CATEGORY_LABELS } from "../../../lib/category-labels";
 import { TEST_TENANT_ID } from "../../../lib/auth/test-fixtures";
 import type { ThreadDetail } from "../../../lib/threads/thread-detail";
@@ -55,6 +59,7 @@ const detail = (overrides: Partial<ThreadDetail> = {}): ThreadDetail => ({
       bodyText: "Ens podeu passar el pressupost?",
       snippet: "Ens podeu passar",
       sentAt: new Date("2026-08-18T08:30:00Z"),
+      attachments: [],
     },
   ],
   draft: {
@@ -126,6 +131,64 @@ describe("ThreadPage", () => {
     });
 
     expect(await render()).toContain("Ens podeu passar");
+  });
+
+  describe("with attachments", () => {
+    const ATTACHMENT_ID = "99999999-9999-9999-9999-999999999999";
+
+    const withAttachments = (
+      attachments: ThreadDetail["messages"][number]["attachments"],
+    ): void => {
+      const base = detail();
+      loadThreadDetail.mockResolvedValue({
+        ...base,
+        messages: [{ ...base.messages[0]!, attachments }],
+      });
+    };
+
+    it("lists each attachment with its name, its size and a download", async () => {
+      signedIn();
+      withAttachments([
+        {
+          id: ATTACHMENT_ID,
+          filename: "pressupost.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 20480,
+        },
+      ]);
+
+      const markup = await render();
+
+      expect(markup).toContain("pressupost.pdf");
+      expect(markup).toContain("20 kB");
+      expect(markup).toContain(`href="${attachmentDownloadPath(ATTACHMENT_ID)}"`);
+      // A PDF opens inside the dashboard, without leaving the thread behind.
+      expect(markup).toContain(`href="${attachmentPath(ATTACHMENT_ID)}"`);
+    });
+
+    it("offers no preview of a type the browser would run", async () => {
+      signedIn();
+      withAttachments([
+        {
+          id: ATTACHMENT_ID,
+          filename: "factura.html",
+          mimeType: "text/html",
+          sizeBytes: null,
+        },
+      ]);
+
+      const markup = await render();
+
+      expect(markup).toContain("factura.html");
+      expect(markup).toContain(`href="${attachmentDownloadPath(ATTACHMENT_ID)}"`);
+      expect(markup).not.toContain(`href="${attachmentPath(ATTACHMENT_ID)}"`);
+    });
+
+    it("says nothing about attachments on a message without any", async () => {
+      signedIn();
+
+      expect(await render()).not.toContain("Adjunts");
+    });
   });
 
   // The thread opens in stages (issue #82): the mail and the choice between

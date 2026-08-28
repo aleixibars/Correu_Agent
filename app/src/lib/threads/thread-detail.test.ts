@@ -220,6 +220,70 @@ describe("loadThreadDetail", () => {
     });
   });
 
+  it("hangs each attachment on the message it arrived with", async () => {
+    const { db, statements } = recordingDatabase([
+      [threadRow()],
+      [],
+      // Newest first, as the query asks for them.
+      [
+        messageRow({ id: "msg-2", sentAt: "2026-08-18 08:30:00+00" }),
+        messageRow({ id: "msg-1", sentAt: "2026-08-17 08:30:00+00" }),
+      ],
+      [
+        ["att-1", "msg-2", "pressupost.pdf", "application/pdf", 20480],
+        ["att-2", "msg-1", "comandes.csv", "text/csv", null],
+      ],
+    ]);
+
+    const detail = await loadThreadDetail(db, {
+      tenantId: TENANT_ID,
+      threadId: THREAD_ID,
+    });
+
+    const { sql, params } = statements[3]!;
+    expect(sql).toContain('from "message_attachments"');
+    // Read for the mail of this thread alone, which is already tenant-checked.
+    expect(params).toEqual(expect.arrayContaining(["msg-1", "msg-2"]));
+    // Signature logos are embedded in the body, not files the sender attached.
+    expect(sql).toContain('"message_attachments"."inline" = ');
+    expect(detail?.messages.map(({ id, attachments }) => [id, attachments])).toEqual([
+      [
+        "msg-1",
+        [
+          {
+            id: "att-2",
+            filename: "comandes.csv",
+            mimeType: "text/csv",
+            sizeBytes: null,
+          },
+        ],
+      ],
+      [
+        "msg-2",
+        [
+          {
+            id: "att-1",
+            filename: "pressupost.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 20480,
+          },
+        ],
+      ],
+    ]);
+  });
+
+  it("does not read attachments for a thread with no mail left to show", async () => {
+    const { db, statements } = recordingDatabase([[threadRow()], [], []]);
+
+    const detail = await loadThreadDetail(db, {
+      tenantId: TENANT_ID,
+      threadId: THREAD_ID,
+    });
+
+    expect(detail?.messages).toEqual([]);
+    expect(statements).toHaveLength(3);
+  });
+
   // A regeneration supersedes the draft it replaces (context.md §2): showing it
   // would offer the user a text that is no longer the thread's answer.
   it("skips superseded drafts when reading the live one", async () => {
