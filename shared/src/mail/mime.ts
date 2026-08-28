@@ -117,16 +117,60 @@ const quotedFilename = (filename: string): string => {
 };
 
 /**
- * RFC 2231 §4: a parameter value that names its own charset and percent-encodes
- * everything a parameter may not carry bare. `encodeURIComponent` already
- * leaves only US-ASCII, but it spares `'*()`, which are the parameter syntax's
- * own characters rather than a filename's.
+ * A parameter value percent-encoded as RFC 2231 §4 asks: `encodeURIComponent`
+ * already leaves only US-ASCII, but it spares `'*()`, which are the parameter
+ * syntax's own characters rather than a filename's.
  */
-const extendedFilename = (filename: string): string =>
-  `UTF-8''${encodeURIComponent(singleLine(filename)).replace(
+const percentEncoded = (filename: string): string =>
+  encodeURIComponent(singleLine(filename)).replace(
     /['()*]/g,
     (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
-  )}`;
+  );
+
+/**
+ * How much of an encoded name one RFC 2231 §3 section carries. Short, because
+ * a section is the only place the header may be folded: percent-encoding
+ * leaves no space inside one to fold at.
+ */
+const MAX_PARAMETER_SECTION = 60;
+
+/**
+ * The sections an encoded value is written in. Cut between characters, never
+ * inside a `%XX` escape — half an escape is not a character any more.
+ */
+const parameterSections = (encoded: string): string[] => {
+  const sections: string[] = [];
+  let section = "";
+  for (const piece of encoded.match(/%[0-9A-F]{2}|[^%]/g) ?? []) {
+    if (section.length + piece.length > MAX_PARAMETER_SECTION) {
+      sections.push(section);
+      section = "";
+    }
+    section += piece;
+  }
+  if (section !== "") sections.push(section);
+  return sections;
+};
+
+/**
+ * RFC 2231 §4 `filename*`: a parameter value that names its own charset and
+ * percent-encodes everything a parameter may not carry bare.
+ *
+ * A long name is written in the numbered sections of RFC 2231 §3, only the
+ * first of them naming the charset. Sections are what give the header
+ * somewhere to fold: a 255-character accented name — a length every filesystem
+ * allows — writes a single parameter of some 1,500 characters, and a header
+ * line past the 998 RFC 5322 §2.1.1 allows is one an MTA may refuse.
+ */
+const extendedFilename = (filename: string): string => {
+  const sections = parameterSections(percentEncoded(filename));
+  if (sections.length <= 1) return `filename*=UTF-8''${sections[0] ?? ""}`;
+  return sections
+    .map((section, index) =>
+      index === 0 ? `filename*0*=UTF-8''${section}` : `filename*${index}*=${section}`,
+    )
+    .join("; ");
+};
 
 /**
  * How a client is told what to call the file. An accented name also travels as
@@ -134,12 +178,15 @@ const extendedFilename = (filename: string): string =>
  * name — RFC 2047 §5 forbids an encoded word inside a quoted string, so the
  * quoted `filename` beside it is only the fallback for a client that reads
  * nothing else.
+ *
+ * Folded like every other header: a name long enough to run past the line
+ * limit is browser-supplied, so it is the ordinary case rather than the odd
+ * one.
  */
 const contentDisposition = (filename: string): string => {
-  const disposition = `Content-Disposition: attachment; filename=${quotedFilename(filename)}`;
-  return NON_ASCII.test(filename)
-    ? `${disposition}; filename*=${extendedFilename(filename)}`
-    : disposition;
+  const parameters = ["attachment", `filename=${quotedFilename(filename)}`];
+  if (NON_ASCII.test(filename)) parameters.push(extendedFilename(filename));
+  return foldHeader("Content-Disposition", parameters.join("; "));
 };
 
 /**
@@ -164,7 +211,10 @@ const bodyPart = (bodyText: string): string =>
  */
 const attachmentPart = (attachment: ReplyAttachment): string =>
   [
-    `Content-Type: ${mediaType(attachment.mimeType)}; name=${quotedFilename(attachment.filename)}`,
+    foldHeader(
+      "Content-Type",
+      `${mediaType(attachment.mimeType)}; name=${quotedFilename(attachment.filename)}`,
+    ),
     contentDisposition(attachment.filename),
     "Content-Transfer-Encoding: base64",
     "",

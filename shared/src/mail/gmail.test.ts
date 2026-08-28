@@ -511,7 +511,9 @@ const sentMime = (fetchMock: ReturnType<typeof gmailAccepts>) => {
 const part = (raw: string): { headers: string; content: Buffer } => {
   const separator = raw.indexOf("\r\n\r\n");
   return {
-    headers: raw.slice(0, separator),
+    // Unfolded, the way a receiving client reads them: a header naming a long
+    // file travels across lines like any other long header.
+    headers: unfold(raw.slice(0, separator)),
     content: Buffer.from(raw.slice(separator + 4), "base64"),
   };
 };
@@ -844,6 +846,39 @@ describe("createGmailSender", () => {
       'Content-Disposition: attachment; filename="pressupost.pdf"',
     );
     expect(attachment.headers).not.toContain("filename*=");
+  });
+
+  // 255 characters is a name every filesystem allows, and an accent doubles
+  // what encoding one costs: written on a single line the header runs past the
+  // 998 characters RFC 5322 §2.1.1 allows, which is a message an MTA may refuse.
+  it("writes a long accented filename in sections a header line can hold", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+    const filename = `${"\u00e0".repeat(251)}.pdf`;
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(
+      outgoingReply({
+        attachments: [
+          {
+            filename,
+            mimeType: "application/pdf",
+            content: Buffer.from("dades"),
+          },
+        ],
+      }),
+    );
+
+    const mime = sentRawMime(fetchMock);
+    expect(mime.split("\r\n").every((line) => line.length <= 998)).toBe(true);
+
+    // RFC 2231 §3 sections, only the first of them naming the charset; joined
+    // back together they are the name the user picked.
+    const { headers } = part(multipart(mime).parts[2]!.slice(2));
+    expect(headers).toContain("filename*0*=UTF-8''");
+    expect(headers).toContain("filename*1*=");
+    const sections = [...headers.matchAll(/filename\*\d+\*=(?:UTF-8'')?([^;\r\n]*)/g)];
+    expect(decodeURIComponent(sections.map(([, value]) => value).join(""))).toBe(
+      filename,
+    );
   });
 
   // The browser reports the type, so it is as untrusted as the name: anything
