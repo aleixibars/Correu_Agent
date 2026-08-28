@@ -26,7 +26,10 @@ export const DraftReviewStages = ({
 }: {
   draftId: string;
   options: DraftOption[];
-  approveDraft: (formData: FormData) => void;
+  // Enviar espera la resposta del proveïdor per poder avisar si falla
+  // (`DraftOptionsForm`), així que la promesa del Server Action ha d'arribar-hi
+  // sencera i no reduïda a `void` en passar per aquí.
+  approveDraft: (formData: FormData) => void | Promise<void>;
   rejectDraft: (formData: FormData) => void;
   regenerateDraftWithFeedback: (formData: FormData) => void;
 }) => {
