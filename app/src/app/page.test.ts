@@ -219,6 +219,69 @@ describe("HomePage", () => {
     expect(markup).toContain("Pressupost");
   });
 
+  // A digest with the threads of a busy day, all in one category.
+  const digestWith = (threads: DailyDigestContent["sections"][number]["threads"]): void => {
+    latestDailyDigest.mockResolvedValue({
+      day: DAY,
+      summary: "Dia tranquil.",
+      updatedAt: new Date("2026-08-19T06:00:00Z"),
+    });
+    collectDailyDigest.mockResolvedValue({
+      day: DAY,
+      threadCount: threads.length,
+      sections: [{ category: "comercial", threads }],
+    });
+  };
+
+  const digestThread = (id: string, subject: string) => ({
+    id,
+    subject,
+    category: "comercial" as const,
+    lastMessageAt: new Date("2026-08-19T15:47:00Z"),
+  });
+
+  // The digest is a day's recap, not the screen where anything gets decided:
+  // the hour of each thread's last message only belongs in the table above.
+  it("leaves the last message's time out of a digest thread", async () => {
+    signedIn();
+    digestWith([digestThread("t-2", "Pressupost")]);
+
+    const markup = await render();
+
+    expect(markup).toContain("Pressupost");
+    expect(markup).not.toContain("2026-08-19T15:47:00.000Z");
+    expect(markup).not.toContain("17:47");
+  });
+
+  // A day with many threads would otherwise stretch the home page without end,
+  // and a scroller a keyboard cannot focus hides the rows below the fold.
+  it("wraps the digest threads in a scrollable region a keyboard can reach", async () => {
+    signedIn();
+    digestWith([digestThread("t-2", "Pressupost")]);
+
+    const wrapper = /<div ([^>]*\bclass="digest-scroll")([^>]*)>/.exec(
+      await render(),
+    );
+
+    expect(wrapper).not.toBeNull();
+    expect(wrapper![1] + wrapper![2]).toContain('tabindex="0"');
+  });
+
+  // Reading a thread is the only thing the digest offers: the buttons that act
+  // on it (Respondre, Descarta) stay in the "Pendents i urgents" table.
+  it("links each digest thread to the thread itself, with no action buttons", async () => {
+    signedIn();
+    digestWith([digestThread("t-2", "Pressupost")]);
+
+    const markup = await render();
+
+    expect(markup).toContain(
+      `<a href="${threadPath("t-2")}">Pressupost</a>`,
+    );
+    expect(markup).not.toContain(">Descarta<");
+    expect(markup).not.toContain(">Respondre<");
+  });
+
   it("says so when no digest has been written yet", async () => {
     signedIn();
 
