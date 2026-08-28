@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { DraftOption } from "@correu-agent/shared/db/schema";
 
 /** How often the field is parked on the server while it is being edited. */
-export const AUTOSAVE_INTERVAL_MS = 60_000;
+const AUTOSAVE_INTERVAL_MS = 60_000;
 
 /**
  * El formulari d'aprovació d'un esborrany (context.md §2): quan el model ha
@@ -14,8 +14,9 @@ export const AUTOSAVE_INTERVAL_MS = 60_000;
  * perquè el selector necessita estat local; l'acció de submit segueix sent el
  * Server Action que rep el formulari com a prop.
  *
- * El text escrit s'autoguarda cada minut mentre l'esborrany segueix pendent, de
- * manera que tancar la pestanya o marxar del fil abans d'aprovar no el perd.
+ * El text escrit s'autoguarda cada minut mentre l'esborrany segueix pendent, i
+ * també en amagar la pestanya o marxar del fil, de manera que tancar-la abans
+ * d'aprovar no perd el que s'hagi escrit des de l'últim guardat.
  */
 export const DraftOptionsForm = ({
   draftId,
@@ -29,7 +30,7 @@ export const DraftOptionsForm = ({
   body: string;
   options: DraftOption[];
   approveDraft: (formData: FormData) => void;
-  saveDraftEdit: (formData: FormData) => void;
+  saveDraftEdit: (formData: FormData) => Promise<void>;
 }) => {
   // Cap opció marcada quan el text ja no és el de cap d'elles: qui ha reprès una
   // edició pròpia no ha triat cap de les respostes que va escriure el model.
@@ -45,7 +46,7 @@ export const DraftOptionsForm = ({
   const saved = useRef(savedBody);
 
   useEffect(() => {
-    const timer = setInterval(() => {
+    const save = (): void => {
       const text = current.current;
       // Res de nou per guardar: ni una escriptura per minut mentre el revisor
       // llegeix sense tocar res. Un camp buit tampoc es desa — deixaria el fil
@@ -53,18 +54,39 @@ export const DraftOptionsForm = ({
       if (text === saved.current || text.trim() === "") return;
       // Abans d'esperar la resposta, perquè el minut següent no torni a enviar
       // el mateix text si aquesta crida encara està en curs.
+      const previous = saved.current;
       saved.current = text;
 
       const form = new FormData();
       form.append("draftId", draftId);
       form.append("body", text);
-      saveDraftEdit(form);
-    }, AUTOSAVE_INTERVAL_MS);
+      // Un guardat que no arriba (xarxa caiguda, servidor que falla) torna a
+      // deixar el text per desar: si no, el minut següent el trobaria «ja
+      // guardat» i l'edició es perdria en silenci fins que el revisor tornés a
+      // teclejar.
+      saveDraftEdit(form).catch(() => {
+        if (saved.current === text) saved.current = previous;
+      });
+    };
 
-    return () => clearInterval(timer);
-    // L'esborrany aprovat, descartat o regenerat deixa d'estar pendent i la
-    // pàgina desmunta aquest formulari, que és el que atura el temporitzador;
-    // un guardat que hi arribi just després no escriu res (`saveDraftEdit`).
+    const timer = setInterval(save, AUTOSAVE_INTERVAL_MS);
+    // Amagar la pestanya és el més a prop d'un «me'n vaig» que el navegador
+    // avisa de manera fiable (tancar-la i canviar de pestanya hi passen tots
+    // dos): és aquí, i no a `beforeunload`, on el text s'acaba de guardar.
+    const saveOnLeaving = (): void => {
+      if (document.visibilityState === "hidden") save();
+    };
+    document.addEventListener("visibilitychange", saveOnLeaving);
+
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", saveOnLeaving);
+      // Marxar del fil dins del dashboard desmunta el formulari sense amagar la
+      // pestanya: el que s'hagi escrit des de l'últim guardat es desa aquí.
+      // L'esborrany aprovat, descartat o regenerat ja no està pendent, i un
+      // guardat que hi arribi no escriu res (`saveDraftEdit`).
+      save();
+    };
   }, [draftId, saveDraftEdit]);
 
   return (
