@@ -490,20 +490,23 @@ const gmailAccepts = (body: unknown, status = 200) => {
   return fetchMock;
 };
 
-/** The RFC 5322 message Gmail was handed, as it went out. */
-const sentRawMime = (fetchMock: ReturnType<typeof gmailAccepts>): string => {
+/** What Gmail's send endpoint was posted: the message, and the thread it joins. */
+const sentBody = (
+  fetchMock: ReturnType<typeof gmailAccepts>,
+): { raw: string; threadId: string } => {
   const init = fetchMock.mock.calls[0]![1] as RequestInit;
-  const sent = JSON.parse(String(init.body)) as { raw: string };
-  return Buffer.from(sent.raw, "base64url").toString("utf8");
+  return JSON.parse(String(init.body)) as { raw: string; threadId: string };
 };
 
+/** The RFC 5322 message Gmail was handed, as it went out. */
+const sentRawMime = (fetchMock: ReturnType<typeof gmailAccepts>): string =>
+  Buffer.from(sentBody(fetchMock).raw, "base64url").toString("utf8");
+
 const sentMime = (fetchMock: ReturnType<typeof gmailAccepts>) => {
-  const init = fetchMock.mock.calls[0]![1] as RequestInit;
-  const sent = JSON.parse(String(init.body)) as { raw: string; threadId: string };
   const mime = sentRawMime(fetchMock);
   const separator = mime.indexOf("\r\n\r\n");
   return {
-    threadId: sent.threadId,
+    threadId: sentBody(fetchMock).threadId,
     headers: mime.slice(0, separator),
     body: Buffer.from(mime.slice(separator + 4), "base64").toString("utf8"),
   };
@@ -881,6 +884,29 @@ describe("createGmailSender", () => {
     expect(decodeURIComponent(sections.map(([, value]) => value).join(""))).toBe(
       filename,
     );
+  });
+
+  // A browser may report the charset alongside the type. The essence is what
+  // names the file; the charset of an attachment travels in its encoding, so
+  // passing the parameter on would only cost the recipient the type.
+  it("keeps the essence of a type reported with parameters", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(
+      outgoingReply({
+        attachments: [
+          {
+            filename: "condicions.txt",
+            mimeType: "text/plain;charset=utf-8",
+            content: Buffer.from("condicions"),
+          },
+        ],
+      }),
+    );
+
+    const attachment = part(multipart(sentRawMime(fetchMock)).parts[2]!.slice(2));
+    expect(attachment.headers).toContain("Content-Type: text/plain;");
+    expect(attachment.headers).not.toContain("charset=utf-8");
   });
 
   // The browser reports the type, so it is as untrusted as the name: anything

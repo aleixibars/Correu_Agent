@@ -12,6 +12,7 @@ import type {
   ReplyAttachment,
   SentReply,
 } from "../mail/types";
+import { mediaType } from "../mail/mime";
 
 const GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0";
 const INBOX_URL = `${GRAPH_BASE_URL}/me/mailFolders/inbox/messages`;
@@ -418,6 +419,11 @@ const recipients = (addresses: string[]): GraphRecipient[] =>
  * an attachment resource of the draft rather than a part written by hand as on
  * the Gmail side — `@odata.type` is what tells Graph which kind of attachment
  * this is.
+ *
+ * The type goes through the same `mediaType` as the Gmail side: it is what the
+ * browser reported, so a file has to arrive as the same thing whichever mailbox
+ * it leaves through, and a string Graph refuses would fail the send after the
+ * draft has already been claimed.
  */
 const attachFile = async (
   draftId: string,
@@ -432,7 +438,7 @@ const attachFile = async (
     {
       "@odata.type": "#microsoft.graph.fileAttachment",
       name: attachment.filename,
-      contentType: attachment.mimeType,
+      contentType: mediaType(attachment.mimeType),
       contentBytes: Buffer.from(attachment.content).toString("base64"),
     },
   );

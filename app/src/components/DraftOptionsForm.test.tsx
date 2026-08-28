@@ -257,6 +257,23 @@ describe("DraftOptionsForm", () => {
     expect(input).toHaveProperty("multiple", true);
   });
 
+  // El selector ha de viure dins del mateix formulari que el compte enrere
+  // captura: si en quedés fora — el fil el pinta `DraftReviewStages`, amb més
+  // d'un formulari germà —, els fitxers no arribarien al Server Action i el
+  // correu sortiria sense adjunts sense dir-ho enlloc.
+  it("carries the file field in the FormData the countdown sends", () => {
+    show();
+
+    approve();
+    tick(7);
+
+    const formData = approveDraft.mock.calls[0]?.[0] as FormData;
+    // Un selector sense tocar hi posa una part buida, que `readReplyAttachments`
+    // descarta; el que es comprova aquí és que el camp hi viatja.
+    expect(formData.getAll("attachments")).toHaveLength(1);
+    expect(formData.get("attachments")).toBeInstanceOf(File);
+  });
+
   // La mida és el motiu pel qual un enviament pot fallar a mig camí, així que
   // el límit es diu abans d'escollir el fitxer, no després d'intentar-ho.
   it("says out loud how much a reply may carry", () => {

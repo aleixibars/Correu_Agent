@@ -98,12 +98,20 @@ const addressList = (addresses: string[]): string =>
 const MEDIA_TYPE = /^[\w!#$%&'*+.^`|~-]+\/[\w!#$%&'*+.^`|~-]+$/;
 
 /**
- * What the file says it is. The browser reports it and the user chose the file,
- * so it is untrusted text: anything that is not a media type is sent as
- * unspecified bytes rather than spliced into the part's headers.
+ * What the file says it is, as a media type a part header can carry. The
+ * browser reports it and the user chose the file, so it is untrusted text:
+ * anything that is not a media type is sent as unspecified bytes rather than
+ * spliced into the part's headers.
+ *
+ * Only the essence is kept — a browser may report `text/plain;charset=utf-8`,
+ * and the charset of an attachment travels in its encoding, not in a parameter
+ * we pass on. Exported because Graph is handed the same string in JSON, and a
+ * file has to arrive as the same type whichever mailbox it leaves through.
  */
-const mediaType = (mimeType: string): string =>
-  MEDIA_TYPE.test(mimeType) ? mimeType : "application/octet-stream";
+export const mediaType = (mimeType: string): string => {
+  const essence = mimeType.split(";")[0]!.trim();
+  return MEDIA_TYPE.test(essence) ? essence : "application/octet-stream";
+};
 
 /**
  * A filename inside a quoted header parameter. Line breaks go first — one would

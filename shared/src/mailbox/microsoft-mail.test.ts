@@ -336,6 +336,32 @@ describe("createMicrosoftSender", () => {
     expect(calls[3]!.url).toContain("/me/messages/reply-draft-1/send");
   });
 
+  // Graph is handed the type in JSON rather than in a header it writes, but it
+  // is still what the browser reported: the file has to arrive as the same type
+  // it would through Gmail, and a string Graph refuses would fail the send with
+  // the draft already claimed.
+  it("hands Graph the same media type the Gmail side would write", async () => {
+    const { fetch, calls } = stubFetch([
+      { body: { id: "reply-draft-1" } },
+      { body: { id: "attachment-1" } },
+      { status: 202, body: undefined },
+    ]);
+
+    await createMicrosoftSender({ accessToken: "access-token", fetch }).sendReply(
+      outgoingReply({
+        attachments: [
+          {
+            filename: "condicions.txt",
+            mimeType: "text/plain;charset=utf-8",
+            content: Buffer.from("condicions"),
+          },
+        ],
+      }),
+    );
+
+    expect(await calls[1]!.json()).toMatchObject({ contentType: "text/plain" });
+  });
+
   // A half-attached reply must not go out: the recipient would get a mail that
   // refers to a file that is not there.
   it("does not send the reply when a file cannot be attached", async () => {
