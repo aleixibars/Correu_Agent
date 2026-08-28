@@ -3,6 +3,7 @@ import {
   createMicrosoftSender,
   fetchMicrosoftNewMessages,
 } from "./microsoft-mail";
+import type { ReplyAttachment } from "../mail/types";
 
 const CONNECTED_AT = new Date("2026-01-01T00:00:00.000Z");
 
@@ -236,6 +237,7 @@ describe("fetchMicrosoftNewMessages", () => {
 });
 
 const outgoingReply = (overrides: Record<string, unknown> = {}) => ({
+  attachments: [] as ReplyAttachment[],
   fromAddress: "bustia@example.com",
   toAddresses: ["client@example.com"],
   ccAddresses: [] as string[],
@@ -284,6 +286,79 @@ describe("createMicrosoftSender", () => {
       providerMessageId: "reply-draft-1",
       messageIdHeader: "<reply-1@example.com>",
     });
+  });
+
+  it("attaches every file to the reply draft before sending it", async () => {
+    const { fetch, calls } = stubFetch([
+      { body: { id: "reply-draft-1", internetMessageId: "<reply-1@example.com>" } },
+      { body: { id: "attachment-1" } },
+      { body: { id: "attachment-2" } },
+      { status: 202, body: undefined },
+    ]);
+
+    await createMicrosoftSender({ accessToken: "access-token", fetch }).sendReply(
+      outgoingReply({
+        attachments: [
+          {
+            filename: "pressupost.pdf",
+            mimeType: "application/pdf",
+            content: Buffer.from("%PDF-1.4 pressupost"),
+          },
+          {
+            filename: "condicions.txt",
+            mimeType: "text/plain",
+            content: Buffer.from("condicions"),
+          },
+        ],
+      }),
+    );
+
+    // Graph builds the MIME itself, so the file travels as base64 in the
+    // attachment resource rather than as a part written by hand.
+    expect(calls[1]!.url).toContain("/me/messages/reply-draft-1/attachments");
+    expect(await calls[1]!.json()).toEqual({
+      "@odata.type": "#microsoft.graph.fileAttachment",
+      name: "pressupost.pdf",
+      contentType: "application/pdf",
+      contentBytes: Buffer.from("%PDF-1.4 pressupost").toString("base64"),
+    });
+    expect(await calls[2]!.json()).toEqual({
+      "@odata.type": "#microsoft.graph.fileAttachment",
+      name: "condicions.txt",
+      contentType: "text/plain",
+      contentBytes: Buffer.from("condicions").toString("base64"),
+    });
+    // The files are on the draft before it leaves: a send in between would post
+    // the reply without them.
+    expect(calls[3]!.url).toContain("/me/messages/reply-draft-1/send");
+  });
+
+  // A half-attached reply must not go out: the recipient would get a mail that
+  // refers to a file that is not there.
+  it("does not send the reply when a file cannot be attached", async () => {
+    const { fetch, calls } = stubFetch([
+      { body: { id: "reply-draft-1" } },
+      {
+        status: 413,
+        body: { error: { code: "ErrorMessageSizeExceeded", message: "Too large." } },
+      },
+    ]);
+
+    await expect(
+      createMicrosoftSender({ accessToken: "access-token", fetch }).sendReply(
+        outgoingReply({
+          attachments: [
+            {
+              filename: "pressupost.pdf",
+              mimeType: "application/pdf",
+              content: Buffer.from("%PDF-1.4 pressupost"),
+            },
+          ],
+        }),
+      ),
+    ).rejects.toThrow(/ErrorMessageSizeExceeded/);
+
+    expect(calls).toHaveLength(2);
   });
 
   it("fails loudly when Graph refuses to create the reply", async () => {

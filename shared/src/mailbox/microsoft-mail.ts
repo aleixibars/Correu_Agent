@@ -6,6 +6,7 @@ import type {
   MailSenderClient,
   OutgoingReply,
   ProviderMessage,
+  ReplyAttachment,
   SentReply,
 } from "../mail/types";
 
@@ -300,6 +301,31 @@ const recipients = (addresses: string[]): GraphRecipient[] =>
   addresses.map((address) => ({ emailAddress: { address } }));
 
 /**
+ * Puts one file on the reply draft. Graph writes the MIME itself, so a file is
+ * an attachment resource of the draft rather than a part written by hand as on
+ * the Gmail side — `@odata.type` is what tells Graph which kind of attachment
+ * this is.
+ */
+const attachFile = async (
+  draftId: string,
+  attachment: ReplyAttachment,
+  accessToken: string,
+  fetch: typeof globalThis.fetch,
+): Promise<void> => {
+  await graphPost(
+    `${MESSAGES_URL}/${encodeURIComponent(draftId)}/attachments`,
+    accessToken,
+    fetch,
+    {
+      "@odata.type": "#microsoft.graph.fileAttachment",
+      name: attachment.filename,
+      contentType: attachment.mimeType,
+      contentBytes: Buffer.from(attachment.content).toString("base64"),
+    },
+  );
+};
+
+/**
  * Sends the reply of an approved draft through Graph (context.md §2).
  *
  * Graph has no "send this MIME into that conversation" call, so the reply is
@@ -332,6 +358,13 @@ export const createMicrosoftSender = ({
 
     if (!draft.id) {
       throw new Error("Microsoft Graph created no reply draft to send.");
+    }
+
+    // Before the send, and one at a time: a file that Graph refuses has to stop
+    // the mail rather than let a reply go out referring to something the
+    // recipient never receives.
+    for (const attachment of reply.attachments) {
+      await attachFile(draft.id, attachment, accessToken, fetch);
     }
 
     await graphPost(

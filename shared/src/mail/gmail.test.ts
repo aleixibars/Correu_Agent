@@ -4,6 +4,7 @@ import {
   createGmailClient,
   createGmailSender,
 } from "./gmail";
+import type { ReplyAttachment } from "./types";
 
 const ACCESS_TOKEN = "access-1";
 
@@ -462,6 +463,7 @@ describe("createGmailClient().fetchMessagesSince", () => {
 });
 
 const outgoingReply = (overrides: Record<string, unknown> = {}) => ({
+  attachments: [] as ReplyAttachment[],
   fromAddress: "bustia@example.com",
   toAddresses: ["client@example.com"],
   ccAddresses: [] as string[],
@@ -486,16 +488,38 @@ const gmailAccepts = (body: unknown, status = 200) => {
   return fetchMock;
 };
 
+/** The RFC 5322 message Gmail was handed, as it went out. */
+const sentRawMime = (fetchMock: ReturnType<typeof gmailAccepts>): string => {
+  const init = fetchMock.mock.calls[0]![1] as RequestInit;
+  const sent = JSON.parse(String(init.body)) as { raw: string };
+  return Buffer.from(sent.raw, "base64url").toString("utf8");
+};
+
 const sentMime = (fetchMock: ReturnType<typeof gmailAccepts>) => {
   const init = fetchMock.mock.calls[0]![1] as RequestInit;
   const sent = JSON.parse(String(init.body)) as { raw: string; threadId: string };
-  const mime = Buffer.from(sent.raw, "base64url").toString("utf8");
+  const mime = sentRawMime(fetchMock);
   const separator = mime.indexOf("\r\n\r\n");
   return {
     threadId: sent.threadId,
     headers: mime.slice(0, separator),
     body: Buffer.from(mime.slice(separator + 4), "base64").toString("utf8"),
   };
+};
+
+/** One part of a multipart message, split into its headers and decoded content. */
+const part = (raw: string): { headers: string; content: Buffer } => {
+  const separator = raw.indexOf("\r\n\r\n");
+  return {
+    headers: raw.slice(0, separator),
+    content: Buffer.from(raw.slice(separator + 4), "base64"),
+  };
+};
+
+/** Splits a multipart body on the boundary its headers declare. */
+const multipart = (mime: string): { boundary: string; parts: string[] } => {
+  const boundary = /boundary="([^"]+)"/.exec(unfold(mime))?.[1] ?? "";
+  return { boundary, parts: mime.split(`--${boundary}`) };
 };
 
 /** Undoes RFC 5322 folding, the way a receiving client does before reading a header. */
@@ -612,6 +636,195 @@ describe("createGmailSender", () => {
     // RFC 2047 §2 caps an encoded word at 75 characters, wrapping included.
     for (const word of encoded.split(" ")) expect(word.length).toBeLessThanOrEqual(75);
     expect(decodeEncodedWords(encoded)).toBe(subject);
+  });
+
+  it("sends a reply carrying files as a multipart message", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(
+      outgoingReply({
+        attachments: [
+          {
+            filename: "pressupost.pdf",
+            mimeType: "application/pdf",
+            content: Buffer.from("%PDF-1.4 pressupost"),
+          },
+        ],
+      }),
+    );
+
+    const mime = sentRawMime(fetchMock);
+    const { boundary, parts } = multipart(mime);
+    // The declaration is longer than a line, so it travels folded (RFC 5322
+    // §2.2.3) exactly as a long `References` chain does.
+    expect(unfold(mime)).toContain(
+      `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    );
+    // Preamble, the text of the reply, the file, and the closing delimiter.
+    expect(parts).toHaveLength(4);
+    expect(parts[3]).toBe("--\r\n");
+
+    const body = part(parts[1]!.slice(2));
+    expect(body.headers).toContain('Content-Type: text/plain; charset="UTF-8"');
+    expect(body.headers).toContain("Content-Transfer-Encoding: base64");
+    expect(body.content.toString("utf8")).toBe(
+      "Bon dia,\r\n\r\nUs enviem el pressupost.",
+    );
+
+    const attachment = part(parts[2]!.slice(2));
+    expect(attachment.headers).toContain("Content-Type: application/pdf");
+    expect(attachment.headers).toContain(
+      'Content-Disposition: attachment; filename="pressupost.pdf"',
+    );
+    expect(attachment.headers).toContain("Content-Transfer-Encoding: base64");
+    expect(attachment.content.toString("utf8")).toBe("%PDF-1.4 pressupost");
+  });
+
+  it("sends every file the reply carries as a part of its own", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(
+      outgoingReply({
+        attachments: [
+          {
+            filename: "primer.txt",
+            mimeType: "text/plain",
+            content: Buffer.from("primer"),
+          },
+          {
+            filename: "segon.txt",
+            mimeType: "text/plain",
+            content: Buffer.from("segon"),
+          },
+        ],
+      }),
+    );
+
+    const { parts } = multipart(sentRawMime(fetchMock));
+    // Preamble, the text, the two files, and the closing delimiter.
+    expect(parts).toHaveLength(5);
+    expect(part(parts[2]!.slice(2)).content.toString("utf8")).toBe("primer");
+    expect(part(parts[3]!.slice(2)).content.toString("utf8")).toBe("segon");
+  });
+
+  // Binary content is what an attachment usually is: a PDF or an image survives
+  // only if the part is base64 of the bytes, not of some decoding of them.
+  it("keeps the bytes of a binary file exactly as they came in", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+    const content = Buffer.from([0x00, 0xff, 0x10, 0x80, 0x0a, 0x0d, 0xc3]);
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(
+      outgoingReply({
+        attachments: [
+          { filename: "logo.png", mimeType: "image/png", content },
+        ],
+      }),
+    );
+
+    const { parts } = multipart(sentRawMime(fetchMock));
+    expect(part(parts[2]!.slice(2)).content.equals(content)).toBe(true);
+  });
+
+  // RFC 2045 §6.8: no line of a base64 body may run past 76 characters.
+  it("folds the base64 of a file into lines a receiving MTA accepts", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(
+      outgoingReply({
+        attachments: [
+          {
+            filename: "llarg.txt",
+            mimeType: "text/plain",
+            content: Buffer.alloc(5000, "a"),
+          },
+        ],
+      }),
+    );
+
+    const { parts } = multipart(sentRawMime(fetchMock));
+    const lines = parts[2]!.split("\r\n");
+    expect(lines.every((line) => line.length <= 76)).toBe(true);
+  });
+
+  // A filename is browser-supplied text: a line break in it would end the part
+  // headers and let the rest be read as headers, or as a part, of its own.
+  it("does not let a filename open a header of its own", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(
+      outgoingReply({
+        attachments: [
+          {
+            filename: 'factura\r\nBcc: tercer@example.com\r\n\r\n"x".pdf',
+            mimeType: "application/pdf",
+            content: Buffer.from("dades"),
+          },
+        ],
+      }),
+    );
+
+    const mime = sentRawMime(fetchMock);
+    expect(mime.split("\r\n").some((line) => line.startsWith("Bcc:"))).toBe(false);
+    const attachment = part(multipart(mime).parts[2]!.slice(2));
+    expect(attachment.content.toString("utf8")).toBe("dades");
+    expect(attachment.headers).toContain(
+      'filename="factura Bcc: tercer@example.com \\"x\\".pdf"',
+    );
+  });
+
+  // An accented filename cannot travel as it stands in a US-ASCII header.
+  it("encodes an accented filename as an RFC 2047 word", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(
+      outgoingReply({
+        attachments: [
+          {
+            filename: "informaci\u00f3.pdf",
+            mimeType: "application/pdf",
+            content: Buffer.from("dades"),
+          },
+        ],
+      }),
+    );
+
+    const attachment = part(multipart(sentRawMime(fetchMock)).parts[2]!.slice(2));
+    expect(attachment.headers).toContain('filename="=?UTF-8?B?');
+    expect(attachment.headers).not.toContain("informaci\u00f3");
+  });
+
+  // The browser reports the type, so it is as untrusted as the name: anything
+  // that is not a media type is sent as unspecified bytes.
+  it("falls back to octet-stream when the reported type is not a media type", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(
+      outgoingReply({
+        attachments: [
+          {
+            filename: "dades.bin",
+            mimeType: "text/plain\r\nContent-Disposition: inline",
+            content: Buffer.from("dades"),
+          },
+        ],
+      }),
+    );
+
+    const attachment = part(multipart(sentRawMime(fetchMock)).parts[2]!.slice(2));
+    expect(attachment.headers).toContain("Content-Type: application/octet-stream");
+    expect(attachment.headers).not.toContain("Content-Disposition: inline");
+  });
+
+  // A reply with nothing attached stays the plain message it was: a multipart
+  // wrapper around a single text part is noise every client has to unwrap.
+  it("sends a reply with no files as a single text part", async () => {
+    const fetchMock = gmailAccepts({ id: "sent-1" });
+
+    await createGmailSender(ACCESS_TOKEN).sendReply(outgoingReply());
+
+    const mime = sentRawMime(fetchMock);
+    expect(mime).toContain('Content-Type: text/plain; charset="UTF-8"');
+    expect(mime).not.toContain("multipart/mixed");
   });
 
   it("fails loudly when Gmail refuses the send", async () => {

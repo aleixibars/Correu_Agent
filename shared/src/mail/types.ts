@@ -46,6 +46,19 @@ export interface MailProviderClient {
 }
 
 /**
+ * A file the user picked in the approval form and that leaves with the reply
+ * (context.md §2). It is never persisted: it lives from the submission until the
+ * provider has taken the mail, and nothing keeps it afterwards.
+ */
+export interface ReplyAttachment {
+  filename: string;
+  /** What the browser reported the file to be; both providers are told the same. */
+  mimeType: string;
+  /** The bytes as they were uploaded; base64-encoded by whichever provider takes them. */
+  content: Uint8Array;
+}
+
+/**
  * A reply on its way out of the mailbox, in the one shape both providers accept
  * (context.md §2 — approving a draft really sends it). Recipients and threading
  * headers come from the message being answered, never from the model.
@@ -65,6 +78,8 @@ export interface OutgoingReply {
   /** RFC 5322 threading headers built by `buildReplyHeaders` (context.md §4). */
   inReplyTo: string | null;
   references: string | null;
+  /** Files that go out with the reply; empty on a reply that carries only text. */
+  attachments: ReplyAttachment[];
 }
 
 /** What the provider says about the mail it has just sent. */

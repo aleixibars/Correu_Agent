@@ -2,7 +2,8 @@
 // §2). Graph builds its own MIME from a JSON message, so this is only the Gmail
 // side — but the encoding rules are the mail format's, not Google's.
 
-import type { OutgoingReply } from "./types";
+import { randomUUID } from "node:crypto";
+import type { OutgoingReply, ReplyAttachment } from "./types";
 
 /** Anything outside printable US-ASCII has to be encoded before it can be a header. */
 const NON_ASCII = /[^\x20-\x7e]/;
@@ -93,10 +94,72 @@ const canonicalBody = (text: string): string => text.replace(/\r\n|\r|\n/g, "\r\
 const addressList = (addresses: string[]): string =>
   addresses.map(singleLine).join(", ");
 
+/** RFC 2045 §5.1: `type/subtype`, both of them tokens and nothing else. */
+const MEDIA_TYPE = /^[\w!#$%&'*+.^`|~-]+\/[\w!#$%&'*+.^`|~-]+$/;
+
+/**
+ * What the file says it is. The browser reports it and the user chose the file,
+ * so it is untrusted text: anything that is not a media type is sent as
+ * unspecified bytes rather than spliced into the part's headers.
+ */
+const mediaType = (mimeType: string): string =>
+  MEDIA_TYPE.test(mimeType) ? mimeType : "application/octet-stream";
+
+/**
+ * A filename inside a quoted header parameter. Line breaks go first — one would
+ * otherwise end the part's headers and let the rest be read as headers, or as a
+ * part, of its own — and an accented name is encoded so it survives a US-ASCII
+ * header.
+ */
+const quotedFilename = (filename: string): string => {
+  const encoded = encodeHeaderValue(filename);
+  return `"${encoded.replace(/[\\"]/g, (character) => `\\${character}`)}"`;
+};
+
+/**
+ * A `multipart/mixed` boundary. Random, so it cannot appear inside a body or a
+ * file the message carries — a boundary the content repeats would cut the
+ * message in a place the sender never meant.
+ */
+const newBoundary = (): string => `=_correu_${randomUUID()}`;
+
+const bodyPart = (bodyText: string): string =>
+  [
+    'Content-Type: text/plain; charset="UTF-8"',
+    "Content-Transfer-Encoding: base64",
+    "",
+    foldBase64(Buffer.from(canonicalBody(bodyText), "utf8").toString("base64")),
+  ].join("\r\n");
+
+/**
+ * One attached file. `Content-Disposition: attachment` is what makes a client
+ * offer it as a file instead of showing it inline, and base64 is what lets the
+ * bytes of a PDF or an image travel through a 7-bit transport untouched.
+ */
+const attachmentPart = (attachment: ReplyAttachment): string =>
+  [
+    `Content-Type: ${mediaType(attachment.mimeType)}; name=${quotedFilename(attachment.filename)}`,
+    `Content-Disposition: attachment; filename=${quotedFilename(attachment.filename)}`,
+    "Content-Transfer-Encoding: base64",
+    "",
+    foldBase64(Buffer.from(attachment.content).toString("base64")),
+  ].join("\r\n");
+
+/** The parts of a message that carries files, delimited as RFC 2046 §5.1.1 says. */
+const multipartBody = (reply: OutgoingReply, boundary: string): string =>
+  `${[bodyPart(reply.bodyText), ...reply.attachments.map(attachmentPart)]
+    .map((part) => `--${boundary}\r\n${part}\r\n`)
+    .join("")}--${boundary}--`;
+
 /**
  * The reply as a MIME message. The body goes out base64-encoded rather than as
  * plain 8-bit text: it is the model's prose, so it holds accents and can hold
  * lines longer than the 998 characters RFC 5322 allows.
+ *
+ * A reply carrying files is a `multipart/mixed` message — the text first, then
+ * one part per file. A reply carrying none stays the single text part it was:
+ * a multipart wrapper around one part is only something every client has to
+ * unwrap again.
  */
 export const buildReplyMime = (reply: OutgoingReply): string => {
   const headers: [string, string][] = [
@@ -112,15 +175,22 @@ export const buildReplyMime = (reply: OutgoingReply): string => {
   // pointing at a fabricated id would break threading in every client.
   if (reply.inReplyTo) headers.push(["In-Reply-To", singleLine(reply.inReplyTo)]);
   if (reply.references) headers.push(["References", singleLine(reply.references)]);
-  headers.push(
-    ["MIME-Version", "1.0"],
-    ["Content-Type", 'text/plain; charset="UTF-8"'],
-    ["Content-Transfer-Encoding", "base64"],
-  );
+  headers.push(["MIME-Version", "1.0"]);
 
-  const body = foldBase64(
-    Buffer.from(canonicalBody(reply.bodyText), "utf8").toString("base64"),
-  );
+  let body: string;
+  if (reply.attachments.length > 0) {
+    const boundary = newBoundary();
+    headers.push(["Content-Type", `multipart/mixed; boundary="${boundary}"`]);
+    body = multipartBody(reply, boundary);
+  } else {
+    headers.push(
+      ["Content-Type", 'text/plain; charset="UTF-8"'],
+      ["Content-Transfer-Encoding", "base64"],
+    );
+    body = foldBase64(
+      Buffer.from(canonicalBody(reply.bodyText), "utf8").toString("base64"),
+    );
+  }
 
   return `${headers
     .map(([name, value]) => foldHeader(name, value))
