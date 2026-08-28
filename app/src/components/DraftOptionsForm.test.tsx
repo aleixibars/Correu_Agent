@@ -68,6 +68,16 @@ describe("DraftOptionsForm", () => {
     expect(fieldValue(markup, "bccAddresses")).toBe("");
   });
 
+  // A reply with nobody in `Per a` is refused by the send, but by then the
+  // reviewer has lost the page they were editing; the browser stops it first.
+  it("asks the browser to refuse an empty Per a and nothing else", () => {
+    const markup = render();
+
+    expect(markup).toMatch(/<input id="toAddresses"[^>]*required/);
+    expect(markup).not.toMatch(/<input id="ccAddresses"[^>]*required/);
+    expect(markup).not.toMatch(/<input id="bccAddresses"[^>]*required/);
+  });
+
   it("still carries the draft and its text", () => {
     const markup = render({ options: [{ label: "Resposta", body: "Bon dia" }] });
 

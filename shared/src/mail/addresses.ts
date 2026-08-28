@@ -53,9 +53,12 @@ const parseAddress = (entry: string): string | null => {
  * Deliberately loose: a local part, an `@`, and a domain with a dot in it and
  * no whitespace anywhere. The point is to catch the reviewer who typed prose or
  * lost half an address, not to re-litigate RFC 5322 — the provider has the last
- * word on whether an address exists at all.
+ * word on whether an address exists at all. Angle brackets and quotes are the
+ * one exception: they belong to the `Name <addr>` wrapper the parser already
+ * took off, so one left over is half a wrapper the reviewer mistyped and the
+ * header would go out malformed.
  */
-const EMAIL_ADDRESS = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/;
+const EMAIL_ADDRESS = /^[^\s@,<>"]+@[^\s@,<>"]+\.[^\s@,<>"]+$/;
 
 /**
  * The addresses a reviewer typed into a recipient field of the approval form,

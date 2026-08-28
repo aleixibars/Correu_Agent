@@ -29,11 +29,14 @@ const RecipientField = ({
   id,
   label,
   addresses,
+  required = false,
   suggestContacts,
 }: {
   id: string;
   label: string;
   addresses: string[];
+  /** Només `Per a`: un correu sense cap destinatari no es pot enviar. */
+  required?: boolean;
   suggestContacts: SuggestContacts;
 }) => {
   const [value, setValue] = useState(addresses.join(", "));
@@ -83,6 +86,7 @@ const RecipientField = ({
         id={id}
         name={id}
         type="text"
+        required={required}
         value={value}
         // El desplegable propi del navegador taparia els suggeriments.
         autoComplete="off"
@@ -155,10 +159,13 @@ export const DraftOptionsForm = ({
           ))}
         </fieldset>
       )}
+      {/* El navegador atura l'enviament d'un `Per a` buit abans que arribi al
+          Server Action, que refusaria igualment però amb una pàgina d'error. */}
       <RecipientField
         id="toAddresses"
         label="Per a"
         addresses={toAddresses}
+        required
         suggestContacts={suggestContacts}
       />
       <RecipientField

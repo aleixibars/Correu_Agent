@@ -32,6 +32,15 @@ describe("parseRecipientField", () => {
     ).toEqual(["a@example.com"]);
   });
 
+  // `b@example.com>` is the tail of a `Name <addr>` whose opening bracket was
+  // lost: it would go into the header as it stands and the provider would
+  // refuse it, or worse, take it.
+  it("refuses an address left with half its angle brackets", () => {
+    expect(() => parseRecipientField("b@example.com>", "Per a")).toThrow(
+      /is not an email address/,
+    );
+  });
+
   it("refuses text that is not an address, naming it", () => {
     expect(() => parseRecipientField("a@example.com, qui sigui", "Cc")).toThrow(
       /"qui sigui" is not an email address \(Cc\)/,
