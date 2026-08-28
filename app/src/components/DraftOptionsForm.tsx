@@ -19,8 +19,9 @@ const COUNTDOWN_SECONDS = 7;
  * Server Action que rep com a prop.
  *
  * El text escrit s'autoguarda cada minut mentre l'esborrany segueix pendent, i
- * també en amagar la pestanya o marxar del fil, de manera que tancar-la abans
- * d'aprovar no perd el que s'hagi escrit des de l'últim guardat.
+ * també en deixar el camp, en amagar la pestanya i en marxar del fil, de manera
+ * que tancar-la abans d'aprovar no perd el que s'hagi escrit des de l'últim
+ * guardat.
  *
  * Enviar no envia a l'acte: obre un compte enrere de 7 segons amb un botó de
  * cancel·lar, i només quan arriba a zero es crida el Server Action. Tot el
@@ -42,12 +43,12 @@ export const DraftOptionsForm = ({
   approveDraft: (formData: FormData) => void | Promise<void>;
   saveDraftEdit: (formData: FormData) => Promise<void>;
 }) => {
-  // Cap opció marcada quan el text ja no és el de cap d'elles: qui ha reprès una
-  // edició pròpia no ha triat cap de les respostes que va escriure el model.
-  const [selected, setSelected] = useState(() =>
-    options.findIndex((option) => option.body === savedBody),
-  );
   const [body, setBody] = useState(savedBody);
+  // Derivat del text, no un estat a part: cap opció queda marcada quan el text
+  // ja no és el de cap d'elles — ni en tornar a una edició pròpia autoguardada,
+  // ni en retocar a mà l'opció que s'acabava de triar. Les dues situacions són
+  // la mateixa, i tenir-ho en un `useState` les feia divergir fins al refresc.
+  const selected = options.findIndex((option) => option.body === body);
 
   // Llegits pel temporitzador, que es munta un sol cop: dins d'un `setInterval`
   // l'estat de React es quedaria congelat al del primer render.
@@ -71,30 +72,30 @@ export const DraftOptionsForm = ({
   // deshabilitat mentre es pinta aquest mateix render: es fa un cop tancat.
   const restoreFocus = useRef(false);
 
+  const save = useCallback((): void => {
+    const text = current.current;
+    // Res de nou per guardar: ni una escriptura per minut mentre el revisor
+    // llegeix sense tocar res. Un camp buit tampoc es desa — deixaria el fil
+    // sense cap text on hi havia el del model.
+    if (text === saved.current || text.trim() === "") return;
+    // Abans d'esperar la resposta, perquè el minut següent no torni a enviar
+    // el mateix text si aquesta crida encara està en curs.
+    const previous = saved.current;
+    saved.current = text;
+
+    const form = new FormData();
+    form.append("draftId", draftId);
+    form.append("body", text);
+    // Un guardat que no arriba (xarxa caiguda, servidor que falla) torna a
+    // deixar el text per desar: si no, el minut següent el trobaria «ja
+    // guardat» i l'edició es perdria en silenci fins que el revisor tornés a
+    // teclejar.
+    saveDraftEdit(form).catch(() => {
+      if (saved.current === text) saved.current = previous;
+    });
+  }, [draftId, saveDraftEdit]);
+
   useEffect(() => {
-    const save = (): void => {
-      const text = current.current;
-      // Res de nou per guardar: ni una escriptura per minut mentre el revisor
-      // llegeix sense tocar res. Un camp buit tampoc es desa — deixaria el fil
-      // sense cap text on hi havia el del model.
-      if (text === saved.current || text.trim() === "") return;
-      // Abans d'esperar la resposta, perquè el minut següent no torni a enviar
-      // el mateix text si aquesta crida encara està en curs.
-      const previous = saved.current;
-      saved.current = text;
-
-      const form = new FormData();
-      form.append("draftId", draftId);
-      form.append("body", text);
-      // Un guardat que no arriba (xarxa caiguda, servidor que falla) torna a
-      // deixar el text per desar: si no, el minut següent el trobaria «ja
-      // guardat» i l'edició es perdria en silenci fins que el revisor tornés a
-      // teclejar.
-      saveDraftEdit(form).catch(() => {
-        if (saved.current === text) saved.current = previous;
-      });
-    };
-
     const timer = setInterval(save, AUTOSAVE_INTERVAL_MS);
     // Amagar la pestanya és el més a prop d'un «me'n vaig» que el navegador
     // avisa de manera fiable (tancar-la i canviar de pestanya hi passen tots
@@ -113,7 +114,7 @@ export const DraftOptionsForm = ({
       // guardat que hi arribi no escriu res (`saveDraftEdit`).
       save();
     };
-  }, [draftId, saveDraftEdit]);
+  }, [save]);
 
   const cancel = useCallback(() => {
     pending.current = null;
@@ -204,10 +205,7 @@ export const DraftOptionsForm = ({
                   type="radio"
                   name="draftOption"
                   checked={selected === index}
-                  onChange={() => {
-                    setSelected(index);
-                    setBody(option.body);
-                  }}
+                  onChange={() => setBody(option.body)}
                 />
                 {option.label}
               </label>
@@ -223,6 +221,11 @@ export const DraftOptionsForm = ({
             required
             value={body}
             onChange={(event) => setBody(event.target.value)}
+            // Deixar el camp és el senyal que el revisor ha acabat d'escriure i
+            // va a fer una altra cosa — sovint "Refinar", que regenera a partir
+            // de l'últim text guardat. Esperar el minut que ve faria que
+            // regenerés el text del model en comptes del seu.
+            onBlur={save}
           />
         </div>
         <button

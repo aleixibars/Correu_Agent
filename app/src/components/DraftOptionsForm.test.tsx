@@ -8,7 +8,8 @@
 //   només si arriba a zero surt la petició cap al proveïdor.
 // - L'autoguardat del text mentre s'edita (issue #75): d'on parteix l'edició en
 //   arribar a l'etapa de resposta (issue #82), i quan surt la crida que el
-//   desa — cada minut, en amagar la pestanya i en marxar del fil. Què escriu
+//   desa — cada minut, en deixar el camp, en amagar la pestanya i en marxar
+//   del fil. Què escriu
 //   l'acció a la base de dades el proven `actions.test.ts` i
 //   `save-draft-edit.test.ts`.
 
@@ -291,6 +292,24 @@ describe("DraftOptionsForm", () => {
     );
   });
 
+  // Retocar a mà el text d'una opció ja no és aquella opció: la marca cau al
+  // moment, com quan es torna al fil amb una edició pròpia autoguardada.
+  it("unmarks the option once the reviewer edits its text away", () => {
+    show();
+    expect(screen.getByRole("radio", { name: "Afirmativa" })).toHaveProperty(
+      "checked",
+      true,
+    );
+
+    typeInto("Sí, hi comptem. Dilluns mateix.");
+
+    expect(
+      screen
+        .getAllByRole<HTMLInputElement>("radio")
+        .some((radio) => radio.checked),
+    ).toBe(false);
+  });
+
   it("starts the editable field from the text it is given", () => {
     const markup = staticMarkup(MODEL_TEXT);
 
@@ -377,6 +396,27 @@ describe("DraftOptionsForm", () => {
 
       typeInto("   \n ");
       minutes(1);
+
+      expect(saveDraftEdit).not.toHaveBeenCalled();
+    });
+
+    // Deixar el camp vol dir que el revisor va a fer una altra cosa, i sovint
+    // és "Refinar", que regenera a partir de l'últim text guardat: esperar el
+    // minut que ve regeneraria el text del model en comptes del seu.
+    it("parks the text as soon as the reviewer leaves the field", () => {
+      show();
+
+      typeInto("Un text a mitges");
+      fireEvent.blur(screen.getByLabelText("Text de la resposta"));
+
+      expect(saved()).toEqual(["Un text a mitges"]);
+    });
+
+    // Entrar i sortir del camp sense tocar-lo no és una escriptura.
+    it("writes nothing when the field is left untouched", () => {
+      show();
+
+      fireEvent.blur(screen.getByLabelText("Text de la resposta"));
 
       expect(saveDraftEdit).not.toHaveBeenCalled();
     });
