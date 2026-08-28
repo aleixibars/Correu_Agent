@@ -10,6 +10,7 @@ import {
   DIGEST_PATH,
   LOGIN_PATH,
   THREADS_PATH,
+  threadPath,
 } from "../lib/routes";
 import {
   MAILBOX_REASON_PARAM,
@@ -24,14 +25,6 @@ import { listThreads } from "../lib/threads/list-threads";
 import { actionableThreads } from "../lib/threads/actionable-threads";
 import { latestDailyDigest } from "../lib/digest/latest-digest";
 import { rejectDraft } from "./fils/[id]/actions";
-
-// El tauler és una eina d'oficina en horari local (context.md §5), així que la
-// data d'un missatge es formata al fus del negoci i no al del servidor de
-// Render. Compartit entre la secció de fils pendents i el digest.
-const timeFormat = new Intl.DateTimeFormat("ca-ES", {
-  timeStyle: "short",
-  timeZone: "Europe/Madrid",
-});
 
 // El dia del digest és una data UTC (context.md §7: no hi ha fus per tenant).
 const dayFormat = new Intl.DateTimeFormat("ca-ES", {
@@ -146,31 +139,38 @@ export default async function HomePage({
               ))}
             </div>
 
-            {digestContent.sections.map(({ category, threads: sectionThreads }) => (
-              <section key={category}>
-                <h3 style={{ color: CATEGORY_COLOR_VARS[category] }}>
-                  {categoryLabel(category)} ({sectionThreads.length})
-                </h3>
-                <ul>
-                  {sectionThreads.map(({ id, subject, lastMessageAt }) => (
-                    <li key={id}>
-                      {subjectLabel(subject)}
-                      {lastMessageAt !== null && (
-                        <>
-                          {" — "}
-                          <time
-                            className="meta"
-                            dateTime={lastMessageAt.toISOString()}
-                          >
-                            {timeFormat.format(lastMessageAt)}
-                          </time>
-                        </>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ))}
+            {/* Un dia mogut deixa prou fils com per allargar la pantalla
+                inicial sense fi, així que el recompte per categoria es
+                desplaça dins del bloc. El contenidor ha de poder rebre el
+                focus o el teclat no arriba a les entrades de sota; per això
+                només es pinta quan hi ha fils, i no com una parada del
+                tabulador cap a una regió buida. */}
+            {digestContent.sections.length > 0 && (
+              <div
+                className="digest-scroll"
+                role="region"
+                aria-label="Fils del digest"
+                tabIndex={0}
+              >
+                {digestContent.sections.map(({ category, threads: sectionThreads }) => (
+                  <section key={category}>
+                    <h3 style={{ color: CATEGORY_COLOR_VARS[category] }}>
+                      {categoryLabel(category)} ({sectionThreads.length})
+                    </h3>
+                    <ul>
+                      {/* Llegir el fil és l'única cosa que ofereix el digest:
+                          les accions (Respondre, Descarta) són de la taula de
+                          "Pendents i urgents". */}
+                      {sectionThreads.map(({ id, subject }) => (
+                        <li key={id}>
+                          <Link href={threadPath(id)}>{subjectLabel(subject)}</Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+              </div>
+            )}
           </>
         )}
       </section>

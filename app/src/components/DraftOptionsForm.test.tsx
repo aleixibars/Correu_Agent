@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-// El compte enrere abans d'enviar (issue #80): "Aprova i envia" no crida mai el
+// El compte enrere abans d'enviar (issue #80): "Enviar" no crida mai el
 // Server Action de seguida — obre un pop-up amb 7 segons per penedir-se'n. La
 // prova munta el component de debò perquè tot el retard passa al navegador:
 // només si el compte enrere arriba a zero surt la petició cap al proveïdor.
@@ -30,7 +30,7 @@ const show = (draftOptions: DraftOption[] = options): void => {
 };
 
 const approve = (): void => {
-  fireEvent.click(screen.getByRole("button", { name: "Aprova i envia" }));
+  fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
 };
 
 const tick = (seconds: number): void => {
@@ -162,7 +162,7 @@ describe("DraftOptionsForm", () => {
       "No s'ha pogut enviar",
     );
     expect(
-      screen.getByRole("button", { name: "Aprova i envia" }),
+      screen.getByRole("button", { name: "Enviar" }),
     ).toHaveProperty("disabled", false);
   });
 
@@ -173,7 +173,7 @@ describe("DraftOptionsForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel·la" }));
 
     expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "Aprova i envia" }),
+      screen.getByRole("button", { name: "Enviar" }),
     );
   });
 

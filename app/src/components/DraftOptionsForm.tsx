@@ -3,19 +3,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DraftOption } from "@correu-agent/shared/db/schema";
 
-/** Els segons de marge per penedir-se d'un "Aprova i envia" abans que el
- * correu surti de debò cap al proveïdor. */
+/** Els segons de marge per penedir-se d'un "Enviar" abans que el correu
+ * surti de debò cap al proveïdor. */
 const COUNTDOWN_SECONDS = 7;
 
 /**
- * El formulari d'aprovació d'un esborrany (context.md §2): quan el model ha
+ * El formulari d'enviament d'un esborrany (context.md §2): quan el model ha
  * escrit més d'una opció (p.ex. una resposta afirmativa i una de negativa),
  * un selector deixa triar-ne una abans d'editar-la — en triar, el text de
  * l'àrea editable es substitueix pel de l'opció triada. Component de client
  * perquè el selector necessita estat local; l'acció de submit segueix sent el
  * Server Action que rep el formulari com a prop.
  *
- * Aprovar no envia a l'acte: obre un compte enrere de 7 segons amb un botó de
+ * Enviar no envia a l'acte: obre un compte enrere de 7 segons amb un botó de
  * cancel·lar, i només quan arriba a zero es crida el Server Action. Tot el
  * marge passa al navegador — si es cancel·la, no surt cap petició i l'esborrany
  * es queda tal com estava. Un cop disparat, el formulari es queda blocat fins
@@ -44,7 +44,7 @@ export const DraftOptionsForm = ({
   const [failed, setFailed] = useState(false);
   const approveButton = useRef<HTMLButtonElement>(null);
   const cancelButton = useRef<HTMLButtonElement>(null);
-  // Cancel·lar ha de tornar el focus al botó d'aprovar, però encara està
+  // Cancel·lar ha de tornar el focus al botó d'enviar, però encara està
   // deshabilitat mentre es pinta aquest mateix render: es fa un cop tancat.
   const restoreFocus = useRef(false);
 
@@ -159,7 +159,7 @@ export const DraftOptionsForm = ({
           className="btn-primary"
           disabled={counting || sending}
         >
-          {sending ? "Enviant…" : "Aprova i envia"}
+          {sending ? "Enviant…" : "Enviar"}
         </button>
         {failed && (
           <p role="alert">

@@ -219,6 +219,90 @@ describe("HomePage", () => {
     expect(markup).toContain("Pressupost");
   });
 
+  // A digest with the threads of a busy day, all in one category.
+  const digestWith = (threads: DailyDigestContent["sections"][number]["threads"]): void => {
+    latestDailyDigest.mockResolvedValue({
+      day: DAY,
+      summary: "Dia tranquil.",
+      updatedAt: new Date("2026-08-19T06:00:00Z"),
+    });
+    collectDailyDigest.mockResolvedValue({
+      day: DAY,
+      threadCount: threads.length,
+      sections: [{ category: "comercial", threads }],
+    });
+  };
+
+  const digestThread = (id: string, subject: string) => ({
+    id,
+    subject,
+    category: "comercial" as const,
+    lastMessageAt: new Date("2026-08-19T15:47:00Z"),
+  });
+
+  // The digest is a day's recap, not the screen where anything gets decided:
+  // the hour of each thread's last message only belongs in the table above.
+  it("leaves the last message's time out of a digest thread", async () => {
+    signedIn();
+    digestWith([digestThread("t-2", "Pressupost")]);
+
+    const markup = await render();
+
+    expect(markup).toContain("Pressupost");
+    expect(markup).not.toContain("2026-08-19T15:47:00.000Z");
+    expect(markup).not.toContain("17:47");
+  });
+
+  // A day with many threads would otherwise stretch the home page without end,
+  // and a scroller a keyboard cannot focus hides the rows below the fold.
+  it("wraps the digest threads in a scrollable region a keyboard can reach", async () => {
+    signedIn();
+    digestWith([digestThread("t-2", "Pressupost")]);
+
+    const wrapper = /<div ([^>]*\bclass="digest-scroll")([^>]*)>/.exec(
+      await render(),
+    );
+
+    expect(wrapper).not.toBeNull();
+    const attributes = wrapper![1] + wrapper![2];
+    expect(attributes).toContain('tabindex="0"');
+    expect(attributes).toContain('role="region"');
+  });
+
+  // The threads are read back from the database each time (a recategorised or
+  // removed thread must not linger in the digest), so a written digest can end
+  // up with nothing left to list. An empty scroller would still be a tab stop
+  // onto a region announcing nothing.
+  it("leaves out the scrollable region when the day lists no threads", async () => {
+    signedIn();
+    latestDailyDigest.mockResolvedValue({
+      day: DAY,
+      summary: "Dia tranquil.",
+      updatedAt: new Date("2026-08-19T06:00:00Z"),
+    });
+    collectDailyDigest.mockResolvedValue(emptyDigestContent());
+
+    const markup = await render();
+
+    expect(markup).toContain("<p>Dia tranquil.</p>");
+    expect(markup).not.toContain("digest-scroll");
+  });
+
+  // Reading a thread is the only thing the digest offers: the buttons that act
+  // on it (Respondre, Descarta) stay in the "Pendents i urgents" table.
+  it("links each digest thread to the thread itself, with no action buttons", async () => {
+    signedIn();
+    digestWith([digestThread("t-2", "Pressupost")]);
+
+    const markup = await render();
+
+    expect(markup).toContain(
+      `<a href="${threadPath("t-2")}">Pressupost</a>`,
+    );
+    expect(markup).not.toContain(">Descarta<");
+    expect(markup).not.toContain(">Respondre<");
+  });
+
   it("says so when no digest has been written yet", async () => {
     signedIn();
 
